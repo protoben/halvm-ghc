@@ -124,9 +124,12 @@ module DynFlags (
 
         unsafeGlobalDynFlags, setUnsafeGlobalDynFlags,
 
-        -- * SSE
+        -- * SSE and AVX
         isSse2Enabled,
         isSse4_2Enabled,
+
+        isAvxEnabled,
+        isAvx2Enabled
   ) where
 
 #include "HsVersions.h"
@@ -724,7 +727,8 @@ data DynFlags = DynFlags {
   nextWrapperNum        :: IORef Int,
 
   -- | Machine dependant flags (-m<blah> stuff)
-  sseVersion            :: Maybe (Int, Int)  -- (major, minor)
+  sseVersion            :: Maybe (Int, Int), -- (major, minor)
+  avxVersion            :: Maybe (Int, Int)  -- (major, minor)
  }
 
 class HasDynFlags m where
@@ -1327,7 +1331,8 @@ defaultDynFlags mySettings =
         llvmVersion = panic "defaultDynFlags: No llvmVersion",
         interactivePrint = Nothing,
         nextWrapperNum = panic "defaultDynFlags: No nextWrapperNum",
-        sseVersion = Nothing
+        sseVersion = Nothing,
+        avxVersion = Nothing
       }
 
 defaultWays :: Settings -> [Way]
@@ -2194,6 +2199,7 @@ dynamic_flags = [
   , Flag "monly-3-regs" (NoArg (addWarn "The -monly-3-regs flag does nothing; it will be removed in a future GHC release"))
   , Flag "monly-4-regs" (NoArg (addWarn "The -monly-4-regs flag does nothing; it will be removed in a future GHC release"))
   , Flag "msse"         (versionSuffix (\maj min d -> d{ sseVersion = Just (maj, min) }))
+  , Flag "mavx"         (optVersionSuffix (\maj min d -> d{ avxVersion = Just (maj, min) }))
 
      ------ Warning opts -------------------------------------------------
   , Flag "W"      (NoArg (mapM_ setWarningFlag minusWOpts))
@@ -2962,6 +2968,9 @@ optIntSuffixM fn = OptIntSuffix (\mi -> updM (fn mi))
 versionSuffix :: (Int -> Int -> DynFlags -> DynFlags) -> OptKind (CmdLineP DynFlags)
 versionSuffix fn = VersionSuffix (\maj min -> upd (fn maj min))
 
+optVersionSuffix :: (Int -> Int -> DynFlags -> DynFlags) -> OptKind (CmdLineP DynFlags)
+optVersionSuffix fn = OptVersionSuffix (\maj min -> upd (fn maj min))
+
 setDumpFlag :: DumpFlag -> OptKind (CmdLineP DynFlags)
 setDumpFlag dump_flag = NoArg (setDumpFlag' dump_flag)
 
@@ -3443,7 +3452,7 @@ setUnsafeGlobalDynFlags :: DynFlags -> IO ()
 setUnsafeGlobalDynFlags = writeIORef v_unsafeGlobalDynFlags
 
 -- -----------------------------------------------------------------------------
--- SSE
+-- SSE and AVX
 
 -- TODO: Instead of using a separate predicate (i.e. isSse2Enabled) to
 -- check if SSE is enabled, we might have x86-64 imply the -msse2
@@ -3462,3 +3471,13 @@ isSse2Enabled dflags = case platformArch (targetPlatform dflags) of
 
 isSse4_2Enabled :: DynFlags -> Bool
 isSse4_2Enabled dflags = sseVersion dflags >= Just (4,2)
+
+isAvxEnabled :: DynFlags -> Bool
+isAvxEnabled dflags = case platformArch (targetPlatform dflags) of
+    ArchX86_64 -> avxVersion dflags >= Just (1,0)
+    _          -> False
+
+isAvx2Enabled :: DynFlags -> Bool
+isAvx2Enabled dflags = case platformArch (targetPlatform dflags) of
+    ArchX86_64 -> avxVersion dflags >= Just (2,0)
+    _          -> False
