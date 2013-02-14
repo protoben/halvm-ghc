@@ -1459,7 +1459,8 @@ runPhase (RealPhase LlvmLlc) input_fn dflags
                 ++ map SysTools.Option fpOpts
                 ++ map SysTools.Option abiOpts
                 ++ map SysTools.Option sseOpts
-                ++ map SysTools.Option avxOpts)
+                ++ map SysTools.Option avxOpts
+                ++ map SysTools.Option stackAlignOpts)
 
     return (RealPhase next_phase, output_fn)
   where
@@ -1495,6 +1496,11 @@ runPhase (RealPhase LlvmLlc) input_fn dflags
         avxOpts | isAvxEnabled dflags    = ["-mattr=+avx"]
                 | isAvx2Enabled dflags   = ["-mattr=+avx2"]
                 | otherwise              = []
+
+        stackAlignOpts =
+            case platformArch (targetPlatform dflags) of
+              ArchX86_64 | isAvxEnabled dflags -> ["-stack-alignment=32"]
+              _                                -> []
 
 -----------------------------------------------------------------------------
 -- LlvmMangle phase
