@@ -1508,6 +1508,7 @@ funEpilogue env live = do
     isSSE (FloatReg _)  = True
     isSSE (DoubleReg _) = True
     isSSE (XmmReg _)    = True
+    isSSE (YmmReg _)    = True
     isSSE _             = False
     loadExpr r | isLive r = do
         let reg  = lmGlobalRegVar dflags r
