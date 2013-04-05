@@ -222,11 +222,7 @@ INLINE_HEADER Time fsecondsToTime (double t)
 #include "rts/Hooks.h"
 #include "rts/Signals.h"
 #include "rts/BlockSignals.h"
-
-#ifndef xen_HOST_OS
 #include "rts/Hpc.h"
-#endif
-
 #include "rts/Flags.h"
 #include "rts/Adjustor.h"
 #include "rts/FileLock.h"
