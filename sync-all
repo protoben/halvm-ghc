@@ -744,7 +744,7 @@ sub main {
     }
 
     # check for ghc repositories in cwd
-    my $checked_out_found = 1 if (-d ".git" && -d "compiler");
+    my $checked_out_found = 1 if (-e ".git" && -d "compiler");
     my $bare_found = 1 if (-d "ghc.git");
 
     if ($bare_flag && ! $bare_found && ! $defaultrepo) {
