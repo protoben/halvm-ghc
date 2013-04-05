@@ -156,6 +156,25 @@ typedef HANDLE Mutex;
 
 #endif // CMINUSMINUS
 
+# elif defined(xen_HOST_OS)
+
+#define OSThreadProcAttr  /* */
+
+#if CMINUSMINUS
+#define ACQUIRE_LOCK(mutex) foreign "C" halvm_acquire_lock(mutex)
+#define RELEASE_LOCK(mutex) foreign "C" halvm_release_lock(mutex)
+#define ASSERT_LOCK_HELD(mutex) /* nothing */
+#else
+typedef unsigned long Condition;
+typedef unsigned long Mutex;
+typedef unsigned long OSThreadId;
+typedef unsigned long ThreadLocalKey;
+
+#define ACQUIRE_LOCK(mutex) halvm_acquire_lock(mutex)
+#define RELEASE_LOCK(mutex) halvm_release_lock(mutex)
+#define ASSERT_LOCK_HELD(mutex) /* nothing */
+#endif
+
 # else
 #  error "Threads not supported"
 # endif
