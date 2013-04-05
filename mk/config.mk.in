@@ -171,10 +171,6 @@ ArchSupportsSMP=$(strip $(patsubst $(TargetArch_CPP), YES, $(findstring $(Target
 
 GhcWithSMP := $(strip $(if $(filter YESNO, $(ArchSupportsSMP)$(GhcUnregisterised)),YES,NO))
 
-ifeq ($(HostOS_CPP),"xen")
-GhcWithSMP := NO
-endif
-
 # Whether to include GHCi in the compiler.  Depends on whether the RTS linker
 # has support for this OS/ARCH combination.
 
@@ -242,6 +238,10 @@ ifeq "$(PlatformSupportsSharedLibs)" "YES"
 GhcLibWays += dyn
 endif
 
+ifeq "$(TargetOS_CPP)" "xen"
+GhcLibWays := v
+endif
+
 # Handy way to test whether we're building shared libs or not.
 BuildSharedLibs=$(strip $(if $(findstring dyn,$(GhcLibWays)),YES,NO))
 
@@ -268,8 +268,7 @@ GhcRTSWays += thr thr_debug thr_l
 GhcRTSWays += $(if $(findstring p, $(GhcLibWays)),thr_p,)
 GhcRTSWays += $(if $(findstring dyn, $(GhcLibWays)),dyn debug_dyn thr_dyn thr_debug_dyn l_dyn thr_l_dyn,)
 
-ifeq ($(Host_OS_CPP),"xen")
-GhcLibWays := thr
+ifeq "$(TargetOS_CPP)" "xen"
 GhcRTSWays := thr
 endif
 
