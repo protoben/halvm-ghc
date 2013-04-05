@@ -517,6 +517,9 @@ dnl --------------------------------------------------------------
 if test "$TargetOS" = "mingw32"
 then
     GhcLibsWithUnix=NO
+elif test "$TargetOS" = "xen"
+then
+    GhcLibsWithUnix=NO
 else
     GhcLibsWithUnix=YES
 fi
@@ -676,7 +679,12 @@ dnl    off_t, because it will affect the result of that test.
 AC_SYS_LARGEFILE
 
 dnl ** check for specific header (.h) files that we are interested in
+if test "$TargetOS" = "xen"
+then
+AC_CHECK_HEADERS([bfd.h ctype.h dirent.h dlfcn.h errno.h fcntl.h grp.h limits.h locale.h nlist.h pwd.h  sys/mman.h sys/resource.h sys/select.h sys/time.h sys/timeb.h sys/timers.h sys/times.h sys/utsname.h sys/wait.h termios.h time.h utime.h windows.h winsock.h sched.h])
+else
 AC_CHECK_HEADERS([bfd.h ctype.h dirent.h dlfcn.h errno.h fcntl.h grp.h limits.h locale.h nlist.h pthread.h pwd.h signal.h sys/param.h sys/mman.h sys/resource.h sys/select.h sys/time.h sys/timeb.h sys/timers.h sys/times.h sys/utsname.h sys/wait.h termios.h time.h utime.h windows.h winsock.h sched.h])
+fi
 
 dnl sys/cpuset.h needs sys/param.h to be included first on FreeBSD 9.1; #7708
 AC_CHECK_HEADERS([sys/cpuset.h], [], [],
@@ -804,12 +812,17 @@ dnl ################################################################
 
 dnl ** check whether we need -ldl to get dlopen()
 
+if test "$TargetOS" = "xen"
+then
+HaveLibDL=NO
+else
 AC_CHECK_LIB(dl, dlopen,
     [HaveLibDL=YES
      AC_DEFINE([HAVE_LIBDL], [1], [Define to 1 if you need -ldl to get dlopen().])
      LIBS="$LIBS -ldl"],
     [HaveLibDL=NO])
 AC_SUBST(HaveLibDL)
+fi
 
 dnl --------------------------------------------------
 dnl * Miscellaneous feature tests
@@ -834,9 +847,12 @@ FP_LEADING_UNDERSCORE
 FP_VISIBILITY_HIDDEN
 
 dnl ** check for librt
+if test "$TargetOS" != "xen"
+then
 AC_CHECK_LIB(rt, clock_gettime)
 AC_CHECK_FUNCS(clock_gettime timer_settime)
 FP_CHECK_TIMER_CREATE
+fi
 
 dnl ** check for Apple's "interesting" long double compatibility scheme
 AC_MSG_CHECKING(for printf\$LDBLStub)
