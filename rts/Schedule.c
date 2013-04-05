@@ -105,7 +105,7 @@ StgTSO dummy_tso;
 Mutex sched_mutex;
 #endif
 
-#if !defined(mingw32_HOST_OS)
+#if !defined(mingw32_HOST_OS) && !defined(xen_HOST_OS)
 #define FORKPROCESS_PRIMOP_SUPPORTED
 #endif
 
@@ -968,6 +968,16 @@ scheduleDetectDeadlock (Capability **pcap, Task *task)
 static void
 scheduleSendPendingMessages(void)
 {
+#ifdef xen_HOST_OS
+  if( emptyThreadQueues(cap) ) {
+    if( RtsFlags.MiscFlags.install_signal_handlers && anyUserHandlers() ) {
+      awaitUserSignals();
+      if(signals_pending()) {
+        startSignalHandlers(cap);
+      }
+    }
+  }
+#else 
 
 # if defined(PAR) // global Mem.Mgmt., omit for now
     if (PendingFetches != END_BF_QUEUE) {
@@ -1042,6 +1052,8 @@ scheduleActivateSpark(Capability *cap)
         createSparkThread(cap);
         debugTrace(DEBUG_sched, "creating a spark thread");
     }
+
+#endif // xen_HOST_OS
 }
 #endif // PARALLEL_HASKELL || THREADED_RTS
 
