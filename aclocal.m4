@@ -245,6 +245,9 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
         haiku)
             test -z "[$]2" || eval "[$]2=OSHaiku"
             ;;
+        xen)
+            test -z "[$]2" || eval "[$]2=xen"
+            ;;
         osf3)
             test -z "[$]2" || eval "[$]2=OSOsf3"
             ;;
