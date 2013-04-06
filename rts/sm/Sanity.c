@@ -664,7 +664,7 @@ checkStaticObjects ( StgClosure* static_objects )
 
     default:
       barf("checkStaticObjetcs: strange closure %p (%s)", p,
-#ifndef HaLVM_Target_OS
+#ifndef HaLVM_TARGET_OS
           info_type(p)
 #else    
           "[HaLVM has no info_type()]"

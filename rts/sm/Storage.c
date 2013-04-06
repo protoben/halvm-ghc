@@ -32,7 +32,7 @@
 
 #include <string.h>
 
-#ifndef HaLVM_Target_OS
+#ifndef HaLVM_TARGET_OS
 #include "ffi.h"
 #endif
 

@@ -156,7 +156,7 @@ typedef HANDLE Mutex;
 
 #endif // CMINUSMINUS
 
-# elif defined(HaLVM_Target_OS)
+# elif defined(HaLVM_TARGET_OS)
 
 #define OSThreadProcAttr  /* */
 
