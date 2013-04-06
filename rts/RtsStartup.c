@@ -123,7 +123,7 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
 	return;
     }
 
-#ifndef xen_HOST_OS
+#ifndef HaLVM_Target_OS
     setlocale(LC_CTYPE,"");
 #endif
 
@@ -210,7 +210,7 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
     getStablePtr((StgPtr)runSparks_closure);
     getStablePtr((StgPtr)ensureIOManagerIsRunning_closure);
     getStablePtr((StgPtr)ioManagerCapabilitiesChanged_closure);
-#if !defined(mingw32_HOST_OS) && !defined(xen_HOST_OS)
+#if !defined(mingw32_HOST_OS) && !defined(HaLVM_Target_OS)
     getStablePtr((StgPtr)runHandlers_closure);
 #endif
 
@@ -218,7 +218,7 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
     initGlobalStore();
 
     /* initialise file locking, if necessary */
-#if !defined(xen_HOST_OS)
+#if !defined(HaLVM_Target_OS)
     initFileLocking();
 #endif
 
@@ -256,7 +256,7 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
     x86_init_fpu();
 #endif
 
-#ifndef xen_HOST_OS
+#ifndef HaLVM_Target_OS
     startupHpc();
 #endif
 
@@ -354,7 +354,7 @@ hs_exit_(rtsBool wait_foreign)
     exitTimer(wait_foreign);
 
     // set the terminal settings back to what they were
-#if !defined(mingw32_HOST_OS) && !defined(xen_HOST_OS)
+#if !defined(mingw32_HOST_OS) && !defined(HaLVM_Target_OS)
     resetTerminalSettings();
 #endif
 
@@ -364,7 +364,7 @@ hs_exit_(rtsBool wait_foreign)
     /* stop timing the shutdown, we're about to print stats */
     stat_endExit();
    
-#ifndef xen_HOST_OS 
+#ifndef HaLVM_Target_OS 
     /* shutdown the hpc support (if needed) */
     exitHpc();
 #endif
@@ -383,7 +383,7 @@ hs_exit_(rtsBool wait_foreign)
     exitLinker();
 
     /* free file locking tables, if necessary */
-#if !defined(xen_HOST_OS)
+#if !defined(HaLVM_Target_OS)
     freeFileLocking();
 #endif
 
@@ -480,7 +480,7 @@ shutdownHaskellAndExit(int n)
     stg_exit(n);
 }
 
-#if !defined(mingw32_HOST_OS) && !defined(xen_HOST_OS)
+#if !defined(mingw32_HOST_OS) && !defined(HaLVM_TARGET_OS)
 void
 shutdownHaskellAndSignal(int sig)
 {

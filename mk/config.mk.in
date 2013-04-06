@@ -238,7 +238,7 @@ ifeq "$(PlatformSupportsSharedLibs)" "YES"
 GhcLibWays += dyn
 endif
 
-ifeq "$(TargetOS_CPP)" "xen"
+ifeq "$(TargetOS_CPP)" "HaLVM"
 GhcLibWays := v
 endif
 
@@ -268,7 +268,7 @@ GhcRTSWays += thr thr_debug thr_l
 GhcRTSWays += $(if $(findstring p, $(GhcLibWays)),thr_p,)
 GhcRTSWays += $(if $(findstring dyn, $(GhcLibWays)),dyn debug_dyn thr_dyn thr_debug_dyn l_dyn thr_l_dyn,)
 
-ifeq "$(TargetOS_CPP)" "xen"
+ifeq "$(TargetOS_CPP)" "HaLVM"
 GhcRTSWays := thr
 endif
 

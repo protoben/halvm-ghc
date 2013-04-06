@@ -517,7 +517,7 @@ dnl --------------------------------------------------------------
 if test "$TargetOS" = "mingw32"
 then
     GhcLibsWithUnix=NO
-elif test "$TargetOS" = "xen"
+elif test "$TargetOS" = "HaLVM"
 then
     GhcLibsWithUnix=NO
 else
@@ -679,7 +679,7 @@ dnl    off_t, because it will affect the result of that test.
 AC_SYS_LARGEFILE
 
 dnl ** check for specific header (.h) files that we are interested in
-if test "$TargetOS" = "xen"
+if test "$TargetOS" = "HaLVM"
 then
 AC_CHECK_HEADERS([bfd.h ctype.h dirent.h dlfcn.h errno.h fcntl.h grp.h limits.h locale.h nlist.h pwd.h  sys/mman.h sys/resource.h sys/select.h sys/time.h sys/timeb.h sys/timers.h sys/times.h sys/utsname.h sys/wait.h termios.h time.h utime.h windows.h winsock.h sched.h])
 else
@@ -812,7 +812,7 @@ dnl ################################################################
 
 dnl ** check whether we need -ldl to get dlopen()
 
-if test "$TargetOS" = "xen"
+if test "$TargetOS" = "HaLVM"
 then
 HaveLibDL=NO
 else
@@ -847,7 +847,7 @@ FP_LEADING_UNDERSCORE
 FP_VISIBILITY_HIDDEN
 
 dnl ** check for librt
-if test "$TargetOS" != "xen"
+if test "$TargetOS" != "HaLVM"
 then
 AC_CHECK_LIB(rt, clock_gettime)
 AC_CHECK_FUNCS(clock_gettime timer_settime)

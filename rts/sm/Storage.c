@@ -32,7 +32,7 @@
 
 #include <string.h>
 
-#ifndef xen_HOST_OS
+#ifndef HaLVM_Target_OS
 #include "ffi.h"
 #endif
 

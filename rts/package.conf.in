@@ -23,7 +23,7 @@ library-dirs:		TOP"/rts/dist/build" PAPI_LIB_DIR
 
 hs-libraries:   "HSrts" FFI_LIB
 
-#if !defined(xen_HOST_OS)
+#if !defined(HaLVM_Target_OS)
 extra-libraries:
 #ifdef HAVE_LIBM
                 		"m"		/* for ldexp() */
@@ -54,7 +54,7 @@ extra-libraries:
 			     , "papi"
 #endif
 
-#endif /* !defined(xen_HOST_OS) */
+#endif /* !defined(HaLVM_Target_OS) */
 
 #ifdef INSTALLING
 include-dirs:		INCLUDE_DIR PAPI_INCLUDE_DIR
@@ -64,8 +64,8 @@ include-dirs:           TOP"/rts/dist/build" TOP"/includes" TOP"/includes/dist-d
 
 includes:		Stg.h
 hugs-options:
-#ifdef xen_HOST_OS
-cc-options:		-Dxen_HOST_OS
+#ifdef HaLVM_Target_OS
+cc-options:		-DHaLVM_Target_OS
 #else
 cc-options:
 #endif

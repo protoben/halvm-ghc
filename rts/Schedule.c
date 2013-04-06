@@ -105,7 +105,7 @@ StgTSO dummy_tso;
 Mutex sched_mutex;
 #endif
 
-#if !defined(mingw32_HOST_OS) && !defined(xen_HOST_OS)
+#if !defined(mingw32_HOST_OS) && !defined(HaLVM_Target_OS)
 #define FORKPROCESS_PRIMOP_SUPPORTED
 #endif
 
@@ -968,7 +968,7 @@ scheduleDetectDeadlock (Capability **pcap, Task *task)
 static void
 scheduleSendPendingMessages(void)
 {
-#ifdef xen_HOST_OS
+#ifdef HaLVM_Target_OS
   if( emptyThreadQueues(cap) ) {
     if( RtsFlags.MiscFlags.install_signal_handlers && anyUserHandlers() ) {
       awaitUserSignals();
@@ -991,7 +991,7 @@ scheduleSendPendingMessages(void)
 	sendOldBuffers(); 
     }
 }
-#endif
+#endif // HaLVM_Target_OS
 
 /* ----------------------------------------------------------------------------
  * Process message in the current Capability's inbox
@@ -1053,7 +1053,7 @@ scheduleActivateSpark(Capability *cap)
         debugTrace(DEBUG_sched, "creating a spark thread");
     }
 
-#endif // xen_HOST_OS
+#endif // HaLVM_Target_OS
 }
 #endif // PARALLEL_HASKELL || THREADED_RTS
 
