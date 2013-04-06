@@ -6,7 +6,7 @@
 	url = http://darcs.haskell.org/libraries/bytestring.git/
 [submodule "libraries/Cabal"]
 	path = libraries/Cabal
-	url = git://github.com/GaloisInc/halvm-cabal.git
+	url = http://darcs.haskell.org/Cabal.git/
 [submodule "libraries/containers"]
 	path = libraries/containers
 	url = http://darcs.haskell.org/libraries/containers.git/
