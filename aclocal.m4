@@ -246,7 +246,7 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
             test -z "[$]2" || eval "[$]2=OSHaiku"
             ;;
         HaLVM)
-            test -z "[$]2" || eval "[$]2=HaLVM"
+            test -z "[$]2" || eval "[$]2=OSHaLVM"
             ;;
         osf3)
             test -z "[$]2" || eval "[$]2=OSOsf3"
