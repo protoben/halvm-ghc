@@ -366,6 +366,8 @@ PACKAGES_STAGE1 += bytestring
 PACKAGES_STAGE1 += containers
 PACKAGES_STAGE1 += old-locale
 
+ifneq "$(Bare_Metal)" "YES"
+
 ifeq "$(Windows_Host)" "YES"
 PACKAGES_STAGE1 += Win32
 endif
@@ -377,9 +379,12 @@ endif
 PACKAGES_STAGE1 += directory
 PACKAGES_STAGE1 += process
 PACKAGES_STAGE1 += hpc
+PACKAGES_STAGE1 += Cabal/Cabal
+
+endif # $(Bare_Metal) /= YES
+
 PACKAGES_STAGE1 += pretty
 PACKAGES_STAGE1 += template-haskell
-PACKAGES_STAGE1 += Cabal/Cabal
 PACKAGES_STAGE1 += binary
 PACKAGES_STAGE1 += bin-package-db
 PACKAGES_STAGE1 += hoopl
