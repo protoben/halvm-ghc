@@ -380,13 +380,20 @@ PACKAGES_STAGE1 += directory
 PACKAGES_STAGE1 += process
 PACKAGES_STAGE1 += hpc
 PACKAGES_STAGE1 += Cabal/Cabal
+PACKAGES_STAGE1 += bin-package-db
+PACKAGES_STAGE1 += haskeline
+
+ifeq "$(Windows_Target)" "NO"
+ifneq "$(TargetOS_CPP)" "ios"
+PACKAGES_STAGE1 += terminfo
+endif
+endif
 
 endif # $(Bare_Metal) /= YES
 
 PACKAGES_STAGE1 += pretty
 PACKAGES_STAGE1 += template-haskell
 PACKAGES_STAGE1 += binary
-PACKAGES_STAGE1 += bin-package-db
 PACKAGES_STAGE1 += hoopl
 PACKAGES_STAGE1 += transformers
 
@@ -404,12 +411,6 @@ endif
 REGULAR_INSTALL_PACKAGES += $(addprefix libraries/,$(PACKAGES_STAGE2))
 
 PACKAGES_STAGE1 += xhtml
-ifeq "$(Windows_Target)" "NO"
-ifneq "$(TargetOS_CPP)" "ios"
-PACKAGES_STAGE1 += terminfo
-endif
-endif
-PACKAGES_STAGE1 += haskeline
 
 # If we have built the programs with dynamic libraries, then
 # ghc will be dynamically linked against haskeline.so etc, so
