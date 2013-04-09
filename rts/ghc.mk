@@ -33,6 +33,9 @@ ALL_DIRS = hooks sm eventlog
 
 ifeq "$(HostOS_CPP)" "mingw32"
 ALL_DIRS += win32
+else ifeq "$(TargetOS_CPP)" "HaLVM"
+ALL_DIRS    += xen
+rts_CC_OPTS += -Irts/xen/include -Irts/xen/include/sys
 else
 ALL_DIRS += posix
 endif

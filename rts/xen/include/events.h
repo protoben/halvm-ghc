@@ -25,7 +25,7 @@
 #include <xen/event_channel.h>
 #include <types.h>
 #include "Rts.h"
-#include "rts/sm/GC.h"
+#include "sm/GC.h"
 
 /* prototypes */
 void mark_event_handlers(evac_fn evac, void *user);
