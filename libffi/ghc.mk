@@ -54,6 +54,9 @@ $(libffi_STAMP_CONFIGURE): $(TOUCH_DEP)
 	cat ghc-tarballs/libffi/libffi*.tar.gz | $(GZIP_CMD) -d | { cd libffi && $(TAR_CMD) -xf - ; }
 	mv libffi/libffi-* libffi/build
 
+# We need to apply a patch to libffi that makes HaLVM a valid build target
+	patch -d libffi/build -p1 < libffi/HaLVM.patch
+
 # We have to fake a non-working ln for configure, so that the fallback
 # option (cp -p) gets used instead.  Otherwise the libffi build system
 # will use cygwin symbolic links which cannot be read by mingw gcc.
@@ -89,7 +92,7 @@ $(libffi_STAMP_CONFIGURE): $(TOUCH_DEP)
 	          --libdir=$(TOP)/libffi/build/inst/lib \
 	          --enable-static=yes \
 	          --enable-shared=$(libffi_EnableShared) \
-	          --host=$(TargetPlatformFull)
+	          --target=$(TargetPlatformFull)
 
 	# wc on OS X has spaces in its output, which libffi's Makefile
 	# doesn't expect, so we tweak it to sed them out
