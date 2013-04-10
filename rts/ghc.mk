@@ -34,8 +34,7 @@ ALL_DIRS = hooks sm eventlog
 ifeq "$(HostOS_CPP)" "mingw32"
 ALL_DIRS += win32
 else ifeq "$(TargetOS_CPP)" "HaLVM"
-ALL_DIRS    += xen
-rts_CC_OPTS += -Irts/xen/include -Irts/xen/include/sys
+ALL_DIRS += xen
 else
 ALL_DIRS += posix
 endif
@@ -295,6 +294,10 @@ rts_CC_OPTS += -fno-common
 
 ifeq "$(BeConservative)" "YES"
 rts_CC_OPTS += -DBE_CONSERVATIVE
+endif
+
+ifeq "$(TargetOS_CPP)" "HaLVM"
+rts_CC_OPTS += -Irts/xen/include -Irts/xen/include/sys
 endif
 
 #-----------------------------------------------------------------------------
