@@ -34,7 +34,7 @@ ALL_DIRS = hooks sm eventlog
 ifeq "$(HostOS_CPP)" "mingw32"
 ALL_DIRS += win32
 else ifeq "$(TargetOS_CPP)" "HaLVM"
-ALL_DIRS += xen
+ALL_DIRS += xen xen/libc xen/mm
 else
 ALL_DIRS += posix
 endif
@@ -174,6 +174,9 @@ rts_dist_FFI_SO = rts/dist/build/libffi$$(soext)
 else
 rts_dist_FFI_SO =
 endif
+
+rts-$(rts_VERSION)_dist-install_$1_LIB = $$(rts_$1_LIB)
+$$(warning $$(rts-$(rts_VERSION)_dist-install_$1_LIB))
 
 # Making a shared library for the RTS.
 ifneq "$$(findstring dyn, $1)" ""

@@ -371,8 +371,12 @@ ifneq "$(Bare_Metal)" "YES"
 ifeq "$(Windows_Host)" "YES"
 PACKAGES_STAGE1 += Win32
 endif
+
 PACKAGES_STAGE1 += time
-ifeq "$(Windows_Host)" "NO"
+
+ifeq "$(Windows_Host)" "YES"
+else ifeq "$(Bare_Metal)" "YES"
+else
 PACKAGES_STAGE1 += unix
 endif
 
