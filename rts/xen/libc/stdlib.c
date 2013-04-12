@@ -283,3 +283,14 @@ long sysconf(int name)
 int mkstemp(char *template __attribute__ ((unused))) {
   return (-1);
 }
+
+int atoi(const char *str) {
+    int acc = 0;
+
+    for(; str && isdigit(*str); ++str) {
+        acc *= 10;
+        acc += *str - 0x30;
+    }
+
+    return acc;
+}

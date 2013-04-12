@@ -10,6 +10,8 @@
 
 #include <sys/types.h>
 
+#include "mm.h"
+
 long sysconf(int name);
 
 #define _SC_CLK_TCK             2
@@ -25,6 +27,11 @@ struct statfs {};
 int statfs(const char *path, struct statfs *buf);
 
 int close(int fd);
+
+static int getpagesize(void);
+static inline int getpagesize(void) {
+    return PAGE_SIZE;
+}
 
 size_t getline(char **lineptr __attribute__ ((unused)),
     size_t *n __attribute__ ((unused)),

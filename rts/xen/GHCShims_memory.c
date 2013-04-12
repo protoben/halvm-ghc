@@ -18,11 +18,6 @@ nat getPageFaults(void)
   return 0;
 }
 
-lnat getPageSize(void)
-{
-  return PAGE_SIZE;
-}
-
 void setExecutable( void    *p    __attribute__((unused)),
                     lnat     len  __attribute__((unused)),
                     rtsBool  exec __attribute((unused))    )

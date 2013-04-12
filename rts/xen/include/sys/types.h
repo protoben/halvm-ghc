@@ -1,29 +1,29 @@
 // mainly from mini-os
-/* -*-  Mode:C; c-basic-offset:4; tab-width:4 -*-
+/* -*-  mode:c; c-basic-offset:4; tab-width:4 -*-
  ****************************************************************************
- * (C) 2003 - Rolf Neugebauer - Intel Research Cambridge
+ * (c) 2003 - rolf neugebauer - intel research cambridge
  ****************************************************************************
  *
- *        File: types.h
- *      Author: Rolf Neugebauer (neugebar@dcs.gla.ac.uk)
- *     Changes: 
+ *        file: types.h
+ *      author: rolf neugebauer (neugebar@dcs.gla.ac.uk)
+ *     changes: 
  *              
- *        Date: May 2003
+ *        date: may 2003
  * 
- * Environment: Xen Minimal OS
- * Description: a random collection of type definitions
+ * environment: xen minimal os
+ * description: a random collection of type definitions
  *
  ****************************************************************************
- * $Id: h-insert.h,v 1.4 2002/11/08 16:03:55 rn Exp $
+ * $id: h-insert.h,v 1.4 2002/11/08 16:03:55 rn exp $
  ****************************************************************************
  */
 
-#ifndef _TYPES_H_
-#define _TYPES_H_
+#ifndef _types_h_
+#define _types_h_
 
-// Comapatability: some people imprt stdio.h for NULL.
-#ifndef NULL
-#define NULL 0
+// comapatability: some people imprt stdio.h for null.
+#ifndef null
+#define null 0
 #endif
 
 typedef signed char         s8;
@@ -42,7 +42,7 @@ typedef unsigned long       u64;
 
 typedef long unsigned int   size_t;
 
-/* FreeBSD compat types */
+/* freebsd compat types */
 typedef unsigned char       u_char;
 typedef unsigned int        u_int;
 typedef unsigned long       u_long;
@@ -52,7 +52,7 @@ typedef unsigned long long  u_quad_t;
 typedef unsigned long int   uintptr_t;
 typedef long int            intptr_t;
 
-# ifdef CONFIG_X86_PAE
+# ifdef config_x86_pae
 typedef struct { unsigned long pte_low, pte_high; } pte_t;
 # else
 typedef struct { unsigned long pte_low; } pte_t;
@@ -86,6 +86,15 @@ typedef unsigned long pid_t;
 
 typedef uint32_t ino_t;
 typedef uint64_t dev_t;
+
+// xxx make sure that these are correct
+typedef uint16_t mode_t;
+typedef uint32_t uid_t;
+typedef uint32_t nlink_t;
+typedef uint32_t blksize_t;
+typedef uint32_t blkcnt_t;
+typedef uint32_t gid_t;
+
 
 #define LITTLE_ENDIAN 1234
 

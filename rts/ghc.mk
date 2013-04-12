@@ -300,7 +300,10 @@ rts_CC_OPTS += -DBE_CONSERVATIVE
 endif
 
 ifeq "$(TargetOS_CPP)" "HaLVM"
-rts_CC_OPTS += -Irts/xen/include -Irts/xen/include/sys
+rts_CC_OPTS += -nostdinc -Irts/xen/include -Irts/xen/include/sys
+
+# not sure if this is the right way to resolve the xen/xen.h includes
+rts_CC_OPTS += -I/usr/include
 endif
 
 #-----------------------------------------------------------------------------

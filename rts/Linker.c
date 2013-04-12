@@ -30,7 +30,7 @@
 #include "Stable.h"
 #include "Proftimer.h"
 
-#if !defined(mingw32_HOST_OS)
+#if !defined(mingw32_HOST_OS) && !defined(HaLVM_TARGET_OS)
 #include "posix/Signals.h"
 #endif
 
@@ -72,6 +72,7 @@
 #endif
 
 #if (defined(powerpc_HOST_ARCH) && defined(linux_HOST_OS)) \
+ || defined(HaLVM_TARGET_OS) \
  || (!defined(powerpc_HOST_ARCH) && \
     (   defined(linux_HOST_OS)     || defined(freebsd_HOST_OS) || \
         defined(dragonfly_HOST_OS) || defined(netbsd_HOST_OS ) || \
@@ -325,7 +326,7 @@ typedef struct _RtsSymbolVal {
                                 SymI_HasProto(stg_makeStableNamezh)             \
                                 SymI_HasProto(stg_finalizzeWeakzh)
 
-#if !defined (mingw32_HOST_OS)
+#if !defined (mingw32_HOST_OS) && !defined(HaLVM_TARGET_OS)
 #define RTS_POSIX_ONLY_SYMBOLS                  \
       SymI_HasProto(__hscore_get_saved_termios) \
       SymI_HasProto(__hscore_set_saved_termios) \
@@ -335,6 +336,10 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(rtsTimerSignal)             \
       SymI_HasProto(atexit)                     \
       SymI_NeedsProto(nocldstop)
+#endif
+
+#if defined(HaLVM_TARGET_OS)
+#define RTS_POSIX_ONLY_SYMBOLS
 #endif
 
 #if defined (cygwin32_HOST_OS)

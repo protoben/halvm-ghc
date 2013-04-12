@@ -37,6 +37,8 @@ float sqrtf(float);
 int __fpclassifyf(float);
 int __fpclassifyd(double);
 
+double modf(double, double *);
+
 /* I've stolen this stuff from NetBSD. See this licence:
  *
  * ====================================================

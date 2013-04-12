@@ -39,6 +39,16 @@ int fflush(FILE *stream);
 FILE *fopen(const char *path, const char *mode);
 int fclose(FILE *fp);
 
+int fread(void *, size_t, size_t, FILE *);
+int feof(FILE *);
+long ftell(FILE *);
+int fseek(FILE *, long, int);
+int getc(FILE *stream);
+
+#define SEEK_SET 0x1
+#define SEEK_CUR 0x2
+#define SEEK_END 0x3
+
 void perror(const char *s);
 
 extern FILE *stdout;

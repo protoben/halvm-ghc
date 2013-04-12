@@ -39,4 +39,6 @@ void *bsearch(const void *, const void *, size_t, size_t,
 
 int mkstemp(char *template);
 
+int atoi(const char *);
+
 #endif

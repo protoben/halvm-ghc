@@ -498,6 +498,42 @@ FILE *fopen(const char *path __attribute__((unused)),
   return 0;
 }
 
+size_t fread(void *ptr    __attribute__((unused)),
+             size_t size  __attribute__((unused)),
+             size_t nmemb __attribute__((unused)),
+             FILE *stream __attribute__((unused)))
+{
+    // XXX is this the right errno value?
+    errno = EACCES;
+    return 0;
+}
+
+int feof(FILE *stream __attribute__((unused)))
+{
+    errno = EBADF;
+    return -1;
+}
+
+long ftell(FILE *stream __attribute__((unused)))
+{
+    errno = EBADF;
+    return -1;
+}
+
+int fseek(FILE *stream __attribute__((unused)),
+          long offset  __attribute__((unused)),
+          ing whence   __attribute__((unused)))
+{
+    errno = EBADF;
+    return 0;
+}
+
+int getc(FILE *stream __attribute__((unused)))
+{
+    errno = EBADF;
+    return -1;
+}
+
 int fclose(FILE *fp __attribute__((unused)))
 {
   errno = EBADF;
