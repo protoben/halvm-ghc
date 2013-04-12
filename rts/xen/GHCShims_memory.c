@@ -13,7 +13,7 @@
 #include "mman.h"
 #include "stdio.h"
 
-nat getPageFaults(void)
+W_ getPageFaults(void)
 {
   return 0;
 }
