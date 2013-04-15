@@ -122,6 +122,8 @@ endif
 # Building one way
 define build-rts-way # args: $1 = way
 
+$(warning "---- rts way = $1")
+
 ifneq "$$(BINDIST)" "YES"
 
 rts_dist_$1_HC_OPTS := $$(GhcRtsHcOpts)
