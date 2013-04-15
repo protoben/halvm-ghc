@@ -6,6 +6,7 @@
 // Author: Adam Wick <awick@galois.com>
 // BANNEREND
 #include <string.h>
+#include <stdlib.h>
 
 typedef uint64_t pt_entry_t;
 

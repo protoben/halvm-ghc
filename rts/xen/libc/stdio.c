@@ -439,7 +439,7 @@ int vfprintf(FILE *stream, const char *format, va_list ap)
   }
 }
 
-int putchar(char c) {
+int putchar(int c) {
   emergency_console_msg(1, &c);
   return c;
 }
@@ -522,7 +522,7 @@ long ftell(FILE *stream __attribute__((unused)))
 
 int fseek(FILE *stream __attribute__((unused)),
           long offset  __attribute__((unused)),
-          ing whence   __attribute__((unused)))
+          int whence   __attribute__((unused)))
 {
     errno = EBADF;
     return 0;

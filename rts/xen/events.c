@@ -18,7 +18,6 @@
 */
 
 #include <Rts.h>
-#include <Signals.h>
 #include <Schedule.h>
 #include <sm/GC.h>
 #include <events.h>

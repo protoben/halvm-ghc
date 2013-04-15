@@ -27,6 +27,12 @@
 #include "Rts.h"
 #include "sm/GC.h"
 
+#if defined(THREADED_RTS)
+void startSignalHandlers(Capability *);
+#endif
+
+void ioManagerStartCap(/* inout */ Capability *);
+
 /* prototypes */
 void mark_event_handlers(evac_fn evac, void *user);
 void do_event(u32 port, struct pt_regs *regs);

@@ -39,7 +39,7 @@ int fflush(FILE *stream);
 FILE *fopen(const char *path, const char *mode);
 int fclose(FILE *fp);
 
-int fread(void *, size_t, size_t, FILE *);
+size_t fread(void *, size_t, size_t, FILE *);
 int feof(FILE *);
 long ftell(FILE *);
 int fseek(FILE *, long, int);

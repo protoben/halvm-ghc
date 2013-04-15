@@ -16,19 +16,19 @@
 lnat getourtimeofday(void);
 // Above to remove warnings.
 
-Ticks getProcessCPUTime(void)
+Time getProcessCPUTime(void)
 {
   return NSEC_TO_USEC(monotonic_clock()) / 1000;
 }
 
-Ticks getProcessElapsedTime(void)
+Time getProcessElapsedTime(void)
 {
   return NSEC_TO_USEC(monotonic_clock()) / 1000;
 }
 
-void getProcessTimes(Ticks *user, Ticks *elapsed)
+void getProcessTimes(Time *user, Time *elapsed)
 {
-  *user = NSEC_TO_USEC(monotonic_clock()) / 1000;
+  *user    = NSEC_TO_USEC(monotonic_clock()) / 1000;
   *elapsed = NSEC_TO_USEC(monotonic_clock()) / 1000;
 }
 
@@ -37,7 +37,7 @@ void getProcessTimes(Ticks *user, Ticks *elapsed)
 extern volatile TickProc timer0_proc;
        volatile TickProc saved_ticker;
 
-void initTicker  (nat ms __attribute__((unused)), TickProc handle_tick)
+void initTicker  (Time interval __attribute__((unused)), TickProc handle_tick)
 {
   saved_ticker = handle_tick;
 }
@@ -53,7 +53,7 @@ void stopTicker  (void)
   timer0_proc = NULL;
 }
 
-void exitTicker  (rtsBool wait)
+void exitTicker  ( rtsBool wait __attribute__((unused)) )
 {
   saved_ticker = NULL;
 }
@@ -62,7 +62,7 @@ void exitTicker  (rtsBool wait)
 
 lnat getourtimeofday(void)
 {
-  static u64 last_time = 0;
+  //static u64 last_time = 0;
   struct timeval tv;
   nat  interval;
   u64  work;
@@ -76,7 +76,7 @@ lnat getourtimeofday(void)
   work  = (u64)tv.tv_sec * (1000 / interval);
   work += (u64)tv.tv_usec / (interval * 1000);
   //assert(last_time <= work);
-  last_time = work;
+  //last_time = work;
   work &= LONG_MAX;
 
   return (lnat)work;
