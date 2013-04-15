@@ -24,7 +24,9 @@ rts_WAYS = $(GhcLibWays) $(filter-out $(GhcLibWays),$(GhcRTSWays))
 rts_dist_WAYS = $(rts_WAYS)
 
 ALL_RTS_LIBS = $(foreach way,$(rts_WAYS),rts/dist/build/libHSrts$($(way)_libsuf))
+.PHONY: all_rts
 all_rts : $(ALL_RTS_LIBS)
+all: all_rts
 
 # -----------------------------------------------------------------------------
 # Defining the sources
@@ -174,9 +176,6 @@ rts_dist_FFI_SO = rts/dist/build/libffi$$(soext)
 else
 rts_dist_FFI_SO =
 endif
-
-rts-$(rts_VERSION)_dist-install_$1_LIB = $$(rts_$1_LIB)
-$$(warning $$(rts-$(rts_VERSION)_dist-install_$1_LIB))
 
 # Making a shared library for the RTS.
 ifneq "$$(findstring dyn, $1)" ""
