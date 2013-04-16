@@ -37,6 +37,13 @@ ifeq "$(HostOS_CPP)" "mingw32"
 ALL_DIRS += win32
 else ifeq "$(TargetOS_CPP)" "HaLVM"
 ALL_DIRS += xen xen/libc
+ifeq "$(TargetArch_CPP)" "x86_64"
+rts_S_SRCS += rts/xen/start.x86_64.S
+else ifeq "$(TargetArch_CPP)" "i386"
+rts_S_SRCS += rts/xen/start.i386.S
+else
+$(error "Unsupported target HaLVM architecture: $(TargetArch_CPP)")
+endif
 else
 ALL_DIRS += posix
 endif
@@ -121,8 +128,6 @@ endif
 #-----------------------------------------------------------------------------
 # Building one way
 define build-rts-way # args: $1 = way
-
-$(warning "---- rts way = $1")
 
 ifneq "$$(BINDIST)" "YES"
 
@@ -340,6 +345,10 @@ rts/RtsUtils_CC_OPTS += -DGhcEnableTablesNextToCode=\"$(GhcEnableTablesNextToCod
 
 ifeq "$(DYNAMIC_GHC_PROGRAMS)" "YES"
 rts/Linker_CC_OPTS += -DDYNAMIC_GHC_PROGRAMS
+endif
+
+ifeq "$(TargetOS_CPP)" "HaLVM"
+rts/xen/start.x86_64_HC_OPTS += -Irts/xen/include
 endif
 
 # Compile various performance-critical pieces *without* -fPIC -dynamic
