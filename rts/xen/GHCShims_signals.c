@@ -19,9 +19,6 @@
 rtsBool anyUserHandlers(void);
 // Above to remove warnings.
 
-int rts_stop_on_exception    = 0;
-int rts_breakpoint_io_action = 0;
-
 StgStablePtr  pending_handler_buf[MAX_PENDING_HANDLERS];
 int           next_pending_handler = 0;
 
