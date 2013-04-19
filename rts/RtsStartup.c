@@ -480,7 +480,7 @@ shutdownHaskellAndExit(int n)
     stg_exit(n);
 }
 
-#if !defined(mingw32_HOST_OS) && !defined(HaLVM_TARGET_OS)
+#if !defined(mingw32_HOST_OS)
 void
 shutdownHaskellAndSignal(int sig)
 {
