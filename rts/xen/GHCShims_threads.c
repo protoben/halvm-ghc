@@ -17,6 +17,10 @@ extern lnat getourtimeofday(void);
 extern void startSignalHandlers(Capability *cap);
 extern int signals_pending(void);
 
+nat getNumberOfProcessors(void) {
+    return 1;
+}
+
 int forkOS_createThread( HsStablePtr entry __attribute__((unused)) )
 {
   return ENOSYS;
