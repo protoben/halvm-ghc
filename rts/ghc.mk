@@ -37,13 +37,6 @@ ifeq "$(HostOS_CPP)" "mingw32"
 ALL_DIRS += win32
 else ifeq "$(TargetOS_CPP)" "HaLVM"
 ALL_DIRS += xen xen/libc
-ifeq "$(TargetArch_CPP)" "x86_64"
-rts_S_SRCS += rts/xen/start.x86_64.S
-else ifeq "$(TargetArch_CPP)" "i386"
-rts_S_SRCS += rts/xen/start.i386.S
-else
-$(error "Unsupported target HaLVM architecture: $(TargetArch_CPP)")
-endif
 else
 ALL_DIRS += posix
 endif
