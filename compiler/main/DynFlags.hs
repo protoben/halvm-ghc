@@ -50,7 +50,7 @@ module DynFlags (
 
         printOutputForUser, printInfoForUser,
 
-        Way(..), mkBuildTag, wayRTSOnly, updateWays,
+        Way(..), mkBuildTag, wayRTSOnly, addWay', updateWays,
         wayGeneralFlags, wayUnsetGeneralFlags,
 
         -- ** Safe Haskell
@@ -299,6 +299,7 @@ data GeneralFlag
    | Opt_CmmElimCommonBlocks
    | Opt_OmitYields
    | Opt_SimpleListLiterals
+   | Opt_FunToThunk               -- allow WwLib.mkWorkerArgs to remove all value lambdas
 
    -- Interface files
    | Opt_IgnoreInterfacePragmas
@@ -348,6 +349,7 @@ data GeneralFlag
    | Opt_RPath
    | Opt_RelativeDynlibPaths
    | Opt_Hpc
+   | Opt_FlatCache
 
    -- PreInlining is on by default. The option is there just to see how
    -- bad things get if you turn it off!
@@ -559,8 +561,6 @@ data DynFlags = DynFlags {
   ghcLink               :: GhcLink,
   hscTarget             :: HscTarget,
   settings              :: Settings,
-  hscOutName            :: String,      -- ^ Name of the output file
-  extCoreName           :: String,      -- ^ Name of the .hcr output file
   verbosity             :: Int,         -- ^ Verbosity level: see Note [Verbosity levels]
   optLevel              :: Int,         -- ^ Optimisation level
   simplPhases           :: Int,         -- ^ Number of simplifier phases
@@ -610,6 +610,14 @@ data DynFlags = DynFlags {
   dynObjectSuf          :: String,
   dynHiSuf              :: String,
 
+  -- Packages.isDllName needs to know whether a call is within a
+  -- single DLL or not. Normally it does this by seeing if the call
+  -- is to the same package, but for the ghc package, we split the
+  -- package between 2 DLLs. The dllSplit tells us which sets of
+  -- modules are in which package.
+  dllSplitFile          :: Maybe FilePath,
+  dllSplit              :: Maybe [Set String],
+
   outputFile            :: Maybe String,
   dynOutputFile         :: Maybe String,
   outputHi              :: Maybe String,
@@ -623,7 +631,7 @@ data DynFlags = DynFlags {
   --    Set by @-ddump-file-prefix@
   dumpPrefixForce       :: Maybe FilePath,
 
-  ldInputs              :: [String],
+  ldInputs              :: [Option],
 
   includePaths          :: [String],
   libraryPaths          :: [String],
@@ -1172,7 +1180,8 @@ doDynamicToo dflags0 = let dflags1 = addWay' WayDyn dflags0
                                          objectSuf = dynObjectSuf dflags1
                                      }
                            dflags3 = updateWays dflags2
-                       in dflags3
+                           dflags4 = gopt_unset dflags3 Opt_BuildDynamicToo
+                       in dflags4
 
 -----------------------------------------------------------------------------
 
@@ -1211,8 +1220,6 @@ defaultDynFlags mySettings =
         ghcMode                 = CompManager,
         ghcLink                 = LinkBinary,
         hscTarget               = defaultHscTarget (sTargetPlatform mySettings),
-        hscOutName              = "",
-        extCoreName             = "",
         verbosity               = 0,
         optLevel                = 0,
         simplPhases             = 2,
@@ -1249,6 +1256,9 @@ defaultDynFlags mySettings =
         canGenerateDynamicToo   = panic "defaultDynFlags: No canGenerateDynamicToo",
         dynObjectSuf            = "dyn_" ++ phaseInputExt StopLn,
         dynHiSuf                = "dyn_hi",
+
+        dllSplitFile            = Nothing,
+        dllSplit                = Nothing,
 
         pluginModNames          = [],
         pluginModNameOpts       = [],
@@ -1849,9 +1859,23 @@ parseDynamicFlagsFull activeFlags cmdline dflags0 args = do
 
   let (dflags4, consistency_warnings) = makeDynFlagsConsistent dflags3
 
-  liftIO $ setUnsafeGlobalDynFlags dflags4
+  dflags5 <- case dllSplitFile dflags4 of
+             Nothing -> return (dflags4 { dllSplit = Nothing })
+             Just f ->
+                 case dllSplit dflags4 of
+                 Just _ ->
+                     -- If dllSplit is out of date then it would have
+                     -- been set to Nothing. As it's a Just, it must be
+                     -- up-to-date.
+                     return dflags4
+                 Nothing ->
+                     do xs <- liftIO $ readFile f
+                        let ss = map (Set.fromList . words) (lines xs)
+                        return $ dflags4 { dllSplit = Just ss }
 
-  return (dflags4, leftover, consistency_warnings ++ sh_warns ++ warns)
+  liftIO $ setUnsafeGlobalDynFlags dflags5
+
+  return (dflags5, leftover, consistency_warnings ++ sh_warns ++ warns)
 
 updateWays :: DynFlags -> DynFlags
 updateWays dflags
@@ -2030,10 +2054,12 @@ dynamic_flags = [
   , Flag "shared"             (noArg (\d -> d{ ghcLink=LinkDynLib }))
   , Flag "dynload"            (hasArg parseDynLibLoaderMode)
   , Flag "dylib-install-name" (hasArg setDylibInstallName)
+    -- -dll-split is an internal flag, used only during the GHC build
+  , Flag "dll-split"          (hasArg (\f d -> d{ dllSplitFile = Just f, dllSplit = Nothing }))
 
         ------- Libraries ---------------------------------------------------
   , Flag "L"   (Prefix addLibraryPath)
-  , Flag "l"   (hasArg (addOptl . ("-l" ++)))
+  , Flag "l"   (hasArg (addLdInputs . Option . ("-l" ++)))
 
         ------- Frameworks --------------------------------------------------
         -- -framework-path should really be -F ...
@@ -2487,6 +2513,7 @@ fFlags = [
   ( "cmm-elim-common-blocks",           Opt_CmmElimCommonBlocks, nop ),
   ( "omit-yields",                      Opt_OmitYields, nop ),
   ( "simple-list-literals",             Opt_SimpleListLiterals, nop ),
+  ( "fun-to-thunk",                     Opt_FunToThunk, nop ),
   ( "gen-manifest",                     Opt_GenManifest, nop ),
   ( "embed-manifest",                   Opt_EmbedManifest, nop ),
   ( "ext-core",                         Opt_EmitExternalCore, nop ),
@@ -2501,6 +2528,7 @@ fFlags = [
   ( "prof-cafs",                        Opt_AutoSccsOnIndividualCafs, nop ),
   ( "hpc",                              Opt_Hpc, nop ),
   ( "pre-inlining",                     Opt_SimplPreInlining, nop ),
+  ( "flat-cache",                       Opt_FlatCache, nop ),
   ( "use-rpaths",                       Opt_RPath, nop )
   ]
 
@@ -2691,6 +2719,7 @@ defaultFlags settings
       Opt_HelpfulErrors,
       Opt_ProfCountEntries,
       Opt_SimplPreInlining,
+      Opt_FlatCache,
       Opt_RPath
     ]
 
@@ -2768,6 +2797,7 @@ optLevelFlags
     , ([1,2],   Opt_FullLaziness)
     , ([1,2],   Opt_Specialise)
     , ([1,2],   Opt_FloatIn)
+    , ([1,2],   Opt_UnboxSmallStrictFields)
 
     , ([2],     Opt_LiberateCase)
     , ([2],     Opt_SpecConstr)
@@ -3176,6 +3206,9 @@ setMainIs arg
   where
     (main_mod, main_fn) = splitLongestPrefix arg (== '.')
 
+addLdInputs :: Option -> DynFlags -> DynFlags
+addLdInputs p dflags = dflags{ldInputs = ldInputs dflags ++ [p]}
+
 -----------------------------------------------------------------------------
 -- Paths & Libraries
 
@@ -3351,6 +3384,7 @@ compilerInfo dflags
        ("Support SMP",                 cGhcWithSMP),
        ("Tables next to code",         cGhcEnableTablesNextToCode),
        ("RTS ways",                    cGhcRTSWays),
+       ("Support dynamic-too",         "YES"),
        ("Dynamic by default",          if dYNAMIC_BY_DEFAULT dflags
                                        then "YES" else "NO"),
        ("GHC Dynamic",                 if cDYNAMIC_GHC_PROGRAMS
@@ -3407,7 +3441,7 @@ makeDynFlagsConsistent dflags
       else let dflags' = dflags { hscTarget = HscLlvm }
                warn = "Compiler not unregisterised, so using LLVM rather than compiling via C"
            in loop dflags' warn
- | hscTarget dflags /= HscC && hscTarget dflags /= HscLlvm &&
+ | hscTarget dflags == HscAsm &&
    platformUnregisterised (targetPlatform dflags)
     = loop (dflags { hscTarget = HscC })
            "Compiler unregisterised, so compiling via C"

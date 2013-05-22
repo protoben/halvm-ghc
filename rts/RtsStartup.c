@@ -38,10 +38,6 @@
 #include "FileLock.h"
 void exitLinker( void );	// there is no Linker.h file to include
 
-#if defined(RTS_GTK_FRONTPANEL)
-#include "FrontPanel.h"
-#endif
-
 #if defined(PROFILING)
 # include "ProfHeap.h"
 # include "RetainerProfile.h"
@@ -241,15 +237,9 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
         initDefaultHandlers();
     }
 #endif
- 
+
 #if defined(mingw32_HOST_OS) && !defined(THREADED_RTS)
     startupAsyncIO();
-#endif
-
-#ifdef RTS_GTK_FRONTPANEL
-    if (RtsFlags.GcFlags.frontpanel) {
-	initFrontPanel();
-    }
 #endif
 
 #if X86_INIT_FPU
@@ -299,7 +289,7 @@ hs_add_root(void (*init_root)(void) STG_UNUSED)
  *       False ==> threads doing foreign calls may return in the
  *                 future, but will immediately block on a mutex.
  *                 (capability->lock).
- * 
+ *
  * If this RTS is a DLL that we're about to unload, then you want
  * safe=True, otherwise the thread might return to code that has been
  * unloaded.  If this is a standalone program that is about to exit,
@@ -323,7 +313,7 @@ hs_exit_(rtsBool wait_foreign)
 
     /* start timing the shutdown */
     stat_startExit();
-    
+
     OnExitHook();
 
     flushStdHandles();
@@ -342,7 +332,7 @@ hs_exit_(rtsBool wait_foreign)
 
     /* run C finalizers for all active weak pointers */
     runAllCFinalizers(weak_ptr_list);
-    
+
 #if defined(RTS_USER_SIGNALS)
     if (RtsFlags.MiscFlags.install_signal_handlers) {
         freeSignalHandlers();
@@ -372,7 +362,7 @@ hs_exit_(rtsBool wait_foreign)
     // clean up things from the storage manager's point of view.
     // also outputs the stats (+RTS -s) info.
     exitStorage();
-    
+
     /* free the tasks */
     freeScheduler();
 
@@ -395,13 +385,7 @@ hs_exit_(rtsBool wait_foreign)
     freeThreadLabelTable();
 #endif
 
-#ifdef RTS_GTK_FRONTPANEL
-    if (RtsFlags.GcFlags.frontpanel) {
-	stopFrontPanel();
-    }
-#endif
-
-#if defined(PROFILING) 
+#if defined(PROFILING)
     reportCCSProfiling();
 #endif
 
@@ -489,15 +473,15 @@ shutdownHaskellAndSignal(int sig)
 }
 #endif
 
-/* 
+/*
  * called from STG-land to exit the program
  */
 
 void (*exitFn)(int) = 0;
 
-void  
+void
 stg_exit(int n)
-{ 
+{
   if (exitFn)
     (*exitFn)(n);
   exit(n);

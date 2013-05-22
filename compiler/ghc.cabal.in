@@ -68,7 +68,7 @@ Library
     if flag(ghci)
         Build-Depends: template-haskell
         CPP-Options: -DGHCI
-        Include-Dirs: ../rts/dist/build
+        Include-Dirs: ../rts/dist/build @FFIIncludeDir@
 
     Build-Depends: bin-package-db
     Build-Depends: hoopl
@@ -99,6 +99,7 @@ Library
 
     c-sources:
         ghci/keepCAFsForGHCi.c
+        cbits/genSym.c
 
     hs-source-dirs:
         basicTypes
@@ -288,6 +289,7 @@ Library
         HscStats
         HscTypes
         InteractiveEval
+        InteractiveEvalTypes
         PackageConfig
         Packages
         PlatformConstants

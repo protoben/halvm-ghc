@@ -2,7 +2,7 @@
 --
 -- Generating machine code (instruction selection)
 --
--- (c) The University of Glasgow 1996-2004
+-- (c) The University of Glasgow 1996-2013
 --
 -----------------------------------------------------------------------------
 
@@ -538,7 +538,7 @@ move_final (v:vs) (a:az) offset
 
 
 -- | Assign results returned from the call into their
---      desination regs.
+--      destination regs.
 --
 assign_code :: Platform -> [LocalReg] -> OrdList Instr
 
@@ -588,7 +588,7 @@ outOfLineMachOp mop
                 = outOfLineMachOp_table mop
 
         dflags  <- getDynFlags
-        mopExpr <- cmmMakeDynamicReference dflags addImportNat CallReference
+        mopExpr <- cmmMakeDynamicReference dflags CallReference
                 $  mkForeignLabel functionName Nothing ForeignLabelInExternalPackage IsFunction
 
         let mopLabelOrExpr

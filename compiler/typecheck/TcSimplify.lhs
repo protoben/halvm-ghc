@@ -137,7 +137,7 @@ go with option (i), implemented at SimplifyTop. Namely:
 Now, that has to do with class defaulting. However there exists type variable /kind/
 defaulting. Again this is done at the top-level and the plan is:
      - At the top-level, once you had a go at solving the constraint, do 
-       figure out /all/ the touchable unification variables of the wanted contraints.
+       figure out /all/ the touchable unification variables of the wanted constraints.
      - Apply defaulting to their kinds
 
 More details in Note [DefaultTyVar].
@@ -184,18 +184,6 @@ simplifyDefault theta
 *                                                                                 *
 ***********************************************************************************
 
-Note [Which variables to quantify]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Suppose the inferred type of a function is
-   T kappa (alpha:kappa) -> Int
-where alpha is a type unification variable and 
-      kappa is a kind unification variable
-Then we want to quantify over *both* alpha and kappa.  But notice that
-kappa appears "at top level" of the type, as well as inside the kind
-of alpha.  So it should be fine to just look for the "top level"
-kind/type variables of the type, without looking transitively into the
-kinds of those type variables.
-
 \begin{code}
 simplifyInfer :: Bool
               -> Bool                  -- Apply monomorphism restriction
@@ -210,13 +198,10 @@ simplifyInfer :: Bool
                       TcEvBinds)    -- ... binding these evidence variables
 simplifyInfer _top_lvl apply_mr name_taus wanteds
   | isEmptyWC wanteds
-  = do { gbl_tvs     <- tcGetGlobalTyVars            -- Already zonked
-       ; zonked_taus <- zonkTcTypes (map snd name_taus)
-       ; let tvs_to_quantify = varSetElems (tyVarsOfTypes zonked_taus `minusVarSet` gbl_tvs)
-       	     		       -- tvs_to_quantify can contain both kind and type vars
-       	                       -- See Note [Which variables to quantify]
-       ; qtvs <- zonkQuantifiedTyVars tvs_to_quantify
-       ; return (qtvs, [], False, emptyTcEvBinds) }
+  = do { gbl_tvs <- tcGetGlobalTyVars
+       ; qtkvs <- quantifyTyVars gbl_tvs (tyVarsOfTypes (map snd name_taus))
+       ; traceTc "simplifyInfer: emtpy WC" (ppr name_taus $$ ppr qtkvs) 
+       ; return (qtkvs, [], False, emptyTcEvBinds) }
 
   | otherwise
   = do { traceTc "simplifyInfer {"  $ vcat
@@ -258,7 +243,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
 
        ; tc_lcl_env <- TcRnMonad.getLclEnv
        ; let untch = tcl_untch tc_lcl_env
-       ; quant_pred_candidates   
+       ; quant_pred_candidates   -- Fully zonked
            <- if insolubleWC wanted_transformed 
               then return []   -- See Note [Quantification with errors]
               else do { gbl_tvs <- tcGetGlobalTyVars
@@ -280,52 +265,50 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
        --     unifications that may have happened
        ; gbl_tvs        <- tcGetGlobalTyVars
        ; zonked_tau_tvs <- TcM.zonkTyVarsAndFV (tyVarsOfTypes (map snd name_taus))
-       ; let init_tvs  = zonked_tau_tvs `minusVarSet` gbl_tvs
-             poly_qtvs = growThetaTyVars quant_pred_candidates init_tvs 
+       ; let poly_qtvs = growThetaTyVars quant_pred_candidates zonked_tau_tvs
                          `minusVarSet` gbl_tvs
              pbound    = filter (quantifyPred poly_qtvs) quant_pred_candidates
              
 	     -- Monomorphism restriction
-             mr_qtvs  	     = init_tvs `minusVarSet` constrained_tvs
-             constrained_tvs = tyVarsOfTypes quant_pred_candidates
+             constrained_tvs = tyVarsOfTypes pbound `unionVarSet` gbl_tvs
 	     mr_bites        = apply_mr && not (null pbound)
 
-             (qtvs, bound) | mr_bites  = (mr_qtvs,   [])
-                           | otherwise = (poly_qtvs, pbound)
+       ; (qtvs, bound) <- if mr_bites 
+                          then do { qtvs <- quantifyTyVars constrained_tvs zonked_tau_tvs
+                                  ; return (qtvs, []) }
+                          else do { qtvs <- quantifyTyVars gbl_tvs poly_qtvs
+                                  ; return (qtvs, pbound) }
              
        ; traceTc "simplifyWithApprox" $
          vcat [ ptext (sLit "quant_pred_candidates =") <+> ppr quant_pred_candidates
               , ptext (sLit "gbl_tvs=") <+> ppr gbl_tvs
               , ptext (sLit "zonked_tau_tvs=") <+> ppr zonked_tau_tvs
               , ptext (sLit "pbound =") <+> ppr pbound
-              , ptext (sLit "init_qtvs =") <+> ppr init_tvs 
-              , ptext (sLit "poly_qtvs =") <+> ppr poly_qtvs ]
+              , ptext (sLit "bbound =") <+> ppr bound
+              , ptext (sLit "poly_qtvs =") <+> ppr poly_qtvs
+              , ptext (sLit "constrained_tvs =") <+> ppr constrained_tvs
+              , ptext (sLit "mr_bites =") <+> ppr mr_bites
+              , ptext (sLit "qtvs =") <+> ppr qtvs ]
 
-       ; if isEmptyVarSet qtvs && null bound
-         then do { traceTc "} simplifyInfer/no quantification" empty                   
+       ; if null qtvs && null bound
+         then do { traceTc "} simplifyInfer/no implication needed" empty                   
                  ; emitConstraints wanted_transformed
                     -- Includes insolubles (if -fdefer-type-errors)
                     -- as well as flats and implications
                  ; return ([], [], mr_bites, TcEvBinds ev_binds_var) }
          else do
 
-       { traceTc "simplifyApprox" $ 
-         ptext (sLit "bound are =") <+> ppr bound 
-         
-            -- Step 4, zonk quantified variables 
-       ; let minimal_flat_preds = mkMinimalBySCs bound
+      {     -- Step 7) Emit an implication
+         let minimal_flat_preds = mkMinimalBySCs bound
              skol_info = InferSkol [ (name, mkSigmaTy [] minimal_flat_preds ty)
                                    | (name, ty) <- name_taus ]
                         -- Don't add the quantified variables here, because
                         -- they are also bound in ic_skols and we want them to be
                         -- tidied uniformly
 
-       ; qtvs_to_return <- zonkQuantifiedTyVars (varSetElems qtvs)
-
-            -- Step 7) Emit an implication
        ; minimal_bound_ev_vars <- mapM TcM.newEvVar minimal_flat_preds
        ; let implic = Implic { ic_untch    = pushUntouchables untch
-                             , ic_skols    = qtvs_to_return
+                             , ic_skols    = qtvs
                              , ic_fsks     = []  -- wanted_tansformed arose only from solveWanteds
                                                  -- hence no flatten-skolems (which come from givens)
                              , ic_given    = minimal_bound_ev_vars
@@ -339,11 +322,11 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
        ; traceTc "} simplifyInfer/produced residual implication for quantification" $
              vcat [ ptext (sLit "implic =") <+> ppr implic
                        -- ic_skols, ic_given give rest of result
-                  , ptext (sLit "qtvs =") <+> ppr qtvs_to_return
+                  , ptext (sLit "qtvs =") <+> ppr qtvs
                   , ptext (sLit "spb =") <+> ppr quant_pred_candidates
                   , ptext (sLit "bound =") <+> ppr bound ]
 
-       ; return ( qtvs_to_return, minimal_bound_ev_vars
+       ; return ( qtvs, minimal_bound_ev_vars
                 , mr_bites,  TcEvBinds ev_binds_var) } }
 
 quantifyPred :: TyVarSet           -- Quantifying over these
@@ -375,8 +358,10 @@ having to be passed at each call site.  But of course, the WHOLE
 IDEA is that ?y should be passed at each call site (that's what
 dynamic binding means) so we'd better infer the second.
 
-BOTTOM LINE: when *inferring types* you *must* quantify 
-over implicit parameters. See the predicate isFreeWhenInferring.
+BOTTOM LINE: when *inferring types* you must quantify over implicit
+parameters, *even if* they don't mention the bound type variables.
+Reason: because implicit parameters, uniquely, have local instance
+declarations. See the predicate quantifyPred.
 
 Note [Quantification with errors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -454,7 +439,7 @@ situations like
 When inferring a type for 'g', we don't want to apply the
 instance decl, because then we can't satisfy (C t).  So we
 just notice that g isn't quantified over 't' and partition
-the contraints before simplifying.
+the constraints before simplifying.
 
 This only half-works, but then let-generalisation only half-works.
 
@@ -511,7 +496,8 @@ simplifyRule name lhs_wanted rhs_wanted
        ; traceTc "simplifyRule" $
          vcat [ ptext (sLit "LHS of rule") <+> doubleQuotes (ftext name)
               , text "zonked_lhs_flats" <+> ppr zonked_lhs_flats 
-              , text "q_cts"      <+> ppr q_cts ]
+              , text "q_cts"      <+> ppr q_cts
+              , text "non_q_cts"  <+> ppr non_q_cts ]
 
        ; return ( map (ctEvId . ctEvidence) (bagToList q_cts)
                 , lhs_wanted { wc_flat = non_q_cts }) }
@@ -972,7 +958,7 @@ skolem has escaped!
 But it's ok: when we float (Maybe beta[2] ~ gamma[1]), we promote beta[2]
 to beta[1], and that means the (a ~ beta[1]) will be stuck, as it should be.
 
-Previously we tried to "grow" the skol_set with the contraints, to get
+Previously we tried to "grow" the skol_set with the constraints, to get
 all the tyvars that could *conceivably* unify with the skolems, but that
 was far too conservative (Trac #7804). Example: this should be fine:
     f :: (forall a. a -> Proxy x -> Proxy (F x)) -> Int
