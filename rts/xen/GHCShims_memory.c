@@ -13,6 +13,11 @@
 #include "mman.h"
 #include "stdio.h"
 
+W_ getPageSize(void)
+{
+  return 4096;
+}
+
 W_ getPageFaults(void)
 {
   return 0;
@@ -56,6 +61,23 @@ void *osGetMBlocks(nat n)
   /* EEEK! We couldn't find memory to allocate! */
   printf("osGetMBlocks failing!\n");
   return NULL;
+}
+
+void osFreeMBlocks(char *addr, nat n)
+{
+  size_t size = n * MBLOCK_SIZE;
+  void *start = (void*)addr;
+  void *end   = (void*)((unsigned long)addr + size);
+
+  unback_pages(start, end, 1);
+  disclaim_vspace(start, end);
+}
+
+void osReleaseFreeMemory(void)
+{
+  /* not sure what the semantics of this are, but the fact that there's */
+  /* nothing to be done for the POSIX implementation suggests that      */
+  /* we're good doing nothing.                                          */
 }
 
 void osFreeAllMBlocks(void)

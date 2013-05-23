@@ -17,6 +17,8 @@
 #ifdef __x86_64__
 
 #define ARG_DOUBLE_ONE		-8(%rsp)
+#define ARG_DOUBLE_ONE_LSW    -8(%rsp)
+#define ARG_DOUBLE_ONE_MSW    -4(%rsp)
 #define ARG_DOUBLE_TWO		-16(%rsp)
 #define ARG_FLOAT_ONE		-4(%rsp)
 #define ARG_FLOAT_TWO		-8(%rsp)
@@ -48,6 +50,8 @@
 #else
 
 #define ARG_DOUBLE_ONE		4(%esp)
+#define ARG_DOUBLE_ONE_LSW    4(%esp)
+#define ARG_DOUBLE_ONE_MSW    8(%esp)
 #define ARG_DOUBLE_TWO		12(%esp)
 #define ARG_FLOAT_ONE		4(%esp)
 #define ARG_FLOAT_TWO		8(%esp)

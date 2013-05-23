@@ -41,4 +41,7 @@ int mkstemp(char *template);
 
 int atoi(const char *);
 
+void _Unwind_Resume(void *); /* faking the type here */
+int __gcc_personality_v0(int v, ...);
+
 #endif

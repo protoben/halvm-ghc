@@ -113,3 +113,23 @@ void markSignalHandlers(evac_fn evac __attribute__((unused)),
 {
 }
 
+/******************************************************************************/
+
+static int io_manager_wakeup_fd = -1;
+static int io_manager_control_fd = -1;
+
+void setIOManagerWakeupFd(int fd)
+{
+  io_manager_wakeup_fd = fd;
+}
+
+void setIOManagerControlFd(int fd)
+{
+  io_manager_control_fd = fd;
+}
+
+void ioManagerWakeup(void)
+{
+  /* should always be awake */
+}
+

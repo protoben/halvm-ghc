@@ -13,6 +13,7 @@
 #define ESRCH           3
 #define EIO             5
 #define EBADF           9
+#define ECHILD          10
 #define EAGAIN          11
 #define ENOMEM          12
 #define EACCES          13
@@ -21,6 +22,7 @@
 #define EEXIST          17
 #define EISDIR          21
 #define EINVAL          22
+#define EMFILE          24
 #define ENOSPC          28
 #define EROFS           30
 #define ERANGE          34

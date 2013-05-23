@@ -16,6 +16,12 @@
 lnat getourtimeofday(void);
 // Above to remove warnings.
 
+Time getThreadCPUTime(void)
+{
+  /* FIXME: We could probably do better than this. */
+  return NSEC_TO_USEC(monotonic_clock()) / 1000;
+}
+
 Time getProcessCPUTime(void)
 {
   return NSEC_TO_USEC(monotonic_clock()) / 1000;
@@ -30,6 +36,11 @@ void getProcessTimes(Time *user, Time *elapsed)
 {
   *user    = NSEC_TO_USEC(monotonic_clock()) / 1000;
   *elapsed = NSEC_TO_USEC(monotonic_clock()) / 1000;
+}
+
+void initializeTimer(void)
+{
+  /* already handled */
 }
 
 /******************************************************************************/
@@ -56,6 +67,19 @@ void stopTicker  (void)
 void exitTicker  ( rtsBool wait __attribute__((unused)) )
 {
   saved_ticker = NULL;
+}
+
+lnat getDelayTarget(HsInt us)
+{
+  lnat now = getourtimeofday();
+  nat interval = RtsFlags.MiscFlags.tickInterval;
+
+  return now + (us / (interval * 1000));
+}
+
+StgWord64 getMonotonicNSec(void)
+{
+  return monotonic_clock();
 }
 
 /******************************************************************************/

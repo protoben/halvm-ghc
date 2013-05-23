@@ -82,7 +82,7 @@ typedef int off_t;
 
 typedef char *__caddr_t;
 typedef __caddr_t caddr_t;
-typedef unsigned long pid_t;
+typedef int pid_t;
 
 typedef uint32_t ino_t;
 typedef uint64_t dev_t;

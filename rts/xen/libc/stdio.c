@@ -17,6 +17,8 @@ FILE *stdout = (FILE*)0x0badbead;
 FILE *stdin = (FILE*)0xdeadbead;
 FILE *stderr = (FILE*)0xeebadbad;
 
+void abort(void);
+
 #define isdigit(c) ((c) >= '0' && (c) <= '9')
 #define isxdigit(c) (isdigit(c) || \
                      (((c) >= 'a') && ((c) <= 'f')) || \
@@ -440,7 +442,7 @@ int vfprintf(FILE *stream, const char *format, va_list ap)
 }
 
 int putchar(int c) {
-  emergency_console_msg(1, &c);
+  emergency_console_msg(1, (char*)&c);
   return c;
 }
 
@@ -586,4 +588,328 @@ size_t getline(char **lineptr __attribute__((unused)),
     FILE *stream __attribute__ ((unused))) {
   errno = ENOSYS;
   return (-1);
+}
+
+int chmod(const char *path __attribute__((unused)),
+          mode_t mode __attribute__((unused)))
+{
+  errno = ENOSYS;
+  return (-1);
+}
+
+int creat(const char *path __attribute__((unused)),
+          mode_t mode  __attribute__((unused)))
+{
+  errno = ENOSYS;
+  return (-1);
+}
+
+int dup(int fildes __attribute__((unused)))
+{
+  errno = ENOSYS;
+  return (-1);
+}
+
+int dup2(int fildes __attribute__((unused)),
+         int fildes2 __attribute__((unused)))
+{
+  errno = ENOSYS;
+  return (-1);
+}
+
+int isatty(int fd)
+{
+  if(fd >= 0 && fd <= 2)
+    return 1;
+  errno = EBADF;
+  return 0;
+}
+
+mode_t umask(mode_t cmask)
+{
+  static mode_t mask = 0;
+  int retval = mask;
+  mask = cmask;
+  return retval;
+}
+
+pid_t getpid(void)
+{
+  return 0xca5cad1a;
+}
+
+pid_t fork(void)
+{
+  errno = EAGAIN;
+  return -1;
+}
+
+int link(const char *path1 __attribute__((unused)),
+         const char *path2 __attribute__((unused)))
+{
+  errno = ENOENT;
+  return -1;
+}
+
+int pipe(int fildes[2] __attribute__((unused)))
+{
+  errno = EMFILE;
+  return -1;
+}
+
+pid_t waitpid(pid_t pid __attribute__((unused)),
+              int *stat_loc __attribute__((unused)),
+              int options __attribute__((unused)))
+{
+  errno = ECHILD;
+  return -1;
+}
+
+int utime(const char *path __attribute__((unused)),
+          const struct utimbuf *times __attribute__((unused)))
+{
+  errno = ENOENT;
+  return -1;
+}
+
+int tcsetattr(int fd __attribute__((unused)),
+              int optional_actions __attribute__((unused)),
+              const struct termios *termios_p __attribute__((unused)))
+{
+  errno = ENOSYS;
+  return -1;
+}
+
+int tcgetattr(int fd __attribute__((unused)),
+              struct termios *termios_p __attribute__((unused)))
+{
+  errno = ENOSYS;
+  return -1;
+}
+
+int sigprocmask(int how __attribute__((unused)),
+                const sigset_t *set __attribute__((unused)),
+                sigset_t *oldset __attribute__((unused)))
+{
+  errno = EINVAL;
+  return -1;
+}
+
+int sigaddset(sigset_t *set __attribute__ ((unused)),
+              int signum __attribute__ ((unused)))
+{
+  errno = EINVAL;
+  return -1;
+}
+
+int sigemptyset(sigset_t *set __attribute__ ((unused)))
+{
+  errno = EINVAL;
+  return -1;
+}
+
+int mkfifo(const char *pathname __attribute__ ((unused)),
+           mode_t mode __attribute__ ((unused)))
+{
+  errno = ENOENT;
+  return -1;
+}
+
+ssize_t write(int filedes, const void *buf, size_t nbyte)
+{
+  if(filedes == 0 || filedes > 2) {
+    errno = EBADF;
+    return -1;
+  }
+  emergency_console_msg(nbyte, (char*)buf);
+  return nbyte;
+}
+
+ssize_t read(int fildes, void *buf, size_t nbyte)
+{
+  if(fildes != 0) {
+    errno = EBADF;
+    return -1;
+  }
+
+  return emergency_console_read(buf, nbyte);
+}
+
+off_t lseek(int fildes __attribute__ ((unused)),
+            off_t offset __attribute__ ((unused)),
+            int whence __attribute__ ((unused)))
+{
+  errno = EBADF;
+  return -1;
+}
+
+
+int mkdir(const char *path __attribute__((unused)),
+          mode_t mode __attribute__((unused)))
+{
+  errno = ENOENT;
+  return -1;
+}
+
+/* HaLVM users are affable oddballs? */
+uid_t getuid(void)
+{
+  return 0x0ddba11;
+}
+
+uid_t geteuid(void)
+{
+  return 0x0ddba11;
+}
+
+gid_t getgid(void)
+{
+  return 0xaffab1e;
+}
+
+gid_t getegid(void)
+{
+  return 0xaffab1e;
+}
+
+int open(const char *pathname __attribute__((unused)),
+         int flags __attribute__((unused)))
+{
+  errno = EACCES;
+  return -1;
+}
+
+int kill(pid_t pid __attribute__((unused)),
+         int sig __attribute__((unused)))
+{
+  errno = EPERM;
+  return -1;
+}
+
+int poll(struct pollfd fds[] __attribute__((unused)), nfds_t nfds, int timeout)
+{
+  printf("poll called with %ld fds and a timeout of %d\n", nfds, timeout);
+  switch(timeout) {
+    case -1:
+      printf("  ... which will never wake up, so I'm giving up.\n");
+      abort();
+    case 0:
+      return 0;
+    default:
+      block_domain(timeout);
+      return 0;
+  }
+}
+
+int eventfd_write(int fd __attribute__((unused)),
+                  eventfd_t value __attribute__((unused)))
+{
+  errno = EINVAL;
+  return -1;
+}
+
+int eventfd(unsigned int initval __attribute__((unused)),
+            int flags __attribute__((unused)))
+{
+  errno = EINVAL;
+  return -1;
+}
+
+int epoll_create(int size __attribute__((unused)))
+{
+  errno = ENOMEM;
+  return -1;
+}
+
+int epoll_ctl(int epfd __attribute__((unused)),
+              int op __attribute__((unused)),
+              int fd __attribute__((unused)),
+              struct epoll_event *event __attribute__((unused)))
+{
+  errno = EINVAL;
+  return -1;
+}
+
+int epoll_wait(int epfd __attribute__((unused)),
+               struct epoll_event *events __attribute__((unused)),
+               int maxevents __attribute__((unused)),
+               int timeout)
+{
+  switch(timeout) {
+    case -1:
+      printf("epoll_wait with endless wait. aborting.\n");
+      abort();
+    case 0:
+      return 0;
+    default:
+      block_domain(timeout);
+      return 0;
+  }
+}
+
+int select(int nfds __attribute__((unused)),
+           fd_set *reads __attribute__((unused)),
+           fd_set *writes __attribute__((unused)),
+           fd_set *excs __attribute__((unused)),
+           struct timeval *timeout)
+{
+  if(!timeout) {
+    printf("select() called with endless wait. aborting.\n");
+    abort();
+  }
+
+  block_domain((timeout->tv_sec * 1000) + (timeout->tv_usec / 1000));
+  return 0;
+}
+
+iconv_t iconv_open(const char *tocode __attribute__((unused)),
+                   const char *fromcode __attribute__((unused)))
+{
+  errno = EINVAL;
+  return (iconv_t)-1;
+}
+
+size_t iconv(iconv_t cd __attribute__((unused)),
+             char **inbuf __attribute__((unused)),
+             size_t *inbytes __attribute__((unused)),
+             char **outbuf __attribute__((unused)),
+             size_t *outbytes __attribute__((unused)))
+{
+  errno = EINVAL;
+  return -1;
+}
+
+iconv_t iconv_close(iconv_t cd __attribute__((unused)))
+{
+  errno = EINVAL;
+  return (iconv_t)-1;
+}
+
+int __xstat(int ver __attribute__((unused)),
+            const char *path __attribute__((unused)),
+            struct stat *stat_buf __attribute__((unused)))
+{
+  errno = ENOENT;
+  return -1;
+}
+
+int __lxstat(int ver __attribute__((unused)),
+             const char *path __attribute__((unused)),
+             struct stat *stat_buf __attribute__((unused)))
+{
+  errno = ENOENT;
+  return -1;
+}
+
+int __fxstat(int ver __attribute__((unused)),
+             int fildes __attribute__((unused)),
+             struct stat *stat_buf __attribute__((unused)))
+{
+  errno = ENOENT;
+  return -1;
+}
+
+char *nl_langinfo(nl_item item __attribute__((unused)))
+{
+  return 0;
 }

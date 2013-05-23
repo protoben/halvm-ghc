@@ -984,14 +984,15 @@ scheduleSendPendingMessages(void)
         processFetches();
     }
 # endif
-    
+
     if (RtsFlags.ParFlags.BufferTime) {
-	// if we use message buffering, we must send away all message
-	// packets which have become too old...
-	sendOldBuffers(); 
+      // if we use message buffering, we must send away all message
+      // packets which have become too old...
+      sendOldBuffers();
     }
+#endif
 }
-#endif // HaLVM_TARGET_OS
+#endif
 
 /* ----------------------------------------------------------------------------
  * Process message in the current Capability's inbox
@@ -1052,8 +1053,6 @@ scheduleActivateSpark(Capability *cap)
         createSparkThread(cap);
         debugTrace(DEBUG_sched, "creating a spark thread");
     }
-
-#endif // HaLVM_TARGET_OS
 }
 #endif // PARALLEL_HASKELL || THREADED_RTS
 

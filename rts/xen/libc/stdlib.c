@@ -294,3 +294,15 @@ int atoi(const char *str) {
 
     return acc;
 }
+
+void _Unwind_Resume(void *x __attribute__((unused)))
+{
+  printf("Call to _Unwind_Resume ... how are you using pthreads?\n");
+  abort();
+}
+
+int __gcc_personality_v0(int v, ...)
+{
+  printf("You are in a very strange, bad place. (GCC personality %d)\n", v);
+  abort();
+}

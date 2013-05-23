@@ -176,5 +176,11 @@ void   bzero(void *ptr, size_t size)
   for(i = 0; i < size; ++i) p[i] = 0;
 }
 
-
+char *strdup(const char *s)
+{
+  size_t bufsize = strlen(s) + 1, i;
+  char *retval = malloc(bufsize);
+  if(retval) memcpy(retval, s, bufsize);
+  return retval;
+}
 
