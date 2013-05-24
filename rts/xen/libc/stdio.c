@@ -475,7 +475,7 @@ int fputc(int c, FILE *stream)
 size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
 {
   size_t size_in_chars = size * nmemb, i;
-  
+
   for(i = 0; i < size_in_chars; i++)
     if(fputc(*(char*)((unsigned long)ptr + i), stream) == EOF)
       return i / size;
@@ -493,9 +493,10 @@ int fflush(FILE *stream)
   }
 }
 
-FILE *fopen(const char *path __attribute__((unused)), 
-	    const char *mode __attribute__((unused)))
+FILE *fopen(const char *path __attribute__((unused)),
+            const char *mode __attribute__((unused)))
 {
+  printf("fopen\n");
   errno = EACCES;
   return 0;
 }
@@ -505,39 +506,45 @@ size_t fread(void *ptr    __attribute__((unused)),
              size_t nmemb __attribute__((unused)),
              FILE *stream __attribute__((unused)))
 {
-    // XXX is this the right errno value?
-    errno = EACCES;
-    return 0;
+  // XXX is this the right errno value?
+  printf("fread\n");
+  errno = EACCES;
+  return 0;
 }
 
 int feof(FILE *stream __attribute__((unused)))
 {
-    errno = EBADF;
-    return -1;
+  printf("feof\n");
+  errno = EBADF;
+  return -1;
 }
 
 long ftell(FILE *stream __attribute__((unused)))
 {
-    errno = EBADF;
-    return -1;
+  printf("ftell\n");
+  errno = EBADF;
+  return -1;
 }
 
 int fseek(FILE *stream __attribute__((unused)),
           long offset  __attribute__((unused)),
           int whence   __attribute__((unused)))
 {
-    errno = EBADF;
-    return 0;
+  printf("fseek\n");
+  errno = EBADF;
+  return 0;
 }
 
 int getc(FILE *stream __attribute__((unused)))
 {
-    errno = EBADF;
-    return -1;
+  printf("getc\n");
+  errno = EBADF;
+  return -1;
 }
 
 int fclose(FILE *fp __attribute__((unused)))
 {
+  printf("fclose\n");
   errno = EBADF;
   return EOF;
 }
@@ -547,30 +554,40 @@ void perror(const char *s)
   printf("%s: %s\n", s, strerror(errno));
 }
 
-int unlink(const char *pathname __attribute__ ((unused))) {
+int unlink(const char *pathname __attribute__ ((unused)))
+{
+  printf("unlink\n");
   errno = ENOENT;
   return (-1);
 }
 
 int access(const char *pathname __attribute__ ((unused)),
-    int mode __attribute__ ((unused))) {
+    int mode __attribute__ ((unused)))
+{
+  printf("access\n");
   errno = ENOENT;
   return (-1);
 }
 
 int ftruncate(int fd __attribute__ ((unused)),
-    off_t length __attribute__ ((unused))) {
+    off_t length __attribute__ ((unused)))
+{
+  printf("ftruncate\n");
   errno = EPERM;
   return (-1);
 }
 
 int statfs(const char *path __attribute__ ((unused)),
-    struct statfs *buf __attribute__ ((unused))) {
+           struct statfs *buf __attribute__ ((unused)))
+{
+  printf("statfs\n");
   errno = ENOSYS;
   return (-1);
 }
 
-int close(int fd __attribute__ ((unused))) {
+int close(int fd __attribute__ ((unused)))
+{
+  printf("close\n");
   errno = EBADF;
   return (-1);
 }
@@ -578,14 +595,18 @@ int close(int fd __attribute__ ((unused))) {
 size_t __getdelim(char **lineptr __attribute__ ((unused)),
     size_t *n __attribute__ ((unused)),
     int delim __attribute__ ((unused)),
-    FILE *stream __attribute__ ((unused))) {
+    FILE *stream __attribute__ ((unused)))
+{
+  printf("__getdelim\n");
   errno = ENOSYS;
   return (-1);
 }
 
 size_t getline(char **lineptr __attribute__((unused)),
     size_t *n __attribute__ ((unused)),
-    FILE *stream __attribute__ ((unused))) {
+    FILE *stream __attribute__ ((unused)))
+{
+  printf("getline\n");
   errno = ENOSYS;
   return (-1);
 }
@@ -593,6 +614,7 @@ size_t getline(char **lineptr __attribute__((unused)),
 int chmod(const char *path __attribute__((unused)),
           mode_t mode __attribute__((unused)))
 {
+  printf("chmod\n");
   errno = ENOSYS;
   return (-1);
 }
@@ -600,12 +622,14 @@ int chmod(const char *path __attribute__((unused)),
 int creat(const char *path __attribute__((unused)),
           mode_t mode  __attribute__((unused)))
 {
+  printf("creat\n");
   errno = ENOSYS;
   return (-1);
 }
 
 int dup(int fildes __attribute__((unused)))
 {
+  printf("dup\n");
   errno = ENOSYS;
   return (-1);
 }
@@ -613,6 +637,7 @@ int dup(int fildes __attribute__((unused)))
 int dup2(int fildes __attribute__((unused)),
          int fildes2 __attribute__((unused)))
 {
+  printf("dup2\n");
   errno = ENOSYS;
   return (-1);
 }
@@ -629,17 +654,20 @@ mode_t umask(mode_t cmask)
 {
   static mode_t mask = 0;
   int retval = mask;
+  printf("umask\n");
   mask = cmask;
   return retval;
 }
 
 pid_t getpid(void)
 {
+  printf("getpid\n");
   return 0xca5cad1a;
 }
 
 pid_t fork(void)
 {
+  printf("fork\n");
   errno = EAGAIN;
   return -1;
 }
@@ -647,12 +675,14 @@ pid_t fork(void)
 int link(const char *path1 __attribute__((unused)),
          const char *path2 __attribute__((unused)))
 {
+  printf("link\n");
   errno = ENOENT;
   return -1;
 }
 
 int pipe(int fildes[2] __attribute__((unused)))
 {
+  printf("pipe\n");
   errno = EMFILE;
   return -1;
 }
@@ -661,6 +691,7 @@ pid_t waitpid(pid_t pid __attribute__((unused)),
               int *stat_loc __attribute__((unused)),
               int options __attribute__((unused)))
 {
+  printf("waitpid\n");
   errno = ECHILD;
   return -1;
 }
@@ -668,6 +699,7 @@ pid_t waitpid(pid_t pid __attribute__((unused)),
 int utime(const char *path __attribute__((unused)),
           const struct utimbuf *times __attribute__((unused)))
 {
+  printf("utime\n");
   errno = ENOENT;
   return -1;
 }
@@ -676,6 +708,7 @@ int tcsetattr(int fd __attribute__((unused)),
               int optional_actions __attribute__((unused)),
               const struct termios *termios_p __attribute__((unused)))
 {
+  printf("tcsetattr\n");
   errno = ENOSYS;
   return -1;
 }
@@ -683,6 +716,7 @@ int tcsetattr(int fd __attribute__((unused)),
 int tcgetattr(int fd __attribute__((unused)),
               struct termios *termios_p __attribute__((unused)))
 {
+  printf("tcgetattr\n");
   errno = ENOSYS;
   return -1;
 }
@@ -691,6 +725,7 @@ int sigprocmask(int how __attribute__((unused)),
                 const sigset_t *set __attribute__((unused)),
                 sigset_t *oldset __attribute__((unused)))
 {
+  printf("sigprocmask\n");
   errno = EINVAL;
   return -1;
 }
@@ -698,12 +733,14 @@ int sigprocmask(int how __attribute__((unused)),
 int sigaddset(sigset_t *set __attribute__ ((unused)),
               int signum __attribute__ ((unused)))
 {
+  printf("sigaddset\n");
   errno = EINVAL;
   return -1;
 }
 
 int sigemptyset(sigset_t *set __attribute__ ((unused)))
 {
+  printf("sigemptyset\n");
   errno = EINVAL;
   return -1;
 }
@@ -711,12 +748,14 @@ int sigemptyset(sigset_t *set __attribute__ ((unused)))
 int mkfifo(const char *pathname __attribute__ ((unused)),
            mode_t mode __attribute__ ((unused)))
 {
+  printf("mkfifo\n");
   errno = ENOENT;
   return -1;
 }
 
 ssize_t write(int filedes, const void *buf, size_t nbyte)
 {
+  printf("write\n");
   if(filedes == 0 || filedes > 2) {
     errno = EBADF;
     return -1;
@@ -727,6 +766,7 @@ ssize_t write(int filedes, const void *buf, size_t nbyte)
 
 ssize_t read(int fildes, void *buf, size_t nbyte)
 {
+  printf("read\n");
   if(fildes != 0) {
     errno = EBADF;
     return -1;
@@ -739,6 +779,7 @@ off_t lseek(int fildes __attribute__ ((unused)),
             off_t offset __attribute__ ((unused)),
             int whence __attribute__ ((unused)))
 {
+  printf("lseek\n");
   errno = EBADF;
   return -1;
 }
@@ -747,6 +788,7 @@ off_t lseek(int fildes __attribute__ ((unused)),
 int mkdir(const char *path __attribute__((unused)),
           mode_t mode __attribute__((unused)))
 {
+  printf("mkdir\n");
   errno = ENOENT;
   return -1;
 }
@@ -754,27 +796,32 @@ int mkdir(const char *path __attribute__((unused)),
 /* HaLVM users are affable oddballs? */
 uid_t getuid(void)
 {
+  printf("getuid\n");
   return 0x0ddba11;
 }
 
 uid_t geteuid(void)
 {
+  printf("geteuid\n");
   return 0x0ddba11;
 }
 
 gid_t getgid(void)
 {
+  printf("getgid\n");
   return 0xaffab1e;
 }
 
 gid_t getegid(void)
 {
+  printf("getegid\n");
   return 0xaffab1e;
 }
 
 int open(const char *pathname __attribute__((unused)),
          int flags __attribute__((unused)))
 {
+  printf("open\n");
   errno = EACCES;
   return -1;
 }
@@ -782,6 +829,7 @@ int open(const char *pathname __attribute__((unused)),
 int kill(pid_t pid __attribute__((unused)),
          int sig __attribute__((unused)))
 {
+  printf("kill\n");
   errno = EPERM;
   return -1;
 }
@@ -804,6 +852,7 @@ int poll(struct pollfd fds[] __attribute__((unused)), nfds_t nfds, int timeout)
 int eventfd_write(int fd __attribute__((unused)),
                   eventfd_t value __attribute__((unused)))
 {
+  printf("eventfd_write\n");
   errno = EINVAL;
   return -1;
 }
@@ -811,12 +860,14 @@ int eventfd_write(int fd __attribute__((unused)),
 int eventfd(unsigned int initval __attribute__((unused)),
             int flags __attribute__((unused)))
 {
+  printf("eventfd\n");
   errno = EINVAL;
   return -1;
 }
 
 int epoll_create(int size __attribute__((unused)))
 {
+  printf("epoll_create\n");
   errno = ENOMEM;
   return -1;
 }
@@ -826,6 +877,7 @@ int epoll_ctl(int epfd __attribute__((unused)),
               int fd __attribute__((unused)),
               struct epoll_event *event __attribute__((unused)))
 {
+  printf("epoll_ctl\n");
   errno = EINVAL;
   return -1;
 }
@@ -835,6 +887,7 @@ int epoll_wait(int epfd __attribute__((unused)),
                int maxevents __attribute__((unused)),
                int timeout)
 {
+  printf("epoll_wait\n");
   switch(timeout) {
     case -1:
       printf("epoll_wait with endless wait. aborting.\n");
@@ -853,6 +906,7 @@ int select(int nfds __attribute__((unused)),
            fd_set *excs __attribute__((unused)),
            struct timeval *timeout)
 {
+  printf("select\n");
   if(!timeout) {
     printf("select() called with endless wait. aborting.\n");
     abort();
@@ -917,6 +971,7 @@ int __xstat(int ver __attribute__((unused)),
             const char *path __attribute__((unused)),
             struct stat *stat_buf __attribute__((unused)))
 {
+  printf("__xstat\n");
   errno = ENOENT;
   return -1;
 }
@@ -925,6 +980,7 @@ int __lxstat(int ver __attribute__((unused)),
              const char *path __attribute__((unused)),
              struct stat *stat_buf __attribute__((unused)))
 {
+  printf("__lxstat\n");
   errno = ENOENT;
   return -1;
 }
@@ -933,11 +989,12 @@ int __fxstat(int ver __attribute__((unused)),
              int fildes __attribute__((unused)),
              struct stat *stat_buf __attribute__((unused)))
 {
+  printf("__fxstat\n");
   errno = ENOENT;
   return -1;
 }
 
 char *nl_langinfo(nl_item item __attribute__((unused)))
 {
-  return 0;
+  return "ANSI_X3.4-1968";
 }
