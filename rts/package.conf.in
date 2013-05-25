@@ -60,7 +60,11 @@ extra-libraries:
 #endif /* !defined(HaLVM_TARGET_OS) */
 
 #ifdef INSTALLING
+#ifdef HaLVM_TARGET_OS
+include-dirs:		INCLUDE_DIR INCLUDE_DIR/../../../include PAPI_INCLUDE_DIR
+#else
 include-dirs:		INCLUDE_DIR PAPI_INCLUDE_DIR
+#endif /* HaLVM_TARGET_OS */
 #else /* !INSTALLING */
 include-dirs:           TOP"/rts/dist/build" TOP"/includes" TOP"/includes/dist-derivedconstants/header"
 #endif
@@ -68,7 +72,7 @@ include-dirs:           TOP"/rts/dist/build" TOP"/includes" TOP"/includes/dist-d
 includes:		Stg.h
 hugs-options:
 #ifdef HaLVM_TARGET_OS
-cc-options:		-DHaLVM_TARGET_OS
+cc-options:		-DHaLVM_TARGET_OS -nostdinc
 #else
 cc-options:
 #endif
