@@ -18,7 +18,7 @@
 #include <stdarg.h>
 #include <types.h>
 #include <time.h>
-#include <stat.h>
+#include <sys/stat.h>
 
 #define EOF (-1)
 
