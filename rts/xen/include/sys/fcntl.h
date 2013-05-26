@@ -14,7 +14,7 @@ int fcntl(int fd, int cmd, ...);
 #define F_GETFL 3
 #define F_SETFL 4
 
-int open(const char *, int);
+int open(const char *, int, ...);
 
 #define O_RDONLY 0x23
 

@@ -14,13 +14,14 @@
 #define H_STDIO
 #endif
 
-
 #include <stdarg.h>
 #include <types.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <sys/termios.h>
 
-#define EOF (-1)
+#define EOF       (-1)
+#define BUFSIZ    8192
 
 typedef unsigned long FILE;
 
@@ -62,7 +63,6 @@ typedef int sigset_t;
 typedef int ssize_t;
 typedef unsigned long int nfds_t;
 typedef unsigned long long eventfd_t;
-struct termios {};
 struct utimbuf {};
 struct pollfd {};
 struct epoll_event {};
@@ -96,7 +96,7 @@ uid_t getuid(void);
 uid_t geteuid(void);
 gid_t getgid(void);
 gid_t getegid(void);
-int open(const char *pathname, int flags);
+int open(const char *pathname, int flags, ...);
 int kill(pid_t pid, int sig);
 int poll(struct pollfd fds[], nfds_t nfds, int timeout);
 int eventfd_write(int fd, eventfd_t value);
