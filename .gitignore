@@ -173,3 +173,5 @@ _darcs/
 /extra-gcc-opts
 
 .tm_properties
+
+rts/xen/include/xen
