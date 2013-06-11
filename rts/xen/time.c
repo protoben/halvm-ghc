@@ -41,6 +41,7 @@
 #include <stdio.h>
 #include <strings.h>
 #include <hbmxen.h>
+#include <sys/resource.h>
 
 /* These are peridically updated in shared_info, and then copied here. */
 struct shadow_time_info {

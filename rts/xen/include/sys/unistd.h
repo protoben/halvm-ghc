@@ -9,6 +9,7 @@
 #define XEN_UNISTD_H
 
 #include <sys/types.h>
+#include <sys/stdio.h>
 
 #include "mm.h"
 

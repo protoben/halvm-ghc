@@ -9,12 +9,11 @@
 #define XEN_DOM_XBMXEN_INCLUDE
 
 #include <types.h>
-#include <xen/xen.h> 
+#include <xen/xen.h>
+#include <arch.h>
 
 extern start_info_t *start_info;
-extern shared_info_t *HYPERVISOR_shared_info;
 
 void c_start(void *si);
-void do_exit(void) __attribute__ ((__noreturn__));
 
 #endif

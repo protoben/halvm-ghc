@@ -10,7 +10,7 @@
 
 void emergency_console_msg(int len, char *msg) 
 {
-	(void)HYPERVISOR_console_io(CONSOLEIO_write, len, msg);
+  (void)HYPERVISOR_console_io(CONSOLEIO_write, len, msg);
 }
 
 int emergency_console_read(char *buf, int size)

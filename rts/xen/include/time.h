@@ -79,5 +79,7 @@ time_t     mktime(struct tm *tm);
 time_t     time(time_t *t);
 char      *ctime_r(const time_t *timep, char *buf);
 
+extern int signals_pending(void);
+
 #define RUSAGE_SELF 0
 #endif /* _TIME_H_ */

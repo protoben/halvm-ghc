@@ -19,9 +19,42 @@
 #include <time.h>
 #include <sys/stat.h>
 #include <sys/termios.h>
+#include <sys/epoll.h>
+#include <iconv.h>
 
 #define EOF       (-1)
 #define BUFSIZ    8192
+
+#define S_IFMT     0170000
+#define S_IFSOCK   0140000
+#define S_IFLNK    0120000
+#define S_IFREG    0100000
+#define S_IFBLK    0060000
+#define S_IFDIR    0040000
+#define S_IFCHR    0020000
+#define S_IFIFO    0010000
+#define S_ISUID    0004000
+#define S_ISGID    0002000
+#define S_ISVTX    0001000
+#define S_IRWXU    00700
+#define S_IRUSR    00400
+#define S_IWUSR    00200
+#define S_IXUSR    00100
+#define S_IRWXG    00070
+#define S_IRGRP    00040
+#define S_IWGRP    00020
+#define S_IXGRP    00010
+#define S_IRWXO    00007
+#define S_IROTH    00004
+#define S_IWOTH    00002
+#define S_IXOTH    00001
+
+#define S_ISSOCK(x) (((x) & S_IFMT) == S_IFSOCK)
+#define S_ISFIFO(x) (((x) & S_IFMT) == S_IFIFO)
+#define S_ISDIR(x)  (((x) & S_IFMT) == S_IFDIR)
+#define S_ISBLK(x)  (((x) & S_IFMT) == S_IFBLK)
+#define S_ISCHR(x)  (((x) & S_IFMT) == S_IFCHR)
+#define S_ISREG(x)  (((x) & S_IFMT) == S_IFREG)
 
 typedef unsigned long FILE;
 
@@ -64,7 +97,6 @@ typedef int ssize_t;
 typedef unsigned long long eventfd_t;
 struct utimbuf {};
 typedef struct {} fd_set;
-typedef void *iconv_t;
 typedef int nl_item;
 
 int chmod(const char *path, mode_t mode);
@@ -78,7 +110,7 @@ pid_t fork(void);
 int link(const char *path1, const char *path2);
 int pipe(int fildes[2]);
 pid_t waitpid(pid_t pid, int *stat_loc, int options);
-int utime(const char *path, const struct utimbuf *times);
+int utime(const char *, const struct utimbuf *);
 int tcsetattr(int fd, int optional_actions, const struct termios *termios_p);
 int tcgetattr(int fd, struct termios *termios_p);
 int sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
@@ -102,13 +134,13 @@ int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
 int epoll_wait(int, struct epoll_event *, int, int);
 int select(int nfds, fd_set *reads, fd_set *writes, fd_set *excs,
            struct timeval *timeout);
-iconv_t iconv_open(const char *tocode, const char *fromcode);
-size_t iconv(iconv_t cd, char **inbuf, size_t *inbytes,
-                         char **outbuf, size_t *outbytes);
-int iconv_close(iconv_t cd);
+void FD_ZERO(fd_set *set);
+void FD_SET(int fd, fd_set *set);
 int __xstat(int ver, const char *path, struct stat *stat_buf);
 int __lxstat(int ver, const char *path, struct stat *stat_buf);
 int __fxstat(int ver, int fildes, struct stat *stat_buf);
+int fstat(int fd, struct stat *buf);
+int lstat(const char *path, struct stat *buf);
 char *nl_langinfo(nl_item item);
 
 #endif
