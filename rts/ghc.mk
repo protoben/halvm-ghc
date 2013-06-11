@@ -561,6 +561,12 @@ ifeq "$(HaveLibMingwEx)" "YES"
 rts_PACKAGE_CPP_OPTS += -DHAVE_LIBMINGWEX
 endif
 
+ifeq "$(TargetOS_CPP)" "HaLVM"
+rts_PACKAGE_CPP_OPTS += -DHALVM_SYSTEM_INCLUDES=$(ghcheaderdir)/../../../include
+else
+rts_PACKAGE_CPP_OPTS += -DHALVM_SYSTEM_INCLUDES=
+endif
+
 $(eval $(call manual-package-config,rts))
 
 rts/package.conf.inplace : $(includes_H_CONFIG) $(includes_H_PLATFORM)
