@@ -11,31 +11,37 @@
 #include "Ticker.h"
 #include "time.h"
 #include "limits.h"
+#include "arch.h"
 
 // Below to remove warnings.
 lnat getourtimeofday(void);
+lnat getDelayTarget(HsInt);
 // Above to remove warnings.
 
+/* Results to be provided in nanoseconds */
 Time getThreadCPUTime(void)
 {
-  /* FIXME: We could probably do better than this. */
-  return NSEC_TO_USEC(monotonic_clock()) / 1000;
+  /* monotonic clock is given in nanoseconds */
+  return monotonic_clock();
 }
 
+/* Results to be provided in nanoseconds */
 Time getProcessCPUTime(void)
 {
-  return NSEC_TO_USEC(monotonic_clock()) / 1000;
+  return monotonic_clock();
 }
 
+/* Results to be provided in nanoseconds */
 Time getProcessElapsedTime(void)
 {
-  return NSEC_TO_USEC(monotonic_clock()) / 1000;
+  return monotonic_clock();
 }
 
+/* Results to be provided in nanoseconds */
 void getProcessTimes(Time *user, Time *elapsed)
 {
-  *user    = NSEC_TO_USEC(monotonic_clock()) / 1000;
-  *elapsed = NSEC_TO_USEC(monotonic_clock()) / 1000;
+  *user    = monotonic_clock();
+  *elapsed = monotonic_clock();
 }
 
 void initializeTimer(void)
@@ -69,14 +75,6 @@ void exitTicker  ( rtsBool wait __attribute__((unused)) )
   saved_ticker = NULL;
 }
 
-lnat getDelayTarget(HsInt us)
-{
-  lnat now = getourtimeofday();
-  nat interval = RtsFlags.MiscFlags.tickInterval;
-
-  return now + (us / (interval * 1000));
-}
-
 StgWord64 getMonotonicNSec(void)
 {
   return monotonic_clock();
@@ -88,20 +86,32 @@ lnat getourtimeofday(void)
 {
   //static u64 last_time = 0;
   struct timeval tv;
-  nat  interval;
-  u64  work;
+  u64  work, ticks_per_sec;
 
   gettimeofday(&tv, (struct timezone *)NULL);
-
-  interval = RtsFlags.MiscFlags.tickInterval;
-  if(interval == 0) { interval = 50; }
-
-  // cast to lnat because nat may be 64 bit when int is only 32 bit
-  work  = (u64)tv.tv_sec * (1000 / interval);
-  work += (u64)tv.tv_usec / (interval * 1000);
-  //assert(last_time <= work);
-  //last_time = work;
-  work &= LONG_MAX;
+  /* The tickInterval is given in units of TIME_RESOLUTION, which is */
+  /* given in Hertz. So we need to translate between the underlying  */
+  /* clock information -- given in seconds and microseconds -- into  */
+  /* that format and then divide by the tickInterval, hoping not to  */
+  /* lose too much precision along the way.                          */
+  assert(TIME_RESOLUTION > RtsFlags.MiscFlags.tickInterval);
+  /* To get to ticks, we want to multiply the number of seconds by   */
+  /* the number of ticks per second.                                 */
+  ticks_per_sec = TIME_RESOLUTION / RtsFlags.MiscFlags.tickInterval;
+  work          = ticks_per_sec  * tv.tv_sec;
+  /* Similarly, we'll want to figure out how many microseconds there */
+  /* are per tick.                                                   */
+  if(TIME_RESOLUTION > 1000000) {
+    /* in this case, our time resolution is finer than a microsecond */
+    u64 points_per_usec = TIME_RESOLUTION / 1000000;
+    u64 converted_usec  = points_per_usec * tv.tv_usec;
+    work               += converted_usec / RtsFlags.MiscFlags.tickInterval;
+  } else {
+    /* in this case, our time resolution is worse than a microsecond */
+    u64 usecs_per_point = 1000000 / TIME_RESOLUTION;
+    u64 converted_usec  = tv.tv_usec / usecs_per_point;
+    work               += converted_usec / RtsFlags.MiscFlags.tickInterval;
+  }
 
   return (lnat)work;
 }

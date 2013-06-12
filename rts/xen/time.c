@@ -312,10 +312,10 @@ int getrusage(int who __attribute__ ((unused)), struct rusage *usage)
   // We are all users here.
   usage->ru_stime.tv_sec = 0;
   usage->ru_stime.tv_usec = 0;
-
+  // Convert our nanosecond information.
   usage->ru_utime.tv_sec = NSEC_TO_SEC(diff);
   // Pull out the seconds we've computed above
-  diff -= NSEC_TO_SEC(diff) * 1000000000;
+  diff -= SEC_TO_NSEC(NSEC_TO_SEC(diff));
   usage->ru_utime.tv_usec = NSEC_TO_USEC(diff);
   usage->ru_maxrss = start_info->nr_pages * 4096;
   usage->ru_ixrss = current_memory_reservation * 4096;
@@ -329,7 +329,7 @@ time_t mktime(struct tm *tm)
   int cur_year = 1970; /* Groovy, man */
   int cur_month = 0, cur_day = 0, cur_hour = 0, cur_min = 0;
   time_t work = 0;
-  
+
   while(cur_year < tm->tm_year)
     work += secs_per_year(cur_year++);
   while(cur_month < tm->tm_mon)
