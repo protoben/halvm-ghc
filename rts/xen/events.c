@@ -57,8 +57,9 @@ inline void clear_evtchn(u32 port)
 }
 
 // Mark the haskell handlers
-void mark_event_handlers(evac_fn evac, void *user)
+void mark_event_handlers(void* evac_in, void *user)
 {
+  evac_fn evac = (evac_fn)evac_in;
   int i; 
 
   for(i = 0; i < NR_EVS; i++)

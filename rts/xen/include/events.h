@@ -25,7 +25,6 @@
 #include <xen/event_channel.h>
 #include <types.h>
 #include "Rts.h"
-#include "sm/GC.h"
 
 #if defined(THREADED_RTS)
 void startSignalHandlers(Capability *);
@@ -34,7 +33,7 @@ void startSignalHandlers(Capability *);
 void ioManagerStartCap(/* inout */ Capability *);
 
 /* prototypes */
-void mark_event_handlers(evac_fn evac, void *user);
+void mark_event_handlers(void *evac, void *user);
 void do_event(u32 port, struct pt_regs *regs);
 s32 bind_virq(u32 virq, u32 vcpu);
 s32 bind_pirq(u32 pirq, int share);
