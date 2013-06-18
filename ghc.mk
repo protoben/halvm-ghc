@@ -381,7 +381,11 @@ ifeq "$(Windows_Host)" "YES"
 PACKAGES_STAGE1 += Win32
 endif
 
+ifeq "$(TargetOS_CPP)" "HaLVM"
+PACKAGES_STAGE0 += time
+else
 PACKAGES_STAGE1 += time
+endif
 
 ifeq "$(Windows_Host)" "YES"
 else ifeq "$(Bare_Metal)" "YES"
