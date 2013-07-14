@@ -23,7 +23,6 @@ s32 gnttab_grant_foreign_transfer_ref(grant_ref_t ref, domid_t domid);
 s32 gnttab_reset_foreign_transfer_ref(grant_ref_t ref);
 void *gnttab_finish_foreign_transfer_ref(grant_ref_t ref);
 int gnttab_transfer_page_to_dom(void *page, domid_t dom, grant_ref_t ref);
-void *gnttab_address_of(grant_ref_t ref);
 grant_handle_t gnttab_map_grant_ref(void *host_addr,domid_t dom,grant_ref_t ref,int writable); 
 s32 gnttab_unmap_grant_ref(void *p, grant_handle_t handle);
 int gnttab_grant_copy(unsigned long src, 

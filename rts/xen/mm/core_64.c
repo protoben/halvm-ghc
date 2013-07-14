@@ -111,7 +111,7 @@ static pt_entry_t pte_virt_address(vaddr_t ptr) {
 // NOTE: Modifies temp_table.
 static pt_entry_t map_page_table_for(vaddr_t ptr) {
   pt_entry_t entry = pte_virt_address(ptr);
-  return entry == (-1) ? 0 : entry;
+  return (long)entry == (-1) ? 0 : entry;
 }
 
 

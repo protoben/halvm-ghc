@@ -20,6 +20,7 @@ char *getenv(const char *name __attribute__((unused)))
   return NULL; // There is no environment, so this always returns "not found"
 }
 
+__attribute__ ((noreturn))
 void abort(void)
 {
   printf("Abort called!\n");

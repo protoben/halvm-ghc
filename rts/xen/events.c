@@ -334,7 +334,7 @@ void force_evtchn_callback(void)
 {
   vcpu_info_t *vcpu = &HYPERVISOR_shared_info->vcpu_info[0];
   int save = vcpu->evtchn_upcall_mask;
-  
+
   while(vcpu->evtchn_upcall_pending) {
     vcpu->evtchn_upcall_mask = 1;
     barrier();
@@ -345,9 +345,7 @@ void force_evtchn_callback(void)
   }
 }
 
-extern int signals_pending(void);
-
-int pause(void) 
+int pause(void)
 {
   // All the ifs / clis / forces are due to obscene little race conditions,
   // where if we're not very careful, we lose events.

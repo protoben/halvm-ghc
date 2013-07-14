@@ -85,6 +85,7 @@ grant_handle_t gnttab_map_grant_ref(void *host_addr,
 {
     struct gnttab_map_grant_ref map;
     int res;
+
 #ifdef GNTMAP_application_map
     uint32_t flags = GNTMAP_host_map | GNTMAP_application_map | (writable ? 0 : GNTMAP_readonly);
 #else
@@ -96,10 +97,13 @@ grant_handle_t gnttab_map_grant_ref(void *host_addr,
     map.ref = ref;
     map.dom = dom;
     res = HYPERVISOR_grant_table_op(GNTTABOP_map_grant_ref, &map, 1);
+    if(res < 0)
+      return res;
+
     if (map.status < 0)
       return map.status;
-    else 
-      return map.handle;
+
+    return map.handle;
 }
 
 s32 gnttab_unmap_grant_ref(void *host_addr, grant_handle_t handle) 
@@ -173,7 +177,7 @@ s32 gnttab_reset_foreign_transfer_ref(grant_ref_t ref)
     pframe = machine_to_phys_mapping[mframe];
     maddr = ((maddr_t)mframe << PAGE_SHIFT);
     ptr = machine_to_virtual(maddr);
-    if(ptr) disclaim_vspace(ptr, ptr + PAGE_SIZE);
+    if(ptr) disclaim_vspace(ptr, (vaddr_t)((unsigned long)ptr + PAGE_SIZE));
     return grant_foreign_transfer_ref(ref, dom, pframe, mframe);
   }
 }

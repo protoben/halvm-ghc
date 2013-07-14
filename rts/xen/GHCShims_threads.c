@@ -87,6 +87,7 @@ lnat getDelayTarget(HsInt us)
   return microseconds_to_target(us) + ticks_to_target(now);
 }
 
+#ifndef THREADED_RTS
 static rtsBool wakeUpSleepingThreads(lnat ticks)
 {
   StgTSO *tso;
@@ -146,6 +147,7 @@ void awaitEvent(rtsBool wait)
   } while( wait && (sched_state == SCHED_RUNNING) 
                 && emptyRunQueue(&MainCapability) );
 }
+#endif
 
 #ifdef THREADED_RTS
 static inline uint32_t atomic_cas_u32(uint32_t *ptr, uint32_t old, uint32_t new)
@@ -164,12 +166,12 @@ static inline uint32_t atomic_cas_u32(uint32_t *ptr, uint32_t old, uint32_t new)
     return res;
 }
 
-int halvm_acquire_lock(Mutex *m)
+void halvm_acquire_lock(Mutex *m)
 {
   while(atomic_cas_u32(m, 0, 1)) { }
 }
 
-int halvm_release_lock(Mutex *m)
+void halvm_release_lock(Mutex *m)
 {
   *m = 0;
 }

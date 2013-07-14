@@ -98,7 +98,8 @@ char **environ = NULL;
 
 extern int main(int argc, char *argv[]);
 
-void c_start(void *si) 
+__attribute__ ((noreturn))
+void c_start(void *si)
 {
   printf("Booting HaLVM ... ");
 
@@ -145,6 +146,7 @@ void c_start(void *si)
 // Exit
 //
 
+__attribute__ ((noreturn))
 void do_exit(void)
 {
     printf("Do_exit called!\n");

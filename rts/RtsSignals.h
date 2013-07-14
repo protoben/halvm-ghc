@@ -19,7 +19,6 @@
 
 #elif defined(HaLVM_TARGET_OS)
 
-extern int signals_pending(void);
 extern void startSignalHandlers(Capability *cap);
 
 #else

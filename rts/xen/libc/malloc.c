@@ -56,7 +56,6 @@
 // These are standard for x86/Xen
 #define PGSHIFT 12
 #define STDERR_FILENO 3
-#define MAP_FAILED NULL
 #define PROT_NONE 0
 #define arc4random() 2357
 
@@ -940,7 +939,7 @@ malloc_pages(size_t size)
 		}
 		pd = pi->base;
 		pd[PI_OFF(index)] = MALLOC_FIRST;
-		for (i = 1; i < size; i++) {
+		for (i = 1; (size_t)i < size; i++) {
 			if (!PI_OFF(index + i)) {
 				pidx++;
 				pi = pi->next;
@@ -1057,7 +1056,7 @@ malloc_make_chunks(int bits)
 	i = 0;
 
 	/* Do a bunch at a time */
-	for (; (k - i) >= MALLOC_BITS; i += MALLOC_BITS)
+	for (; (k - i) >= (int)MALLOC_BITS; i += MALLOC_BITS)
 		bp->bits[i / MALLOC_BITS] = ~0UL;
 
 	for (; i < k; i++)

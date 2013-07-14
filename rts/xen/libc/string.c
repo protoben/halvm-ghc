@@ -99,7 +99,7 @@ void  *memchr(const void *s, int c, size_t n)
 
   for(i = 0; i < n; i++)
     if(((unsigned char*)s)[i] == (unsigned char)c)
-      return (void*)(s + i);
+      return (void*)((unsigned long)s + i);
 
   return NULL;
 }
@@ -178,7 +178,7 @@ void   bzero(void *ptr, size_t size)
 
 char *strdup(const char *s)
 {
-  size_t bufsize = strlen(s) + 1, i;
+  size_t bufsize = strlen(s) + 1;
   char *retval = malloc(bufsize);
   printf("strdup\n");
   if(retval) memcpy(retval, s, bufsize);

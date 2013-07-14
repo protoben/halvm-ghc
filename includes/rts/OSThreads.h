@@ -166,10 +166,12 @@ typedef HANDLE Mutex;
 #define ASSERT_LOCK_HELD(mutex) /* nothing */
 #else
 typedef unsigned long Condition;
-typedef unsigned long Mutex;
+typedef uint32_t Mutex;
 typedef unsigned long OSThreadId;
 typedef unsigned long ThreadLocalKey;
 
+void halvm_acquire_lock(Mutex *lock);
+void halvm_release_lock(Mutex *lock);
 #define ACQUIRE_LOCK(mutex) halvm_acquire_lock(mutex)
 #define RELEASE_LOCK(mutex) halvm_release_lock(mutex)
 #define ASSERT_LOCK_HELD(mutex) /* nothing */

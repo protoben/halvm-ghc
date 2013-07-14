@@ -68,24 +68,24 @@ struct pt_regs {
 
 void init_traps(void);
 void dump_fpu_information(void);
-void do_divide_error(struct pt_regs *, unsigned long);
-void do_int3(struct pt_regs *, unsigned long);
-void do_overflow(struct pt_regs *, unsigned long);
-void do_bounds(struct pt_regs *, unsigned long);
-void do_invalid_op(struct pt_regs *, unsigned long);
-void do_device_not_available(struct pt_regs *, unsigned long);
-void do_coprocessor_segment_overrun(struct pt_regs *, unsigned long);
-void do_invalid_TSS(struct pt_regs *, unsigned long);
-void do_segment_not_present(struct pt_regs *, unsigned long);
-void do_stack_segment(struct pt_regs *, unsigned long);
-void do_alignment_check(struct pt_regs *, unsigned long);
-void do_machine_check(struct pt_regs *, unsigned long);
-void do_page_fault(struct pt_regs *, unsigned long);
-void do_general_protection(struct pt_regs *, long);
-void do_debug(struct pt_regs *);
-void do_coprocessor_error(struct pt_regs *);
-void simd_math_error(void *eip);
-void do_simd_coprocessor_error(struct pt_regs * regs);
-void do_spurious_interrupt_bug(struct pt_regs *);
+void do_divide_error(struct pt_regs *, unsigned long) __attribute((noreturn));
+void do_int3(struct pt_regs *, unsigned long) __attribute((noreturn));
+void do_overflow(struct pt_regs *, unsigned long) __attribute((noreturn));
+void do_bounds(struct pt_regs *, unsigned long) __attribute((noreturn));
+void do_invalid_op(struct pt_regs *, unsigned long) __attribute((noreturn));
+void do_device_not_available(struct pt_regs *, unsigned long) __attribute((noreturn));
+void do_coprocessor_segment_overrun(struct pt_regs *, unsigned long) __attribute((noreturn));
+void do_invalid_TSS(struct pt_regs *, unsigned long) __attribute((noreturn));
+void do_segment_not_present(struct pt_regs *, unsigned long) __attribute((noreturn));
+void do_stack_segment(struct pt_regs *, unsigned long) __attribute((noreturn));
+void do_alignment_check(struct pt_regs *, unsigned long) __attribute((noreturn));
+void do_machine_check(struct pt_regs *, unsigned long) __attribute((noreturn));
+void do_page_fault(struct pt_regs *, unsigned long) __attribute((noreturn));
+void do_general_protection(struct pt_regs *, long) __attribute((noreturn));
+void do_debug(struct pt_regs *) __attribute((noreturn));
+void do_coprocessor_error(struct pt_regs *) __attribute((noreturn));
+void simd_math_error(void *eip) __attribute((noreturn));
+void do_simd_coprocessor_error(struct pt_regs * regs) __attribute((noreturn));
+void do_spurious_interrupt_bug(struct pt_regs *) __attribute((noreturn));
 
 #endif /* _TRAPS_H_ */

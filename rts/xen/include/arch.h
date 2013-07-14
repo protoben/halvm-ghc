@@ -20,7 +20,7 @@
 #ifndef __ASSEMBLY__
 #include <types.h>
 
-extern void do_exit(void);
+extern void do_exit(void) __attribute__((noreturn));
 #define BUG do_exit
 
 #endif

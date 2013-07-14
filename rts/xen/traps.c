@@ -53,11 +53,17 @@ void dump_fpu_information()
 {
   struct fpstate *fpst = (struct fpstate *)fpu_state_space;
   asm volatile ("fxsave %0" : : "m" (*fpst));
+#ifdef __i386__
   printf("FPU_CS: %04x FPU_IP: %08lx  FPU_DS: %04x FPU_DP: %08lx\n",
-	     fpst->fpu_cs, fpst->fpu_ip, fpst->fpu_ds, fpst->fpu_dp);
+         fpst->fpu_cs, fpst->fpu_ip, fpst->fpu_ds, fpst->fpu_dp);
+  printf("FPU_CSR: %08lx FPU_CSR_MASK: %08lx\n", fpst->mxcsr, fpst->mxcsr_mask);
+#else
+  printf("FPU_CS: %04x FPU_IP: %08x  FPU_DS: %04x FPU_DP: %08x\n",
+         fpst->fpu_cs, fpst->fpu_ip, fpst->fpu_ds, fpst->fpu_dp);
+  printf("FPU_CSR: %08x FPU_CSR_MASK: %08x\n", fpst->mxcsr, fpst->mxcsr_mask);
+#endif
   printf("FPU_ControlWord: %04x FPU_StateWord: %04x\n", fpst->fcw, fpst->fsw);
   printf("FPU_TagWord: %02x FPU_OpCode: %04x\n", fpst->ftw, fpst->fop);
-  printf("FPU_CSR: %08lx FPU_CSR_MASK: %08lx\n", fpst->mxcsr, fpst->mxcsr_mask);
 }
 
 static void dump_regs(struct pt_regs *regs)
@@ -91,6 +97,7 @@ static void dump_regs(struct pt_regs *regs)
 #endif
 }
 
+__attribute__((noreturn))
 static void do_trap(int trapnr, char *str, struct pt_regs * regs, unsigned long error_code)
 {
     printf("FATAL:  Unhandled Trap %d (%s), error code=0x%lx\n", trapnr, str, error_code);
@@ -142,7 +149,7 @@ void do_general_protection(struct pt_regs *regs, long error_code)
 #ifdef __i386__
     printf("GPF eip: %08lx, error_code=%lx\n", regs->eip, error_code);
 #else    
-    printf("GPF rip: %p, error_code=%lx\n", regs->rip, error_code);
+    printf("GPF rip: %p, error_code=%lx\n", (void*)regs->rip, error_code);
 #endif
     dump_regs(regs);
     do_exit();
@@ -168,17 +175,20 @@ void do_coprocessor_error(struct pt_regs * regs)
 void simd_math_error(void *eip)
 {
     printf("SIMD error at EIP %p\n", eip);
+    do_exit();
 }
 
 void do_simd_coprocessor_error(struct pt_regs * regs)
 {
     printf("SIMD copro error\n");
     dump_regs(regs);
+    do_exit();
 }
 
 void do_spurious_interrupt_bug(struct pt_regs * regs __attribute__((unused)))
 {
   printf("Spurious interrupt!\n");
+  do_exit();
 }
 
 /*

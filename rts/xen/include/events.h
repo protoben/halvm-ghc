@@ -26,10 +26,6 @@
 #include <types.h>
 #include "Rts.h"
 
-#if defined(THREADED_RTS)
-void startSignalHandlers(Capability *);
-#endif
-
 void ioManagerStartCap(/* inout */ Capability *);
 
 /* prototypes */

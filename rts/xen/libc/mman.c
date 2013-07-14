@@ -11,6 +11,7 @@
 #include <mm.h>
 #include <strings.h>
 #include <stdio.h>
+#include <hbmxen.h>
 
 void *mmap(void *start, size_t length, int prot, 
 	       int flags __attribute__((unused)), 
@@ -22,13 +23,13 @@ void *mmap(void *start, size_t length, int prot,
   // If the caller has specified an address to use, see if the range is 
   // unmapped
   if(start) {
-    void *cur = start, *end = start + length;
+    void *cur = start, *end = (void*)((unsigned long)start + length);
     int is_unmapped = 1;
 
     // In fact, see if the whole things is unmapped ...
     while(is_unmapped && (cur < end)) {
       is_unmapped = !address_mapped(cur);
-      cur += PAGE_SIZE;
+      cur = (void*)((unsigned long)cur + PAGE_SIZE);
     }
     if(is_unmapped) {
       // Amazing. We can grant their request.
@@ -44,11 +45,13 @@ void *mmap(void *start, size_t length, int prot,
   // Find somewhere to put this.
   start = claim_vspace(NULL, length);
   if(start) {
-    if(back_pages(start, start + length, prot)) {
+    void *endptr = (void*)((unsigned long)start + length);
+
+    if(back_pages(start, endptr, prot)) {
       bzero(start, length);
       return start;
     }
-    disclaim_vspace(start, start + length);
+    disclaim_vspace(start, endptr);
     return NULL;
   } else return NULL;
 }
@@ -63,26 +66,29 @@ int munmap(void *start, size_t length)
   return 0;
 }
 
-void *mremap(void *old_address, size_t old_size, size_t new_size, 
+void *mremap(void *old_address, size_t old_size_in, size_t new_size_in,
 	     int flags __attribute__((unused)))
 {
-  old_size = round2page(old_size);
-  new_size = round2page(new_size);
+  size_t old_size = round2page(old_size_in);
+  size_t new_size = round2page(new_size_in);
+  void  *oldend   = (void*)((unsigned long)old_address + old_size);
+  void  *newend   = (void*)((unsigned long)old_address + new_size);
+
   if(old_size == new_size)
     return old_address;
+
   if(old_size < new_size) {
     // See if we can claim the relevant space
-    if(claim_vspace(old_address + old_size, new_size - old_size)) {
-      back_pages(old_address + old_size, old_address + new_size, 
-		 get_page_protection(old_address));
+    vaddr_t res = claim_vspace(oldend, new_size - old_size);
+    if(res) {
+      back_pages(oldend, newend, get_page_protection(old_address));
       return old_address;
-    } 
+    }
     // It's being used
     return NULL;
   } else {
-    unback_pages(old_address + new_size, old_address + old_size, 1);
-    disclaim_vspace(old_address + new_size, 
-		    old_address + (old_size - new_size));
+    unback_pages(newend, oldend, 1);
+    disclaim_vspace(newend, (void*)((size_t)old_address + (old_size-new_size)));
     return old_address;
   }
 }

@@ -14,6 +14,6 @@
 
 extern start_info_t *start_info;
 
-void c_start(void *si);
+void c_start(void *si) __attribute__((noreturn));
 
 #endif

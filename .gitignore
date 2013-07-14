@@ -175,3 +175,10 @@ _darcs/
 .tm_properties
 
 rts/xen/include/xen
+
+.fixed-gmp
+.halvm-base
+.linked-gmp
+.linked-rts
+.linked-xen
+.sync

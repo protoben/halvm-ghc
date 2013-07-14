@@ -61,13 +61,13 @@ static pfn_t     last_found_pfn             = 0;
 #define CLEAR_MFN_IN_USE(x) ((x) & (~MFN_IN_USE_BIT))
 #define NUM(x) 	            ((uintptr_t)(x))
 
-static inline void set_pframe_used(pfn_t pfn)
+static void set_pframe_used(pfn_t pfn)
 {
   assert(!MFN_IN_USE(phys_to_machine_mapping[pfn]));
   phys_to_machine_mapping[pfn] = SET_MFN_IN_USE(phys_to_machine_mapping[pfn]);
 }
 
-static inline void return_pframe(pfn_t pfn)
+static void return_pframe(pfn_t pfn)
 {
   assert(MFN_IN_USE(phys_to_machine_mapping[pfn]));
   phys_to_machine_mapping[pfn] = CLEAR_MFN_IN_USE(phys_to_machine_mapping[pfn]);
