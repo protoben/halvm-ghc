@@ -361,7 +361,9 @@ else
 PACKAGES_STAGE0 = Cabal/Cabal hpc bin-package-db hoopl transformers
 ifeq "$(Windows_Host)" "NO"
 ifneq "$(HostOS_CPP)" "ios"
+ifneq "$(TargetOS_CPP)" "HaLVM"
 PACKAGES_STAGE0 += terminfo
+endif
 endif
 endif
 
@@ -375,39 +377,23 @@ PACKAGES_STAGE1 += bytestring
 PACKAGES_STAGE1 += containers
 PACKAGES_STAGE1 += old-locale
 
-ifneq "$(Bare_Metal)" "YES"
-
 ifeq "$(Windows_Host)" "YES"
 PACKAGES_STAGE1 += Win32
 endif
-
-ifeq "$(TargetOS_CPP)" "HaLVM"
-PACKAGES_STAGE0 += time
-else
 PACKAGES_STAGE1 += time
-endif
-
-ifeq "$(Windows_Host)" "YES"
-else ifeq "$(Bare_Metal)" "YES"
-else
+ifeq "$(Windows_Host)" "NO"
+ifneq "$(TargetOS_CPP)" "HaLVM"
 PACKAGES_STAGE1 += unix
 endif
+endif
 
+ifneq "$(TargetOS_CPP)" "HaLVM"
 PACKAGES_STAGE1 += directory
 PACKAGES_STAGE1 += process
 PACKAGES_STAGE1 += hpc
 PACKAGES_STAGE1 += Cabal/Cabal
 PACKAGES_STAGE1 += bin-package-db
-PACKAGES_STAGE1 += haskeline
-
-ifeq "$(Windows_Target)" "NO"
-ifneq "$(TargetOS_CPP)" "ios"
-PACKAGES_STAGE1 += terminfo
 endif
-endif
-
-endif # $(Bare_Metal) /= YES
-
 PACKAGES_STAGE1 += pretty
 PACKAGES_STAGE1 += template-haskell
 PACKAGES_STAGE1 += binary
@@ -428,6 +414,20 @@ endif
 REGULAR_INSTALL_PACKAGES += $(addprefix libraries/,$(PACKAGES_STAGE2))
 
 PACKAGES_STAGE1 += xhtml
+ifeq "$(Windows_Target)" "NO"
+ifneq "$(TargetOS_CPP)" "ios"
+ifneq "$(TargetOS_CPP)" "HaLVM"
+PACKAGES_STAGE1 += terminfo
+endif
+endif
+endif
+ifneq "$(TargetOS_CPP)" "HaLVM"
+PACKAGES_STAGE1 += haskeline
+endif
+
+ifeq "$(TargetOS_CPP)" "HaLVM"
+PACKAGES_STAGE1 += HALVMCore
+endif
 
 # If we have built the programs with dynamic libraries, then
 # ghc will be dynamically linked against haskeline.so etc, so
