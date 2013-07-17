@@ -406,6 +406,10 @@ PACKAGES_STAGE2 += haskell98
 PACKAGES_STAGE2 += haskell2010
 endif
 
+ifeq "$(TargetOS_CPP)" "HaLVM"
+PACKAGES_STAGE1 += HALVMCore
+endif
+
 # We normally install only the packages down to this point
 REGULAR_INSTALL_PACKAGES := $(addprefix libraries/,$(PACKAGES_STAGE1))
 ifeq "$(Stage1Only)" "NO"
@@ -423,10 +427,6 @@ endif
 endif
 ifneq "$(TargetOS_CPP)" "HaLVM"
 PACKAGES_STAGE1 += haskeline
-endif
-
-ifeq "$(TargetOS_CPP)" "HaLVM"
-PACKAGES_STAGE1 += HALVMCore
 endif
 
 # If we have built the programs with dynamic libraries, then
