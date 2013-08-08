@@ -153,6 +153,9 @@ INSTALL_LIBS += $(includes_GHCCONSTANTS_HASKELL_VALUE)
 DERIVE_CONSTANTS_FLAGS += --gcc-program "$(WhatGccIsCalled)"
 DERIVE_CONSTANTS_FLAGS += $(addprefix --gcc-flag$(space),$(includes_CC_OPTS) -fcommon)
 DERIVE_CONSTANTS_FLAGS += --nm-program "$(NM)"
+ifeq "$(TargetOS_CPP)" "HaLVM"
+DERIVE_CONSTANTS_FLAGS += --gcc-flag -Irts/xen/include
+endif
 
 ifneq "$(BINDIST)" "YES"
 $(includes_DERIVEDCONSTANTS):           $$(includes_H_CONFIG) $$(includes_H_PLATFORM) $$(includes_H_FILES) $$(rts_H_FILES)

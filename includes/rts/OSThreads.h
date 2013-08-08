@@ -158,22 +158,25 @@ typedef HANDLE Mutex;
 
 # elif defined(HaLVM_TARGET_OS)
 
-#define OSThreadProcAttr  /* */
-
 #if CMINUSMINUS
 #define ACQUIRE_LOCK(mutex) foreign "C" halvm_acquire_lock(mutex)
 #define RELEASE_LOCK(mutex) foreign "C" halvm_release_lock(mutex)
 #define ASSERT_LOCK_HELD(mutex) /* nothing */
 #else
-typedef unsigned long Condition;
-typedef uint32_t Mutex;
-typedef unsigned long OSThreadId;
-typedef unsigned long ThreadLocalKey;
 
-void halvm_acquire_lock(Mutex *lock);
-void halvm_release_lock(Mutex *lock);
-#define ACQUIRE_LOCK(mutex) halvm_acquire_lock(mutex)
-#define RELEASE_LOCK(mutex) halvm_release_lock(mutex)
+#include <locks.h>
+
+typedef halvm_condlock_t Condition;
+typedef halvm_mutex_t    Mutex;
+typedef halvm_vcpu_t     OSThreadId;
+typedef halvm_vcpukey_t  ThreadLocalKey;
+
+#define OSThreadProcAttr /* */
+#define INIT_COND_VAR    HALVM_CONDLOCK_INITIALIZER
+
+#define ACQUIRE_LOCK(mutex)     halvm_acquire_lock(mutex)
+#define TRY_ACQUIRE_LOCK(mutex) halvm_try_acquire_lock(mutex)
+#define RELEASE_LOCK(mutex)     halvm_release_lock(mutex)
 #define ASSERT_LOCK_HELD(mutex) /* nothing */
 #endif
 

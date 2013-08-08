@@ -568,8 +568,10 @@ $(eval $(call set_stage_HSC2HS_OPTS,0))
 $(eval $(call set_stage_HSC2HS_OPTS,1))
 $(eval $(call set_stage_HSC2HS_OPTS,2))
 ifeq "$(CrossCompiling)" "YES"
+ifneq "$(TargetOS_CPP)" "HaLVM"
 SRC_HSC2HS_OPTS_STAGE1 += --cross-compile
 SRC_HSC2HS_OPTS_STAGE2 += --cross-compile
+endif
 endif
 SRC_HSC2HS_OPTS_STAGE0 += --cflag=-D$(HostArch_CPP)_HOST_ARCH=1 --cflag=-D$(HostOS_CPP)_HOST_OS=1
 SRC_HSC2HS_OPTS_STAGE1 += --cflag=-D$(TargetArch_CPP)_HOST_ARCH=1 --cflag=-D$(TargetOS_CPP)_HOST_OS=1

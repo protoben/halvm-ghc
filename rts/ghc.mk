@@ -34,7 +34,7 @@ ALL_DIRS = hooks sm eventlog
 ifeq "$(HostOS_CPP)" "mingw32"
 ALL_DIRS += win32
 else ifeq "$(TargetOS_CPP)" "HaLVM"
-ALL_DIRS += xen xen/libc
+ALL_DIRS += xen minlibc
 else
 ALL_DIRS += posix
 endif
@@ -304,10 +304,7 @@ rts_CC_OPTS += -DBE_CONSERVATIVE
 endif
 
 ifeq "$(TargetOS_CPP)" "HaLVM"
-rts_CC_OPTS += -nostdinc -Irts/xen/include -Irts/xen/include/sys
-
-# not sure if this is the right way to resolve the xen/xen.h includes
-rts_CC_OPTS += -I/usr/include
+rts_CC_OPTS += -nostdinc -Irts/minlibc/include -Irts/xen/include
 endif
 
 #-----------------------------------------------------------------------------
