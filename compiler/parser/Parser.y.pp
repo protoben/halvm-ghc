@@ -26,8 +26,16 @@ throw away inlinings as it would normally do in -O0 mode.
 
 -- CPP tricks because we want the directives in the output of the
 -- first CPP pass.
+--
+-- Clang note, 6/17/2013 by aseipp: It is *extremely* important (for
+-- some reason) that there be a line of whitespace between the two
+-- definitions here, and the subsequent use of __IF_GHC_77__ - this
+-- seems to be a bug in clang or something, where having the line of
+-- whitespace will make the preprocessor correctly format the rendered
+-- lines in the 'two step' CPP pass. No, this is not a joke.
 #define __IF_GHC_77__ #if __GLASGOW_HASKELL__ >= 707
-#define __ENDIF__     #endif
+#define __ENDIF__ #endif
+
 __IF_GHC_77__
 -- Required on x86 to avoid the register allocator running out of
 -- stack slots when compiling this module with -fPIC -dynamic.
@@ -51,6 +59,7 @@ import Type             ( funTyCon )
 import ForeignCall
 import OccName          ( varName, dataName, tcClsName, tvName )
 import DataCon          ( DataCon, dataConName )
+import CoAxiom          ( Role(..) )
 import SrcLoc
 import Module
 import Kind             ( Kind, liftedTypeKind, unliftedTypeKind, mkArrowKind )
@@ -265,6 +274,9 @@ incorrect.
  'group'    { L _ ITgroup }     -- for list transform extension
  'by'       { L _ ITby }        -- for list transform extension
  'using'    { L _ ITusing }     -- for list transform extension
+ 'N'        { L _ ITnominal }            -- Nominal role
+ 'R'        { L _ ITrepresentational }   -- Representational role
+ 'P'        { L _ ITphantom }            -- Phantom role
 
  '{-# INLINE'             { L _ (ITinline_prag _ _) }
  '{-# SPECIALISE'         { L _ ITspec_prag }
@@ -461,34 +473,34 @@ header_body2 :: { [LImportDecl RdrName] }
 -- The Export List
 
 maybeexports :: { Maybe [LIE RdrName] }
-        :  '(' exportlist ')'                   { Just $2 }
+        :  '(' exportlist ')'                   { Just (fromOL $2) }
         |  {- empty -}                          { Nothing }
 
-exportlist :: { [LIE RdrName] }
-        : expdoclist ',' expdoclist             { $1 ++ $3 }
+exportlist :: { OrdList (LIE RdrName) }
+        : expdoclist ',' expdoclist             { $1 `appOL` $3 }
         | exportlist1                           { $1 }
 
-exportlist1 :: { [LIE RdrName] }
-        : expdoclist export expdoclist ',' exportlist1 { $1 ++ ($2 : $3) ++ $5 }
-        | expdoclist export expdoclist                 { $1 ++ ($2 : $3) }
+exportlist1 :: { OrdList (LIE RdrName) }
+        : expdoclist export expdoclist ',' exportlist1 { $1 `appOL` $2 `appOL` $3 `appOL` $5 }
+        | expdoclist export expdoclist                 { $1 `appOL` $2 `appOL` $3 }
         | expdoclist                                   { $1 }
 
-expdoclist :: { [LIE RdrName] }
-        : exp_doc expdoclist                           { $1 : $2 }
-        | {- empty -}                                  { [] }
+expdoclist :: { OrdList (LIE RdrName) }
+        : exp_doc expdoclist                           { $1 `appOL` $2 }
+        | {- empty -}                                  { nilOL }
 
-exp_doc :: { LIE RdrName }                                                   
-        : docsection    { L1 (case (unLoc $1) of (n, doc) -> IEGroup n doc) }
-        | docnamed      { L1 (IEDocNamed ((fst . unLoc) $1)) } 
-        | docnext       { L1 (IEDoc (unLoc $1)) }       
+exp_doc :: { OrdList (LIE RdrName) }
+        : docsection    { unitOL (L1 (case (unLoc $1) of (n, doc) -> IEGroup n doc)) }
+        | docnamed      { unitOL (L1 (IEDocNamed ((fst . unLoc) $1))) }
+        | docnext       { unitOL (L1 (IEDoc (unLoc $1))) }
 
 
    -- No longer allow things like [] and (,,,) to be exported
    -- They are built in syntax, always available
-export  :: { LIE RdrName }
-        : qcname_ext export_subspec     { LL (mkModuleImpExp (unLoc $1)
-                                                             (unLoc $2)) }
-        |  'module' modid               { LL (IEModuleContents (unLoc $2)) }
+export  :: { OrdList (LIE RdrName) }
+        : qcname_ext export_subspec     { unitOL (LL (mkModuleImpExp (unLoc $1)
+                                                                     (unLoc $2))) }
+        |  'module' modid               { unitOL (LL (IEModuleContents (unLoc $2))) }
 
 export_subspec :: { Located ImpExpSubSpec }
         : {- empty -}                   { L0 ImpExpAbs }
@@ -555,8 +567,8 @@ maybeimpspec :: { Located (Maybe (Bool, [LIE RdrName])) }
         | {- empty -}                           { noLoc Nothing }
 
 impspec :: { Located (Bool, [LIE RdrName]) }
-        :  '(' exportlist ')'                   { LL (False, $2) }
-        |  'hiding' '(' exportlist ')'          { LL (True,  $3) }
+        :  '(' exportlist ')'                   { LL (False, fromOL $2) }
+        |  'hiding' '(' exportlist ')'          { LL (True,  fromOL $3) }
 
 -----------------------------------------------------------------------------
 -- Fixity Declarations
@@ -636,10 +648,10 @@ ty_decl :: { LTyClDecl RdrName }
                 {% mkTySynonym (comb2 $1 $4) $2 $4 }
 
            -- type family declarations
-        | 'type' 'family' type opt_kind_sig 
+        | 'type' 'family' type opt_kind_sig where_type_family
                 -- Note the use of type for the head; this allows
                 -- infix type constructors to be declared
-                {% do { L loc decl <- mkFamDecl (comb3 $1 $3 $4) TypeFamily $3 (unLoc $4)
+                {% do { L loc decl <- mkFamDecl (comb4 $1 $3 $4 $5) (unLoc $5) $3 (unLoc $4)
                       ; return (L loc (FamDecl decl)) } }
 
           -- ordinary data type or newtype declaration
@@ -676,9 +688,6 @@ inst_decl :: { LInstDecl RdrName }
                 {% do { L loc tfi <- mkTyFamInst (comb2 $1 $3) $3
                       ; return (L loc (TyFamInstD { tfid_inst = tfi })) } }
 
-        | 'type' 'instance' 'where' ty_fam_inst_eqn_list
-                { LL (TyFamInstD { tfid_inst = mkTyFamInstGroup (unLoc $4) }) }
-
           -- data/newtype instance declaration
         | data_or_newtype 'instance' tycl_hdr constrs deriving
                 {% do { L loc d <- mkFamInstData (comb4 $1 $3 $4 $5) (unLoc $1) Nothing $3
@@ -693,14 +702,21 @@ inst_decl :: { LInstDecl RdrName }
                                             (unLoc $4) (unLoc $5) (unLoc $6)
                       ; return (L loc (DataFamInstD { dfid_inst = d })) } }
         
--- Type instance groups
+-- Closed type families
+
+where_type_family :: { Located (FamilyInfo RdrName) }
+        : {- empty -}                      { noLoc OpenTypeFamily }
+        | 'where' ty_fam_inst_eqn_list
+               { LL (ClosedTypeFamily (reverse (unLoc $2))) }
 
 ty_fam_inst_eqn_list :: { Located [LTyFamInstEqn RdrName] }
         :     '{' ty_fam_inst_eqns '}'     { LL (unLoc $2) }
         | vocurly ty_fam_inst_eqns close   { $2 }
+        |     '{' '..' '}'                 { LL [] }
+        | vocurly '..' close               { let L loc _ = $2 in L loc [] }
 
 ty_fam_inst_eqns :: { Located [LTyFamInstEqn RdrName] }
-        : ty_fam_inst_eqn ';' ty_fam_inst_eqns   { LL ($1 : unLoc $3) }
+        : ty_fam_inst_eqns ';' ty_fam_inst_eqn   { LL ($3 : unLoc $1) }
         | ty_fam_inst_eqns ';'                   { LL (unLoc $1) }
         | ty_fam_inst_eqn                        { LL [$1] }
 
@@ -708,7 +724,8 @@ ty_fam_inst_eqn :: { LTyFamInstEqn RdrName }
         : type '=' ctype
                 -- Note the use of type for the head; this allows
                 -- infix type constructors and type patterns
-              {% mkTyFamInstEqn (comb2 $1 $3) $1 $3 }
+              {% do { eqn <- mkTyFamInstEqn $1 $3
+                    ; return (LL eqn) } }
 
 -- Associated type family declarations
 --
@@ -724,7 +741,7 @@ at_decl_cls :: { LHsDecl RdrName }
         : 'type' type opt_kind_sig
                 -- Note the use of type for the head; this allows
                 -- infix type constructors to be declared.
-                {% do { L loc decl <- mkFamDecl (comb3 $1 $2 $3) TypeFamily $2 (unLoc $3)
+                {% do { L loc decl <- mkFamDecl (comb3 $1 $2 $3) OpenTypeFamily $2 (unLoc $3)
                       ; return (L loc (TyClD (FamDecl decl))) } }
 
         | 'data' type opt_kind_sig
@@ -1118,6 +1135,7 @@ atype :: { LHsType RdrName }
         | '[:' ctype ':]'                { LL $ HsPArrTy  $2 }
         | '(' ctype ')'                  { LL $ HsParTy   $2 }
         | '(' ctype '::' kind ')'        { LL $ HsKindSig $2 $4 }
+        | atype '@' role                 { LL $ HsRoleAnnot $1 (unLoc $3) }
         | quasiquote                     { L1 (HsQuasiQuoteTy (unLoc $1)) }
         | '$(' exp ')'                   { LL $ mkHsSpliceTy $2 }
         | TH_ID_SPLICE                   { LL $ mkHsSpliceTy $ L1 $ HsVar $
@@ -1155,8 +1173,8 @@ tv_bndrs :: { [LHsTyVarBndr RdrName] }
          | {- empty -}                  { [] }
 
 tv_bndr :: { LHsTyVarBndr RdrName }
-        : tyvar                         { L1 (UserTyVar (unLoc $1)) }
-        | '(' tyvar '::' kind ')'       { LL (KindedTyVar (unLoc $2) $4) }
+        : tyvar                         { L1 (HsTyVarBndr (unLoc $1) Nothing Nothing) }
+        | '(' tyvar '::' kind ')'       { LL (HsTyVarBndr (unLoc $2) (Just $4) Nothing) }
 
 fds :: { Located [Located (FunDep RdrName)] }
         : {- empty -}                   { noLoc [] }
@@ -1173,6 +1191,11 @@ fd :: { Located (FunDep RdrName) }
 varids0 :: { Located [RdrName] }
         : {- empty -}                   { noLoc [] }
         | varids0 tyvar                 { LL (unLoc $2 : unLoc $1) }
+
+role :: { Located Role }
+          : 'N'                         { LL Nominal }
+          | 'R'                         { LL Representational }
+          | 'P'                         { LL Phantom }
 
 -----------------------------------------------------------------------------
 -- Kinds
@@ -1915,7 +1938,7 @@ qtycon :: { Located RdrName }   -- Qualified or unqualified
         | tycon                         { $1 }
 
 tycon   :: { Located RdrName }  -- Unqualified
-        : CONID                         { L1 $! mkUnqual tcClsName (getCONID $1) }
+        : upcase_id                     { L1 $! mkUnqual tcClsName (unLoc $1) }
 
 qtyconsym :: { Located RdrName }
         : QCONSYM                       { L1 $! mkQual tcClsName (getQCONSYM $1) }
@@ -2060,7 +2083,7 @@ qconid :: { Located RdrName }   -- Qualified or unqualified
         | PREFIXQCONSYM         { L1 $! mkQual dataName (getPREFIXQCONSYM $1) }
 
 conid   :: { Located RdrName }
-        : CONID                 { L1 $ mkUnqual dataName (getCONID $1) }
+        : upcase_id             { L1 $ mkUnqual dataName (unLoc $1) }
 
 qconsym :: { Located RdrName }  -- Qualified or unqualified
         : consym                { $1 }
@@ -2097,7 +2120,7 @@ close :: { () }
 -- Miscellaneous (mostly renamings)
 
 modid   :: { Located ModuleName }
-        : CONID                 { L1 $ mkModuleNameFS (getCONID $1) }
+        : upcase_id             { L1 $ mkModuleNameFS (unLoc $1) }
         | QCONID                { L1 $ let (mod,c) = getQCONID $1 in
                                   mkModuleNameFS
                                    (mkFastString
@@ -2107,6 +2130,12 @@ modid   :: { Located ModuleName }
 commas :: { Int }   -- One or more commas
         : commas ','                    { $1 + 1 }
         | ','                           { 1 }
+
+upcase_id :: { Located FastString }
+        : CONID                         { L1 $! getCONID $1 }
+        | 'N'                           { L1 (fsLit "N") }
+        | 'R'                           { L1 (fsLit "R") }
+        | 'P'                           { L1 (fsLit "P") }
 
 -----------------------------------------------------------------------------
 -- Documentation comments

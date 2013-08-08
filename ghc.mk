@@ -76,6 +76,23 @@
 
 default : all
 
+
+##################################################
+# Check that we have a new enough 'make'
+
+HAVE_EVAL := NO
+$(eval HAVE_EVAL := YES)
+
+ifeq "$(HAVE_EVAL)" "NO"
+$(error Your make does not support eval. You need GNU make >= 3.81)
+endif
+
+ifeq "$(abspath /)" ""
+$(error Your make does not support abspath. You need GNU make >= 3.81)
+endif
+##################################################
+
+
 # Catch make if it runs away into an infinite loop
 ifeq      "$(MAKE_RESTARTS)" ""
 else ifeq "$(MAKE_RESTARTS)" "1"
@@ -109,6 +126,14 @@ comma=,
 
 show:
 	@echo '$(VALUE)="$($(VALUE))"'
+
+# echo is used by the nightly builders to query the build system for
+# information.
+# Using printf means that we don't get a trailing newline. We escape
+# backslashes and double quotes in the string to protect them from the
+# shell, and percent signs to protect them from printf.
+echo:
+	@printf "$(subst %,%%,$(subst ",\",$(subst \,\\\\,$($(VALUE)))))"
 
 # -----------------------------------------------------------------------------
 # Include subsidiary build-system bits
@@ -256,6 +281,11 @@ include rules/package-config.mk
 include rules/dependencies.mk
 include rules/build-dependencies.mk
 include rules/include-dependencies.mk
+
+# -----------------------------------------------------------------------------
+# Dynamic library references
+
+include rules/relative-dynlib-references.mk
 
 # -----------------------------------------------------------------------------
 # Build package-data.mk files
@@ -517,7 +547,7 @@ utils/runghc/dist-install/package-data.mk: compiler/stage2/package-data.mk
 utils/mkUserGuidePart/dist/package-data.mk: compiler/stage2/package-data.mk
 
 # add the final package.conf dependency: ghc-prim depends on RTS
-libraries/ghc-prim/dist-install/package-data.mk : rts/package.conf.inplace
+libraries/ghc-prim/dist-install/package-data.mk : rts/dist/package.conf.inplace
 endif
 
 # --------------------------------
@@ -799,7 +829,7 @@ define installLibsTo
 		case $$i in \
 		  *.a) \
 		    $(call INSTALL_DATA,$(INSTALL_OPTS),$$i,$2); \
-		    $(RANLIB) $2/`basename $$i` ;; \
+		    $(RANLIB_CMD) $2/`basename $$i` ;; \
 		  *.dll) \
 		    $(call INSTALL_PROGRAM,$(INSTALL_OPTS),$$i,$2) ; \
 		    $(STRIP_CMD) $2/`basename $$i` ;; \
@@ -884,7 +914,7 @@ INSTALL_DISTDIR_compiler = stage2
 
 # Now we can do the installation
 install_packages: install_libexecs
-install_packages: rts/package.conf.install
+install_packages: rts/dist/package.conf.install
 	$(call INSTALL_DIR,"$(DESTDIR)$(topdir)")
 	$(call removeTrees,"$(INSTALLED_PACKAGE_CONF)")
 	$(call INSTALL_DIR,"$(INSTALLED_PACKAGE_CONF)")
@@ -901,7 +931,7 @@ install_packages: rts/package.conf.install
 	                                  '$(prefix)'                 \
 	                                  '$(ghclibdir)'              \
 	                                  '$(docdir)/html/libraries'))
-	"$(INSTALLED_GHC_PKG_REAL)" --force --global-package-db "$(INSTALLED_PACKAGE_CONF)" update rts/package.conf.install
+	"$(INSTALLED_GHC_PKG_REAL)" --force --global-package-db "$(INSTALLED_PACKAGE_CONF)" update rts/dist/package.conf.install
 	$(foreach p, $(INSTALL_PACKAGES),                             \
 	    $(call make-command,                                      \
 	           "$(ghc-cabal_INPLACE)" register                    \
@@ -995,7 +1025,7 @@ unix-binary-dist-prep:
 	$(call removeFiles,$(BIN_DIST_PREP_TAR))
 # h means "follow symlinks", e.g. if aclocal.m4 is a symlink to a source
 # tree then we want to include the real file, not a symlink to it
-	cd bindistprep && "$(TAR_CMD)" hcf - -T ../$(BIN_DIST_LIST) | bzip2 -c > ../$(BIN_DIST_PREP_TAR_BZ2)
+	cd bindistprep && "$(TAR_CMD)" hcf - -T ../bindist-list | bzip2 -c > ../$(BIN_DIST_PREP_TAR_BZ2)
 
 windows-binary-dist-prep:
 	$(call removeTrees,bindistprep/)
@@ -1055,25 +1085,30 @@ publish-docs:
 SRC_DIST_ROOT      = sdistprep
 SRC_DIST_BASE_NAME = ghc-$(ProjectVersion)
 
-SRC_DIST_GHC_NAME          = ghc-$(ProjectVersion)-src
-SRC_DIST_GHC_ROOT          = $(SRC_DIST_ROOT)/ghc
-SRC_DIST_GHC_DIR           = $(SRC_DIST_GHC_ROOT)/$(SRC_DIST_BASE_NAME)
-SRC_DIST_GHC_TARBALL       = $(SRC_DIST_ROOT)/$(SRC_DIST_GHC_NAME).tar.bz2
+SRC_DIST_GHC_NAME                 = ghc-$(ProjectVersion)-src
+SRC_DIST_GHC_ROOT                 = $(SRC_DIST_ROOT)/ghc
+SRC_DIST_GHC_DIR                  = $(SRC_DIST_GHC_ROOT)/$(SRC_DIST_BASE_NAME)
+SRC_DIST_GHC_TARBALL              = $(SRC_DIST_ROOT)/$(SRC_DIST_GHC_NAME).tar.bz2
 
-SRC_DIST_TESTSUITE_NAME    = ghc-$(ProjectVersion)-testsuite
-SRC_DIST_TESTSUITE_ROOT    = $(SRC_DIST_ROOT)/testsuite-ghc
-SRC_DIST_TESTSUITE_DIR     = $(SRC_DIST_TESTSUITE_ROOT)/$(SRC_DIST_BASE_NAME)
-SRC_DIST_TESTSUITE_TARBALL = $(SRC_DIST_ROOT)/$(SRC_DIST_TESTSUITE_NAME).tar.bz2
+SRC_DIST_WINDOWS_TARBALLS_NAME    = ghc-$(ProjectVersion)-windows-extra-src
+SRC_DIST_WINDOWS_TARBALLS_ROOT    = $(SRC_DIST_ROOT)/windows-tarballs
+SRC_DIST_WINDOWS_TARBALLS_DIR     = $(SRC_DIST_WINDOWS_TARBALLS_ROOT)/$(SRC_DIST_BASE_NAME)
+SRC_DIST_WINDOWS_TARBALLS_TARBALL = $(SRC_DIST_ROOT)/$(SRC_DIST_WINDOWS_TARBALLS_NAME).tar.bz2
+
+SRC_DIST_TESTSUITE_NAME           = ghc-$(ProjectVersion)-testsuite
+SRC_DIST_TESTSUITE_ROOT           = $(SRC_DIST_ROOT)/testsuite-ghc
+SRC_DIST_TESTSUITE_DIR            = $(SRC_DIST_TESTSUITE_ROOT)/$(SRC_DIST_BASE_NAME)
+SRC_DIST_TESTSUITE_TARBALL        = $(SRC_DIST_ROOT)/$(SRC_DIST_TESTSUITE_NAME).tar.bz2
 
 #
 # Files to include in source distributions
 #
 SRC_DIST_GHC_DIRS = mk rules docs distrib bindisttest libffi includes \
-    utils docs rts compiler ghc driver libraries ghc-tarballs
+    utils docs rts compiler ghc driver libraries libffi-tarballs
 SRC_DIST_GHC_FILES += \
     configure.ac config.guess config.sub configure \
     aclocal.m4 README ANNOUNCE HACKING LICENSE Makefile install-sh \
-    ghc.spec.in ghc.spec settings.in VERSION \
+    settings.in VERSION \
     boot packages ghc.mk
 
 VERSION :
@@ -1116,6 +1151,17 @@ sdist-ghc-prep :
 	$(call sdist_ghc_file,utils/haddock,dist,src,Haddock,Parse,y)
 	cd $(SRC_DIST_GHC_DIR) && "$(FIND)" $(SRC_DIST_GHC_DIRS) \( -name .git -o -name "autom4te*" -o -name "*~" -o -name "\#*" -o -name ".\#*" -o -name "log" -o -name "*-SAVE" -o -name "*.orig" -o -name "*.rej" \) -print | "$(XARGS)" $(XARGS_OPTS) "$(RM)" $(RM_OPTS_REC)
 
+.PHONY: sdist-windows-tarballs-prep
+sdist-windows-tarballs-prep :
+	$(call removeTrees,$(SRC_DIST_WINDOWS_TARBALLS_ROOT))
+	$(call removeFiles,$(SRC_DIST_WINDOWS_TARBALLS_TARBALL))
+	-mkdir $(SRC_DIST_ROOT)
+	mkdir $(SRC_DIST_WINDOWS_TARBALLS_ROOT)
+	mkdir $(SRC_DIST_WINDOWS_TARBALLS_DIR)
+	mkdir $(SRC_DIST_WINDOWS_TARBALLS_DIR)/ghc-tarballs
+	cd $(SRC_DIST_WINDOWS_TARBALLS_DIR)/ghc-tarballs && lndir $(TOP)/ghc-tarballs
+	$(call removeTrees,$(SRC_DIST_WINDOWS_TARBALLS_DIR)/ghc-tarballs/.git)
+
 .PHONY: sdist-testsuite-prep
 sdist-testsuite-prep :
 	$(call removeTrees,$(SRC_DIST_TESTSUITE_ROOT))
@@ -1128,9 +1174,10 @@ sdist-testsuite-prep :
 	$(call removeTrees,$(SRC_DIST_TESTSUITE_DIR)/testsuite/.git)
 
 .PHONY: sdist
-sdist : sdist-ghc-prep sdist-testsuite-prep
-	cd $(SRC_DIST_GHC_ROOT) && "$(TAR_CMD)" chf - $(SRC_DIST_BASE_NAME) 2> src_ghc_log | bzip2 > $(TOP)/$(SRC_DIST_GHC_TARBALL)
-	cd $(SRC_DIST_TESTSUITE_ROOT) && "$(TAR_CMD)" chf - $(SRC_DIST_BASE_NAME) 2> src_ghc_log | bzip2 > $(TOP)/$(SRC_DIST_TESTSUITE_TARBALL)
+sdist : sdist-ghc-prep sdist-windows-tarballs-prep sdist-testsuite-prep
+	cd $(SRC_DIST_GHC_ROOT)              && "$(TAR_CMD)" chf - $(SRC_DIST_BASE_NAME) 2> src_ghc_log               | bzip2 > $(TOP)/$(SRC_DIST_GHC_TARBALL)
+	cd $(SRC_DIST_WINDOWS_TARBALLS_ROOT) && "$(TAR_CMD)" chf - $(SRC_DIST_BASE_NAME) 2> windows_extra_src_ghc_log | bzip2 > $(TOP)/$(SRC_DIST_WINDOWS_TARBALLS_TARBALL)
+	cd $(SRC_DIST_TESTSUITE_ROOT)        && "$(TAR_CMD)" chf - $(SRC_DIST_BASE_NAME) 2> testsuite_log             | bzip2 > $(TOP)/$(SRC_DIST_TESTSUITE_TARBALL)
 
 sdist-manifest : $(SRC_DIST_GHC_TARBALL)
 	tar tjf $(SRC_DIST_GHC_TARBALL) | sed "s|^ghc-$(ProjectVersion)/||" | sort >sdist-manifest
@@ -1209,26 +1256,65 @@ clean_bindistprep:
 	$(call removeTrees,bindistprep/)
 
 distclean : clean
-	$(call removeFiles,config.cache config.status config.log mk/config.h mk/stamp-h)
-	$(call removeFiles,mk/config.mk mk/are-validating.mk mk/project.mk)
-	$(call removeFiles,mk/config.mk.old mk/project.mk.old)
-	$(call removeFiles,settings docs/users_guide/ug-book.xml)
-	$(call removeFiles,compiler/ghc.cabal compiler/ghc.cabal.old)
+# Clean the files that ./validate creates.
+	$(call removeFiles,mk/are-validating.mk)
+
+# Clean the files that we ask ./configure to create.
+	$(call removeFiles,mk/config.mk)
+	$(call removeFiles,mk/install.mk)
+	$(call removeFiles,mk/project.mk)
+	$(call removeFiles,compiler/ghc.cabal)
 	$(call removeFiles,ghc/ghc-bin.cabal)
+	$(call removeFiles,utils/runghc/runghc.cabal)
+	$(call removeFiles,settings)
+	$(call removeFiles,docs/users_guide/ug-book.xml)
+	$(call removeFiles,docs/users_guide/ug-ent.xml)
+	$(call removeFiles,docs/index.html)
+	$(call removeFiles,libraries/prologue.txt)
+	$(call removeFiles,distrib/configure.ac)
+
+# ./configure also makes these.
+	$(call removeFiles,mk/config.h)
+
+# Internal files generated by ./configure for itself.
+	$(call removeFiles,config.cache config.status config.log)
+
+# ./configure build ghc-pwd in utils/ghc-pwd/dist-boot, so clean it up.
+	$(call removeTrees,utils/ghc-pwd/dist-boot)
+
+# The root Makefile makes .old versions of some files that configure
+# generates, so we clean those too.
+	$(call removeFiles,mk/config.mk.old)
+	$(call removeFiles,mk/project.mk.old)
+	$(call removeFiles,compiler/ghc.cabal.old)
+
+# Clean the *Config.h files generated by library configure scripts
 	$(call removeFiles,libraries/base/include/HsBaseConfig.h)
+	$(call removeFiles,libraries/base/include/EventConfig.h)
 	$(call removeFiles,libraries/directory/include/HsDirectoryConfig.h)
 	$(call removeFiles,libraries/process/include/HsProcessConfig.h)
 	$(call removeFiles,libraries/unix/include/HsUnixConfig.h)
+	$(call removeFiles,libraries/time/include/HsTimeConfig.h)
+	$(call removeFiles,libraries/time/include/HsTimeConfig.h.in)
 	$(call removeFiles,libraries/old-time/include/HsTimeConfig.h)
-	$(call removeTrees,utils/ghc-pwd/dist-boot)
-	$(call removeTrees,includes/dist-derivedconstants)
-	$(call removeTrees,inplace)
+
+# The library configure scripts also like creating autom4te.cache
+# directories, so clean them all up.
 	$(call removeTrees,$(patsubst %, libraries/%/autom4te.cache, $(PACKAGES_STAGE1) $(PACKAGES_STAGE2)))
+
+# We make these when making or testing bindists
+	$(call removeFiles,bindist-list)
+	$(call removeTrees,bindisttest/a)
+
+# Not sure why this is being cleaned here.
+	$(call removeTrees,includes/dist-derivedconstants)
+
+# Finally, clean the inplace tree.
+	$(call removeTrees,inplace)
 
 maintainer-clean : distclean
 	$(call removeFiles,configure mk/config.h.in)
 	$(call removeTrees,autom4te.cache $(wildcard libraries/*/autom4te.cache))
-	$(call removeFiles,ghc.spec)
 	$(call removeFiles,$(patsubst %, libraries/%/GNUmakefile, \
 	        $(PACKAGES_STAGE1) $(PACKAGES_STAGE2)))
 	$(call removeFiles,$(patsubst %, libraries/%/ghc.mk, $(PACKAGES_STAGE1) $(PACKAGES_STAGE2)))

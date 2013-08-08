@@ -25,7 +25,7 @@ module RnEnv (
 
         newLocalBndrRn, newLocalBndrsRn,
         bindLocalName, bindLocalNames, bindLocalNamesFV,
-        MiniFixityEnv, emptyFsEnv, extendFsEnv, lookupFsEnv,
+        MiniFixityEnv, 
         addLocalFixities,
         bindLocatedLocalsFV, bindLocatedLocalsRn,
         extendTyVarEnvFVRn,
@@ -36,7 +36,10 @@ module RnEnv (
         warnUnusedMatches,
         warnUnusedTopBinds, warnUnusedLocalBinds,
         dataTcOccs, unknownNameErr, kindSigErr, perhapsForallMsg,
-        HsDocContext(..), docOfHsDocContext
+        HsDocContext(..), docOfHsDocContext, 
+
+        -- FsEnv
+        FastStringEnv, emptyFsEnv, lookupFsEnv, extendFsEnv, mkFsEnv
     ) where
 
 #include "HsVersions.h"
@@ -57,8 +60,9 @@ import Module
 import UniqFM
 import DataCon          ( dataConFieldLabels, dataConTyCon )
 import TyCon            ( isTupleTyCon, tyConArity )
-import PrelNames        ( mkUnboundName, rOOT_MAIN, forall_tv_RDR )
+import PrelNames        ( mkUnboundName, isUnboundName, rOOT_MAIN, forall_tv_RDR )
 import ErrUtils         ( MsgDoc )
+import BasicTypes       ( Fixity(..), FixityDirection(..), minPrecedence )
 import SrcLoc
 import Outputable
 import Util
@@ -814,7 +818,7 @@ lookupQualifiedName rdr_name
               | avail <- mi_exports iface,
                 name  <- availNames avail,
                 nameOccName name == occ ] of
-           (n:ns) -> ASSERT (null ns) return (Just n)
+           (n:ns) -> ASSERT(null ns) return (Just n)
            _ -> do { traceRn (text "lookupQualified" <+> ppr rdr_name)
                    ; return Nothing }
 
@@ -1034,10 +1038,12 @@ type FastStringEnv a = UniqFM a         -- Keyed by FastString
 emptyFsEnv  :: FastStringEnv a
 lookupFsEnv :: FastStringEnv a -> FastString -> Maybe a
 extendFsEnv :: FastStringEnv a -> FastString -> a -> FastStringEnv a
+mkFsEnv     :: [(FastString,a)] -> FastStringEnv a
 
 emptyFsEnv  = emptyUFM
 lookupFsEnv = lookupUFM
 extendFsEnv = addToUFM
+mkFsEnv     = listToUFM
 
 --------------------------------
 type MiniFixityEnv = FastStringEnv (Located Fixity)
@@ -1083,15 +1089,26 @@ lookupFixity is a bit strange.
 
 \begin{code}
 lookupFixityRn :: Name -> RnM Fixity
-lookupFixityRn name = do
-  this_mod <- getModule
-  if nameIsLocalOrFrom this_mod name
-    then do     -- It's defined in this module
-      local_fix_env <- getFixityEnv
-      traceRn (text "lookupFixityRn: looking up name in local environment:" <+>
-               vcat [ppr name, ppr local_fix_env])
-      return $ lookupFixity local_fix_env name
-    else        -- It's imported
+lookupFixityRn name
+  | isUnboundName name
+  = return (Fixity minPrecedence InfixL) 
+    -- Minimise errors from ubound names; eg
+    --    a>0 `foo` b>0
+    -- where 'foo' is not in scope, should not give an error (Trac #7937)
+
+  | otherwise
+  = do { this_mod <- getModule
+       ; if nameIsLocalOrFrom this_mod name
+         then lookup_local
+         else lookup_imported }
+  where
+    lookup_local   -- It's defined in this module
+      = do { local_fix_env <- getFixityEnv
+           ; traceRn (text "lookupFixityRn: looking up name in local environment:" <+>
+                     vcat [ppr name, ppr local_fix_env])
+           ; return (lookupFixity local_fix_env name) }
+
+    lookup_imported
       -- For imported names, we have to get their fixities by doing a
       -- loadInterfaceForName, and consulting the Ifaces that comes back
       -- from that, because the interface file for the Name might not
@@ -1108,11 +1125,11 @@ lookupFixityRn name = do
       --
       -- loadInterfaceForName will find B.hi even if B is a hidden module,
       -- and that's what we want.
-        do iface <- loadInterfaceForName doc name
-           traceRn (text "lookupFixityRn: looking up name in iface cache and found:" <+>
-                    vcat [ppr name, ppr $ mi_fix_fn iface (nameOccName name)])
-           return (mi_fix_fn iface (nameOccName name))
-  where
+      = do { iface <- loadInterfaceForName doc name
+           ; traceRn (text "lookupFixityRn: looking up name in iface cache and found:" <+>
+                      vcat [ppr name, ppr $ mi_fix_fn iface (nameOccName name)])
+           ; return (mi_fix_fn iface (nameOccName name)) }
+
     doc = ptext (sLit "Checking fixity for") <+> ppr name
 
 ---------------

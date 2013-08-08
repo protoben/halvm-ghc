@@ -33,8 +33,7 @@ import Config
 import Constants
 import HscTypes
 import Packages         ( dumpPackages )
-import DriverPhases     ( Phase(..), isSourceFilename, anyHsc,
-                          startPhase, isHaskellSrcFilename )
+import DriverPhases
 import BasicTypes       ( failed )
 import StaticFlags
 import DynFlags
@@ -109,6 +108,7 @@ main = do
                    ShowSupportedExtensions -> showSupportedExtensions
                    ShowVersion             -> showVersion
                    ShowNumVersion          -> putStrLn cProjectVersion
+                   ShowOptions             -> showOptions
         Right postStartupMode ->
             -- start our GHC session
             GHC.runGhc mbMinusB $ do
@@ -371,11 +371,13 @@ data PreStartupMode
   = ShowVersion             -- ghc -V/--version
   | ShowNumVersion          -- ghc --numeric-version
   | ShowSupportedExtensions -- ghc --supported-extensions
+  | ShowOptions             -- ghc --show-options
 
-showVersionMode, showNumVersionMode, showSupportedExtensionsMode :: Mode
+showVersionMode, showNumVersionMode, showSupportedExtensionsMode, showOptionsMode :: Mode
 showVersionMode             = mkPreStartupMode ShowVersion
 showNumVersionMode          = mkPreStartupMode ShowNumVersion
 showSupportedExtensionsMode = mkPreStartupMode ShowSupportedExtensions
+showOptionsMode             = mkPreStartupMode ShowOptions
 
 mkPreStartupMode :: PreStartupMode -> Mode
 mkPreStartupMode = Left
@@ -519,6 +521,7 @@ mode_flags =
   , Flag "-version"              (PassFlag (setMode showVersionMode))
   , Flag "-numeric-version"      (PassFlag (setMode showNumVersionMode))
   , Flag "-info"                 (PassFlag (setMode showInfoMode))
+  , Flag "-show-options"         (PassFlag (setMode showOptionsMode))
   , Flag "-supported-languages"  (PassFlag (setMode showSupportedExtensionsMode))
   , Flag "-supported-extensions" (PassFlag (setMode showSupportedExtensionsMode))
   ] ++
@@ -622,7 +625,7 @@ doMake srcs  = do
     let (hs_srcs, non_hs_srcs) = partition haskellish srcs
 
         haskellish (f,Nothing) =
-          looksLikeModuleName f || isHaskellSrcFilename f || '.' `notElem` f
+          looksLikeModuleName f || isHaskellUserSrcFilename f || '.' `notElem` f
         haskellish (_,Just phase) =
           phase `notElem` [As, Cc, Cobjc, Cobjcpp, CmmCpp, Cmm, StopLn]
 
@@ -692,6 +695,21 @@ showSupportedExtensions = mapM_ putStrLn supportedLanguagesAndExtensions
 
 showVersion :: IO ()
 showVersion = putStrLn (cProjectName ++ ", version " ++ cProjectVersion)
+
+showOptions :: IO ()
+showOptions = putStr (unlines availableOptions)
+    where
+      availableOptions     = map ((:) '-') $
+                             getFlagNames mode_flags   ++
+                             getFlagNames flagsDynamic ++
+                             (filterUnwantedStatic . getFlagNames $ flagsStatic) ++
+                             flagsStaticNames
+      getFlagNames opts         = map getFlagName opts
+      getFlagName (Flag name _) = name
+      -- this is a hack to get rid of two unwanted entries that get listed
+      -- as static flags. Hopefully this hack will disappear one day together
+      -- with static flags
+      filterUnwantedStatic      = filter (\x -> not (x `elem` ["f", "fno-"]))
 
 showGhcUsage :: DynFlags -> IO ()
 showGhcUsage = showUsage False

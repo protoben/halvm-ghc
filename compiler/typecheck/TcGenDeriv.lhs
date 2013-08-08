@@ -51,7 +51,6 @@ import PrelNames hiding (error_RDR)
 import PrimOp
 import SrcLoc
 import TyCon
-import CoAxiom
 import TcType
 import TysPrim
 import TysWiredIn
@@ -87,7 +86,7 @@ data DerivStuff     -- Please add this auxiliary stuff
 
   -- Generics
   | DerivTyCon TyCon                   -- New data types
-  | DerivFamInst (FamInst Unbranched)  -- New type family instances
+  | DerivFamInst (FamInst)             -- New type family instances
 
   -- New top-level auxiliary bindings
   | DerivHsBind (LHsBind RdrName, LSig RdrName) -- Also used for SYB
@@ -881,7 +880,25 @@ The latter desugares to inline code for matching the Ident and the
 string, and this can be very voluminous. The former is much more
 compact.  Cf Trac #7258, although that also concerned non-linearity in
 the occurrence analyser, a separate issue.
-     
+
+Note [Read for empty data types]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+What should we get for this?  (Trac #7931)
+   data Emp deriving( Read )   -- No data constructors
+
+Here we want
+  read "[]" :: [Emp]   to succeed, returning []
+So we do NOT want 
+   instance Read Emp where
+     readPrec = error "urk"
+Rather we want
+   instance Read Emp where
+     readPred = pfail   -- Same as choose []
+
+Because 'pfail' allows the parser to backtrack, but 'error' doesn't.
+These instances are also useful for Read (Either Int Emp), where 
+we want to be able to parse (Left 3) just fine.
+
 \begin{code}
 gen_Read_binds :: FixityEnv -> SrcSpan -> TyCon -> (LHsBinds RdrName, BagDerivStuff)
 
@@ -902,7 +919,8 @@ gen_Read_binds get_fixity loc tycon
     read_prec = mkHsVarBind loc readPrec_RDR
                               (nlHsApp (nlHsVar parens_RDR) read_cons)
 
-    read_cons             = foldr1 mk_alt (read_nullary_cons ++ read_non_nullary_cons)
+    read_cons | null data_cons = nlHsVar pfail_RDR  -- See Note [Read for empty data types]
+              | otherwise      = foldr1 mk_alt (read_nullary_cons ++ read_non_nullary_cons)
     read_non_nullary_cons = map read_non_nullary_con non_nullary_cons
 
     read_nullary_cons
@@ -1897,7 +1915,7 @@ type SeparateBagsDerivStuff = -- AuxBinds and SYB bindings
                               ( Bag (LHsBind RdrName, LSig RdrName)
                                 -- Extra bindings (used by Generic only)
                               , Bag TyCon   -- Extra top-level datatypes
-                              , Bag (FamInst Unbranched) -- Extra family instances
+                              , Bag (FamInst)           -- Extra family instances
                               , Bag (InstInfo RdrName)) -- Extra instances
 
 genAuxBinds :: SrcSpan -> BagDerivStuff -> SeparateBagsDerivStuff

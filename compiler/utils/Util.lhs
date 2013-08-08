@@ -14,11 +14,11 @@ module Util (
 
         -- * General list processing
         zipEqual, zipWithEqual, zipWith3Equal, zipWith4Equal,
-        zipLazy, stretchZipWith,
+        zipLazy, stretchZipWith, zipWithAndUnzip,
 
         unzipWith,
 
-        mapFst, mapSnd,
+        mapFst, mapSnd, chkAppend,
         mapAndUnzip, mapAndUnzip3, mapAccumL2,
         nOfThem, filterOut, partitionWith, splitEithers,
 
@@ -259,6 +259,13 @@ splitEithers (e : es) = case e of
                         Left x -> (x:xs, ys)
                         Right y -> (xs, y:ys)
     where (xs,ys) = splitEithers es
+
+chkAppend :: [a] -> [a] -> [a]
+-- Checks for the second arguemnt being empty
+-- Used in situations where that situation is common
+chkAppend xs ys 
+  | null ys   = xs
+  | otherwise = xs ++ ys
 \end{code}
 
 A paranoid @zip@ (and some @zipWith@ friends) that checks the lists
@@ -343,6 +350,14 @@ mapAndUnzip3 f (x:xs)
         (rs1, rs2, rs3) = mapAndUnzip3 f xs
     in
     (r1:rs1, r2:rs2, r3:rs3)
+
+zipWithAndUnzip :: (a -> b -> (c,d)) -> [a] -> [b] -> ([c],[d])
+zipWithAndUnzip f (a:as) (b:bs)
+  = let (r1,  r2)  = f a b
+        (rs1, rs2) = zipWithAndUnzip f as bs
+    in
+    (r1:rs1, r2:rs2)
+zipWithAndUnzip _ _ _ = ([],[])
 
 mapAccumL2 :: (s1 -> s2 -> a -> (s1, s2, b)) -> s1 -> s2 -> [a] -> (s1, s2, [b])
 mapAccumL2 f s1 s2 xs = (s1', s2', ys)
@@ -1088,7 +1103,7 @@ charToC w =
 hashString :: String -> Int32
 hashString = foldl' f golden
    where f m c = fromIntegral (ord c) * magic + hashInt32 m
-         magic = 0xdeadbeef
+         magic = fromIntegral (0xdeadbeef :: Word32)
 
 golden :: Int32
 golden = 1013904242 -- = round ((sqrt 5 - 1) * 2^32) :: Int32

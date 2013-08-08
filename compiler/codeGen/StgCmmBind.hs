@@ -130,8 +130,7 @@ cgBind (StgNonRec name rhs)
   = do  { (info, fcode) <- cgRhs name rhs
         ; addBindC (cg_id info) info
         ; init <- fcode
-        ; emit init
-        }
+        ; emit init }
         -- init cannot be used in body, so slightly better to sink it eagerly
 
 cgBind (StgRec pairs)
@@ -208,6 +207,7 @@ cgRhs id (StgRhsCon cc con args)
   = withNewTickyCounterThunk False (idName id) $ -- False for "not static"
     buildDynCon id True cc con args
 
+{- See Note [GC recovery] in compiler/codeGen/StgCmmClosure.hs -}
 cgRhs name (StgRhsClosure cc bi fvs upd_flag _srt args body)
   = do dflags <- getDynFlags
        mkRhsClosure dflags name cc bi (nonVoidIds fvs) upd_flag args body
@@ -399,7 +399,7 @@ cgRhsStdThunk bndr lf_info payload
 --  ; (use_cc, blame_cc) <- chooseDynCostCentres cc [{- no args-}] body
   ; let use_cc = curCCS; blame_cc = curCCS
 
-  ; tickyEnterStdThunk
+  ; tickyEnterStdThunk closure_info
 
         -- BUILD THE OBJECT
   ; let info_tbl = mkCmmInfo closure_info
@@ -547,8 +547,9 @@ thunkCode cl_info fv_details _cc node arity body
         ; entryHeapCheck cl_info node' arity [] $ do
         { -- Overwrite with black hole if necessary
           -- but *after* the heap-overflow check
+        ; tickyEnterThunk cl_info
         ; when (blackHoleOnEntry cl_info && node_points)
-                (blackHoleIt cl_info node)
+                (blackHoleIt node)
 
           -- Push update frame
         ; setupUpdate cl_info node $
@@ -556,7 +557,7 @@ thunkCode cl_info fv_details _cc node arity body
             -- that cc of enclosing scope will be recorded
             -- in update frame CAF/DICT functions will be
             -- subsumed by this enclosing cc
-            do { tickyEnterThunk
+            do { tickyEnterThunk cl_info
                ; enterCostCentreThunk (CmmReg nodeReg)
                ; let lf_info = closureLFInfo cl_info
                ; fv_bindings <- mapM bind_fv fv_details
@@ -568,14 +569,14 @@ thunkCode cl_info fv_details _cc node arity body
 --              Update and black-hole wrappers
 ------------------------------------------------------------------------
 
-blackHoleIt :: ClosureInfo -> LocalReg -> FCode ()
+blackHoleIt :: LocalReg -> FCode ()
 -- Only called for closures with no args
 -- Node points to the closure
-blackHoleIt closure_info node
-  = emitBlackHoleCode (closureSingleEntry closure_info) (CmmReg (CmmLocal node))
+blackHoleIt node_reg
+  = emitBlackHoleCode (CmmReg (CmmLocal node_reg))
 
-emitBlackHoleCode :: Bool -> CmmExpr -> FCode ()
-emitBlackHoleCode is_single_entry node = do
+emitBlackHoleCode :: CmmExpr -> FCode ()
+emitBlackHoleCode node = do
   dflags <- getDynFlags
 
   -- Eager blackholing is normally disabled, but can be turned on with
@@ -603,7 +604,6 @@ emitBlackHoleCode is_single_entry node = do
              -- work with profiling.
 
   when eager_blackholing $ do
-    tickyBlackHole (not is_single_entry)
     emitStore (cmmOffsetW dflags node (fixedHdrSize dflags))
                   (CmmReg (CmmGlobal CurrentTSO))
     emitPrimCall [] MO_WriteBarrier []
@@ -614,7 +614,7 @@ setupUpdate :: ClosureInfo -> LocalReg -> FCode () -> FCode ()
         -- so that the cost centre in the original closure can still be
         -- extracted by a subsequent enterCostCentre
 setupUpdate closure_info node body
-  | closureReEntrant closure_info
+  | not (lfUpdatable (closureLFInfo closure_info))
   = body
 
   | not (isStaticClosure closure_info)

@@ -25,7 +25,7 @@ module TcMType (
   newFlexiTyVarTy,		-- Kind -> TcM TcType
   newFlexiTyVarTys,		-- Int -> Kind -> TcM [TcType]
   newPolyFlexiTyVarTy,
-  newMetaKindVar, newMetaKindVars, mkKindSigVar,
+  newMetaKindVar, newMetaKindVars,
   mkTcTyVarName, cloneMetaTyVar, 
 
   newMetaTyVar, readMetaTyVar, writeMetaTyVar, writeMetaTyVarRef,
@@ -53,7 +53,7 @@ module TcMType (
   skolemiseSigTv, skolemiseUnboundMetaTyVar,
   zonkTcTyVar, zonkTcTyVars, zonkTyVarsAndFV, zonkTcTypeAndFV,
   zonkQuantifiedTyVar, quantifyTyVars,
-  zonkTcType, zonkTcTypes, zonkTcThetaType, 
+  zonkTcTyVarBndr, zonkTcType, zonkTcTypes, zonkTcThetaType, 
 
   zonkTcKind, defaultKindVarToStar,
   zonkEvVar, zonkWC, zonkId, zonkCt, zonkCts, zonkSkolemInfo,
@@ -112,10 +112,6 @@ newMetaKindVar = do { uniq <- newUnique
 
 newMetaKindVars :: Int -> TcM [TcKind]
 newMetaKindVars n = mapM (\ _ -> newMetaKindVar) (nOfThem n ())
-
-mkKindSigVar :: Name -> KindVar
--- Use the specified name; don't clone it
-mkKindSigVar n = mkTcTyVar n superKind (SkolemTv False)
 \end{code}
 
 
@@ -527,13 +523,12 @@ quantifyTyVars gbl_tvs tkvs
              -- may make quantifyTyVars return a shorter list
              -- than it was passed, but that's ok
        ; poly_kinds <- xoptM Opt_PolyKinds
-       ; qkvs <- if poly_kinds 
+       ; qkvs <- if poly_kinds
                  then return kvs2
                  else do { let (meta_kvs, skolem_kvs) = partition is_meta kvs2
                                is_meta kv = isTcTyVar kv && isMetaTyVar kv
                          ; mapM_ defaultKindVarToStar meta_kvs
-                         ; WARN ( not (null skolem_kvs), ppr skolem_kvs )
-                           return skolem_kvs }  -- Should be empty
+                         ; return skolem_kvs }  -- should be empty
 
        ; mapM zonk_quant (qkvs ++ qtvs) } 
            -- Because of the order, any kind variables
@@ -582,7 +577,7 @@ zonkQuantifiedTyVar tv
 defaultKindVarToStar :: TcTyVar -> TcM Kind
 -- We have a meta-kind: unify it with '*'
 defaultKindVarToStar kv 
-  = do { ASSERT ( isKindVar kv && isMetaTyVar kv )
+  = do { ASSERT( isKindVar kv && isMetaTyVar kv )
          writeMetaTyVar kv liftedTypeKind
        ; return liftedTypeKind }
 
@@ -932,6 +927,9 @@ zonkTcType ty
   where
     go (TyConApp tc tys) = do tys' <- mapM go tys
                               return (TyConApp tc tys')
+                -- Do NOT establish Type invariants, because
+                -- doing so is strict in the TyCOn.
+                -- See Note [Zonking inside the knot] in TcHsType
 
     go (LitTy n)         = return (LitTy n)
 
@@ -945,6 +943,9 @@ zonkTcType ty
 		-- NB the mkAppTy; we might have instantiated a
 		-- type variable to a type constructor, so we need
 		-- to pull the TyConApp to the top.
+                -- OK to do this because only strict in the structure
+                -- not in the TyCon.
+                -- See Note [Zonking inside the knot] in TcHsType
 
 	-- The two interesting cases!
     go (TyVarTy tyvar) | isTcTyVar tyvar = zonkTcTyVar tyvar

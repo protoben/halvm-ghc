@@ -30,9 +30,6 @@ module CoreUtils (
         coreBindsSize, exprSize,
         CoreStats(..), coreBindsStats,
 
-        -- * Hashing
-        hashExpr,
-
         -- * Equality
         cheapEqExpr, eqExpr, eqExprX,
 
@@ -70,8 +67,6 @@ import Maybes
 import Platform
 import Util
 import Pair
-import Data.Word
-import Data.Bits
 import Data.List
 \end{code}
 
@@ -192,9 +187,12 @@ mkCast (Coercion e_co) co
   = Coercion (mkCoCast e_co co)
 
 mkCast (Cast expr co2) co
-  = ASSERT(let { Pair  from_ty  _to_ty  = coercionKind co;
-                 Pair _from_ty2  to_ty2 = coercionKind co2} in
-           from_ty `eqType` to_ty2 )
+  = WARN(let { Pair  from_ty  _to_ty  = coercionKind co;
+               Pair _from_ty2  to_ty2 = coercionKind co2} in
+            not (from_ty `eqType` to_ty2),
+             vcat ([ ptext (sLit "expr:") <+> ppr expr
+                   , ptext (sLit "co2:") <+> ppr co2
+                   , ptext (sLit "co:") <+> ppr co ]) )
     mkCast expr (mkTransCo co2 co)
 
 mkCast expr co
@@ -567,8 +565,8 @@ getIdFromTrivialExpr e = go e
 \end{code}
 
 exprIsBottom is a very cheap and cheerful function; it may return
-False for bottoming expressions, but it never costs much to ask.
-See also CoreArity.exprBotStrictness_maybe, but that's a bit more
+False for bottoming expressions, but it never costs much to ask.  See
+also CoreArity.exprBotStrictness_maybe, but that's a bit more
 expensive.
 
 \begin{code}
@@ -1519,81 +1517,6 @@ altSize (c,bs,e) = c `seq` bndrsSize bs + exprSize e
 
 %************************************************************************
 %*                                                                      *
-\subsection{Hashing}
-%*                                                                      *
-%************************************************************************
-
-\begin{code}
-hashExpr :: CoreExpr -> Int
--- ^ Two expressions that hash to the same @Int@ may be equal (but may not be)
--- Two expressions that hash to the different Ints are definitely unequal.
---
--- The emphasis is on a crude, fast hash, rather than on high precision.
---
--- But unequal here means \"not identical\"; two alpha-equivalent
--- expressions may hash to the different Ints.
---
--- We must be careful that @\\x.x@ and @\\y.y@ map to the same hash code,
--- (at least if we want the above invariant to be true).
-
-hashExpr e = fromIntegral (hash_expr (1,emptyVarEnv) e .&. 0x7fffffff)
-             -- UniqFM doesn't like negative Ints
-
-type HashEnv = (Int, VarEnv Int)  -- Hash code for bound variables
-
-hash_expr :: HashEnv -> CoreExpr -> Word32
--- Word32, because we're expecting overflows here, and overflowing
--- signed types just isn't cool.  In C it's even undefined.
-hash_expr env (Tick _ e)              = hash_expr env e
-hash_expr env (Cast e _)              = hash_expr env e
-hash_expr env (Var v)                 = hashVar env v
-hash_expr _   (Lit lit)               = fromIntegral (hashLiteral lit)
-hash_expr env (App f e)               = hash_expr env f * fast_hash_expr env e
-hash_expr env (Let (NonRec b r) e)    = hash_expr (extend_env env b) e * fast_hash_expr env r
-hash_expr env (Let (Rec ((b,_):_)) e) = hash_expr (extend_env env b) e
-hash_expr _   (Let (Rec []) _)        = panic "hash_expr: Let (Rec []) _"
-hash_expr env (Case e _ _ _)          = hash_expr env e
-hash_expr env (Lam b e)               = hash_expr (extend_env env b) e
-hash_expr env (Coercion co)           = fast_hash_co env co
-hash_expr _   (Type _)                = WARN(True, text "hash_expr: type") 1
--- Shouldn't happen.  Better to use WARN than trace, because trace
--- prevents the CPR optimisation kicking in for hash_expr.
-
-fast_hash_expr :: HashEnv -> CoreExpr -> Word32
-fast_hash_expr env (Var v)       = hashVar env v
-fast_hash_expr env (Type t)      = fast_hash_type env t
-fast_hash_expr env (Coercion co) = fast_hash_co env co
-fast_hash_expr _   (Lit lit)     = fromIntegral (hashLiteral lit)
-fast_hash_expr env (Cast e _)    = fast_hash_expr env e
-fast_hash_expr env (Tick _ e)    = fast_hash_expr env e
-fast_hash_expr env (App _ a)     = fast_hash_expr env a -- A bit idiosyncratic ('a' not 'f')!
-fast_hash_expr _   _             = 1
-
-fast_hash_type :: HashEnv -> Type -> Word32
-fast_hash_type env ty
-  | Just tv <- getTyVar_maybe ty            = hashVar env tv
-  | Just (tc,tys) <- splitTyConApp_maybe ty = let hash_tc = fromIntegral (hashName (tyConName tc))
-                                              in foldr (\t n -> fast_hash_type env t + n) hash_tc tys
-  | otherwise                               = 1
-
-fast_hash_co :: HashEnv -> Coercion -> Word32
-fast_hash_co env co
-  | Just cv <- getCoVar_maybe co              = hashVar env cv
-  | Just (tc,cos) <- splitTyConAppCo_maybe co = let hash_tc = fromIntegral (hashName (tyConName tc))
-                                                in foldr (\c n -> fast_hash_co env c + n) hash_tc cos
-  | otherwise                                 = 1
-
-extend_env :: HashEnv -> Var -> (Int, VarEnv Int)
-extend_env (n,env) b = (n+1, extendVarEnv env b n)
-
-hashVar :: HashEnv -> Var -> Word32
-hashVar (_,env) v
- = fromIntegral (lookupVarEnv env v `orElse` hashName (idName v))
-\end{code}
-
-
-%************************************************************************
-%*                                                                      *
                 Eta reduction
 %*                                                                      *
 %************************************************************************
@@ -1682,7 +1605,7 @@ need to address that here.
 \begin{code}
 tryEtaReduce :: [Var] -> CoreExpr -> Maybe CoreExpr
 tryEtaReduce bndrs body
-  = go (reverse bndrs) body (mkReflCo (exprType body))
+  = go (reverse bndrs) body (mkReflCo Representational (exprType body))
   where
     incoming_arity = count isId bndrs
 
@@ -1739,9 +1662,10 @@ tryEtaReduce bndrs body
        | Just tv <- getTyVar_maybe ty
        , bndr == tv  = Just (mkForAllCo tv co)
     ok_arg bndr (Var v) co
-       | bndr == v   = Just (mkFunCo (mkReflCo (idType bndr)) co)
+       | bndr == v   = Just (mkFunCo Representational
+                                     (mkReflCo Representational (idType bndr)) co)
     ok_arg bndr (Cast (Var v) co_arg) co
-       | bndr == v  = Just (mkFunCo (mkSymCo co_arg) co)
+       | bndr == v  = Just (mkFunCo Representational (mkSymCo co_arg) co)
        -- The simplifier combines multiple casts into one,
        -- so we can have a simple-minded pattern match here
     ok_arg _ _ _ = Nothing

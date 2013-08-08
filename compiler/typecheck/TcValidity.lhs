@@ -45,6 +45,7 @@ import ListSetOps
 import SrcLoc
 import Outputable
 import FastString
+import BasicTypes ( Arity )
 
 import Control.Monad
 import Data.List        ( (\\) )
@@ -61,6 +62,12 @@ import Data.List        ( (\\) )
 \begin{code}
 checkAmbiguity :: UserTypeCtxt -> Type -> TcM ()
 checkAmbiguity ctxt ty
+  | GhciCtxt <- ctxt    -- Allow ambiguous types in GHCi's :kind command
+  = return ()           -- E.g.   type family T a :: *  -- T :: forall k. k -> *
+                        -- Then :k T should work in GHCi, not complain that
+                        -- (T k) is ambiguous!
+
+  | otherwise
   = do { allow_ambiguous <- xoptM Opt_AllowAmbiguousTypes
        ; unless allow_ambiguous $ 
     do {(subst, _tvs) <- tcInstSkolTyVars (varSetElems (tyVarsOfType ty))
@@ -299,7 +306,7 @@ check_syn_tc_app ctxt rank ty tc tys
         ; liberal <- xoptM Opt_LiberalTypeSynonyms
         ; if not liberal || isSynFamilyTyCon tc then
                 -- For H98 and synonym families, do check the type args
-                mapM_ (check_mono_type ctxt synArgMonoType) tys
+                mapM_ check_arg tys
 
           else  -- In the liberal case (only for closed syns), expand then check
           case tcView ty of   
@@ -308,13 +315,15 @@ check_syn_tc_app ctxt rank ty tc tys
 
   | GhciCtxt <- ctxt  -- Accept under-saturated type synonyms in 
                       -- GHCi :kind commands; see Trac #7586
-  = mapM_ (check_mono_type ctxt synArgMonoType) tys
+  = mapM_ check_arg tys
 
   | otherwise
   = failWithTc (arityErr "Type synonym" (tyConName tc) tc_arity n_args)
   where
     n_args = length tys
     tc_arity  = tyConArity tc
+    check_arg | isSynFamilyTyCon tc = check_arg_type  ctxt rank
+              | otherwise           = check_mono_type ctxt synArgMonoType
          
 ----------------------------------------
 check_ubx_tuple :: UserTypeCtxt -> KindOrType 
@@ -1127,10 +1136,25 @@ checkValidFamPats :: TyCon -> [TyVar] -> [Type] -> TcM ()
 --    e.g. we disallow (Trac #7536)
 --         type T a = Int
 --         type instance F (T a) = a
+-- c) Have the right number of patterns
 checkValidFamPats fam_tc tvs ty_pats
-  = do { mapM_ checkTyFamFreeness ty_pats
+  = do { -- A family instance must have exactly the same number of type
+         -- parameters as the family declaration.  You can't write
+         --     type family F a :: * -> *
+         --     type instance F Int y = y
+         -- because then the type (F Int) would be like (\y.y)
+         checkTc (length ty_pats == fam_arity) $
+           wrongNumberOfParmsErr (fam_arity - length fam_kvs) -- report only types
+       ; mapM_ checkTyFamFreeness ty_pats
        ; let unbound_tvs = filterOut (`elemVarSet` exactTyVarsOfTypes ty_pats) tvs
        ; checkTc (null unbound_tvs) (famPatErr fam_tc unbound_tvs ty_pats) }
+  where fam_arity    = tyConArity fam_tc
+        (fam_kvs, _) = splitForAllTys (tyConKind fam_tc)
+
+wrongNumberOfParmsErr :: Arity -> SDoc
+wrongNumberOfParmsErr exp_arity
+  = ptext (sLit "Number of parameters must match family declaration; expected")
+    <+> ppr exp_arity
 
 -- Ensure that no type family instances occur in a type.
 --

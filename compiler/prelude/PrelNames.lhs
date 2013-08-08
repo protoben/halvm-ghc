@@ -617,11 +617,12 @@ punc_RDR                = dataQual_RDR lEX (fsLit "Punc")
 ident_RDR               = dataQual_RDR lEX (fsLit "Ident")
 symbol_RDR              = dataQual_RDR lEX (fsLit "Symbol")
 
-step_RDR, alt_RDR, reset_RDR, prec_RDR :: RdrName
+step_RDR, alt_RDR, reset_RDR, prec_RDR, pfail_RDR :: RdrName
 step_RDR                = varQual_RDR  rEAD_PREC (fsLit "step")
 alt_RDR                 = varQual_RDR  rEAD_PREC (fsLit "+++")
 reset_RDR               = varQual_RDR  rEAD_PREC (fsLit "reset")
 prec_RDR                = varQual_RDR  rEAD_PREC (fsLit "prec")
+pfail_RDR               = varQual_RDR  rEAD_PREC (fsLit "pfail")
 
 showList_RDR, showList___RDR, showsPrec_RDR, showString_RDR,
     showSpace_RDR, showParen_RDR :: RdrName
@@ -1332,11 +1333,13 @@ statePrimTyConKey, stableNamePrimTyConKey, stableNameTyConKey,
     word32PrimTyConKey, word32TyConKey, word64PrimTyConKey, word64TyConKey,
     liftedConKey, unliftedConKey, anyBoxConKey, kindConKey, boxityConKey,
     typeConKey, threadIdPrimTyConKey, bcoPrimTyConKey, ptrTyConKey,
-    funPtrTyConKey, tVarPrimTyConKey, eqPrimTyConKey :: Unique
+    funPtrTyConKey, tVarPrimTyConKey, eqPrimTyConKey,
+    eqReprPrimTyConKey :: Unique
 statePrimTyConKey                       = mkPreludeTyConUnique 50
 stableNamePrimTyConKey                  = mkPreludeTyConUnique 51
 stableNameTyConKey                      = mkPreludeTyConUnique 52
 eqPrimTyConKey                          = mkPreludeTyConUnique 53
+eqReprPrimTyConKey                      = mkPreludeTyConUnique 54
 mutVarPrimTyConKey                      = mkPreludeTyConUnique 55
 ioTyConKey                              = mkPreludeTyConUnique 56
 wordPrimTyConKey                        = mkPreludeTyConUnique 58
@@ -1685,6 +1688,9 @@ checkDotnetResNameIdKey       = mkPreludeMiscIdUnique 154
 
 undefinedKey :: Unique
 undefinedKey                  = mkPreludeMiscIdUnique 155
+
+magicSingIKey :: Unique
+magicSingIKey              = mkPreludeMiscIdUnique 156
 \end{code}
 
 Certain class operations from Prelude classes.  They get their own

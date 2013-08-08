@@ -76,7 +76,6 @@ import Outputable
 import Control.Monad
 import Data.List
 import Prelude hiding( sequence, succ )
-import qualified Prelude( sequence )
 
 infixr 9 `thenC`        -- Right-associative!
 infixr 9 `thenFC`
@@ -447,8 +446,10 @@ newUniqSupply = do
 
 newUnique :: FCode Unique
 newUnique = do
-        us <- newUniqSupply
-        return (uniqFromSupply us)
+        state <- getState
+        let (u,us') = takeUniqFromSupply (cgs_uniqs state)
+        setState $ state { cgs_uniqs = us' }
+        return u
 
 ------------------
 getInfoDown :: FCode CgInfoDownwards
@@ -553,8 +554,8 @@ forkStatics :: FCode a -> FCode a
 -- The Abstract~C returned is attached to the current state, but the
 -- bindings and usage information is otherwise unchanged.
 forkStatics body_code
-  = do        { dflags <- getDynFlags
-              ; info  <- getInfoDown
+  = do  { dflags <- getDynFlags
+        ; info  <- getInfoDown
         ; us    <- newUniqSupply
         ; state <- getState
         ; let   rhs_info_down = info { cgd_statics = cgs_binds state
