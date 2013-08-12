@@ -224,7 +224,6 @@ void *runtime_alloc(void *start, size_t length_in, int prot, int target)
 
   /* done! */
   halvm_release_lock(&memory_search_lock);
-  memset(dest, 0x0, length_in);
   return dest;
 }
 
@@ -293,7 +292,30 @@ W_ getPageFaults(void)
 
 void *osGetMBlocks(nat n)
 {
-  return runtime_alloc(NULL, n * MBLOCK_SIZE, PROT_READWRITE, ALLOC_ALL_CPUS);
+  size_t padsize = (n + 1) * MBLOCK_SIZE;
+  void *allocp, *retval, *extra;
+
+  allocp = runtime_alloc(NULL, padsize, PROT_READWRITE, ALLOC_ALL_CPUS);
+  retval = (void*)(((uintptr_t)allocp + (MBLOCK_SIZE-1)) & ~(MBLOCK_SIZE-1));
+  /* free the stuff at the beginning and end that we don't need */
+  if(allocp == retval) {
+    /* we got back an aligned value, so all the extra is at the end */
+    extra = (void*)((uintptr_t)allocp + (n * MBLOCK_SIZE));
+    runtime_free(extra, MBLOCK_SIZE);
+  } else {
+    /* if this case fires, we used some of our extra memory to align the */
+    /* return value, so this is going to be a little complicated.        */
+    size_t extra_head, extra_tail;
+
+    extra = (void*)((uintptr_t)retval + (n * MBLOCK_SIZE));
+    extra_head = (uintptr_t)retval - (uintptr_t)allocp;
+    extra_tail = ((uintptr_t)allocp + padsize) - (uintptr_t)extra;
+
+    runtime_free(allocp, extra_head);
+    runtime_free(extra, extra_tail);
+  }
+
+  return retval;
 }
 
 void osFreeAllMBlocks(void)
