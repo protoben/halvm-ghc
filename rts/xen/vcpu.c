@@ -13,9 +13,12 @@
 #include "ghcplatform.h"
 #include "Rts.h"
 #include "rts/OSThreads.h"
+#else
+extern void initMutex(halvm_mutex_t *mutex);
 #endif
 
 #define INIT_KEYTAB_SIZE        4096
+#define IRQ_STACK_SIZE          (8 * PAGE_SIZE)
 
 static halvm_mutex_t      global_key_table_lock;
 static uint32_t          *used_keys_start = NULL;
@@ -37,16 +40,29 @@ void init_vcpu(int num)
   vcpu_register_vcpu_info_t vcpu_info;
   vcpu_register_runstate_memory_area_t rstat_info;
   mfn_t local_info_mfn;
+  void *p, *stk_top;
 
   assert(sizeof(vcpu_local_info) < PAGE_SIZE);
+  stk_top = (void*)((uintptr_t)VCPU_LOCAL_START + IRQ_STACK_SIZE);
+
+  /* allocate the IRQ stack */
+  for(p = VCPU_LOCAL_START; p < stk_top; p = (void*)((uintptr_t)p + 4096)) {
+    mfn_t mfn = get_free_frame();
+    assert(mfn);
+    set_pt_entry(p, (mfn << PAGE_SHIFT) | STANDARD_RW_PERMS);
+  }
+  memset(VCPU_LOCAL_START, 0, IRQ_STACK_SIZE);
+
+  /* allocate the local info structure */
   local_info_mfn = get_free_frame();
   assert(local_info_mfn);
-  set_pt_entry(VCPU_LOCAL_START,(local_info_mfn<<PAGE_SHIFT)|STANDARD_RW_PERMS);
-  vcpu_local_info = VCPU_LOCAL_START;
+  set_pt_entry(stk_top, (local_info_mfn<<PAGE_SHIFT)|STANDARD_RW_PERMS);
+  vcpu_local_info = stk_top;
 
   /* base vcpu structure allocation / initialization */
   memset(vcpu_local_info, 0, sizeof(vcpu_local_info_t));
   vcpu_local_info->vcpu_num = num;
+  vcpu_local_info->irq_stack_top = (void*)vcpu_local_info;
   vcpu_local_info->local_keys_allocated =
      (PAGE_SIZE - sizeof(vcpu_local_info_t)) / sizeof(void*);
   memset(vcpu_local_info->local_vals, 0,
@@ -62,6 +78,7 @@ void init_vcpu(int num)
   rstat_info.addr.v = &(vcpu_local_info->runstate_info);
   assert(HYPERCALL_vcpu_op(VCPUOP_register_runstate_memory_area, num,
                            &rstat_info) >= 0);
+
 }
 
 #ifdef THREADED_RTS

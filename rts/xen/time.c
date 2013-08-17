@@ -149,12 +149,14 @@ StgWord getDelayTarget(HsInt us /* microseconds */)
 /* ************************************************************************* */
 
 static uint64_t timer_interval = 0;
-static TickProc timer_handler  = NULL;
 
 void initTicker(Time interval, TickProc handle_tick)
 {
-  timer_interval = interval * TIME_RESOLUTION;
-  timer_handler  = handle_tick;
+  /* the interval is given in units of TIME_RESOLUTION, which is essentially */
+  /* provided as a hertz value. I could probably assume that it'll remain at */
+  /* nanoseconds, but this is a bit more reasonable ... */
+  timer_interval = (interval * TIME_RESOLUTION) / 1000000000;
+  set_c_handler(timer_echan, handle_tick);
 }
 
 void startTicker(void)
@@ -170,5 +172,5 @@ void stopTicker(void)
 void exitTicker(rtsBool wait __attribute__((unused)))
 {
   timer_interval = 0;
-  timer_handler  = NULL;
+  clear_c_handler(timer_echan);
 }

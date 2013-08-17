@@ -12,6 +12,7 @@
 
 struct vcpu_local_info {
   uint32_t              vcpu_num; /* what VCPU this is */
+  void*                 irq_stack_top;
   vcpu_runstate_info_t  runstate_info;
   struct vcpu_info      other_info;
   uintptr_t             local_keys_allocated;

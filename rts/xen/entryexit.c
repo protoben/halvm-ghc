@@ -18,7 +18,7 @@
 #include "grants.h"
 #include <sys/mman.h>
 
-#define GHC_STACK_SIZE                      (1 * 1024 * 1024)
+#define STACK_SIZE                      (1 * 1024 * 1024)
 
 void main(int, char**);
 void runtime_entry(start_info_t *, void *) __attribute__((noreturn));
@@ -106,6 +106,12 @@ void runtime_entry(start_info_t *start_info, void *init_sp)
   num_vcpus = get_num_vcpus();
   assert(num_vcpus > 0);
   maxpages = initialize_memory(start_info, num_vcpus, init_sp);
+  runtime_stack = runtime_alloc(NULL,STACK_SIZE,PROT_READWRITE,ALLOC_ALL_CPUS);
+#ifdef __x86_64__
+  asm("mov %0, %%rsp" : : "r"((uintptr_t)runtime_stack + STACK_SIZE));
+#else
+  asm("mov %0, %%esp" : : "r"((uintptr_t)runtime_stack + STACK_SIZE));
+#endif
   init_smp_system();
   init_vcpu(0);
   shared_info_mfn = (mfn_t)start_info->shared_info >> PAGE_SHIFT;
@@ -113,9 +119,10 @@ void runtime_entry(start_info_t *start_info, void *init_sp)
   // given for the shared info struct is page aligned.
   assert(!((uintptr_t)start_info->shared_info & (PAGE_SIZE-1)));
   HYPERVISOR_shared_info = map_frames(&shared_info_mfn,1);
-  init_signals(HYPERVISOR_shared_info);
   //assert(HYPERCALL_set_trap_table(trap_table) >= 0);
   assert(HYPERCALL_set_callbacks(hypervisor_callback, failsafe_callback) >= 0);
+  init_signals(HYPERVISOR_shared_info);
+  allow_signals(1);
   init_time(HYPERVISOR_shared_info);
   init_grants();
 
@@ -178,15 +185,6 @@ void runtime_entry(start_info_t *start_info, void *init_sp)
   }
 
   /* Jump to GHC */
-  runtime_stack = runtime_alloc(NULL, GHC_STACK_SIZE, PROT_READWRITE,
-                                ALLOC_ALL_CPUS);
-  printf("New stack is %p\n", runtime_stack);
-#ifdef __x86_64__
-  asm("mov %0, %%rsp" : : "r"((uintptr_t)runtime_stack + GHC_STACK_SIZE));
-#else
-  asm("mov %0, %%esp" : : "r"((uintptr_t)runtime_stack + GHC_STACK_SIZE));
-#endif
-  printf("New stack is set!\n");
   main(argc, argv);
 
   /* Ideally we should never get here, but just in case GHC returns ... */
