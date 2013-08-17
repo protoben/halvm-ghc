@@ -22,7 +22,8 @@
 #define PG_UNUSED1          (1 << 10)
 #define PG_UNUSED2          (1 << 11)
 
-#define STANDARD_RW_PERMS   (PG_PRESENT | PG_READWRITE | PG_USER | PG_CLAIMED)
+#define STANDARD_PERMS      (PG_PRESENT | PG_USER | PG_CLAIMED)
+#define STANDARD_RW_PERMS   (STANDARD_PERMS | PG_READWRITE)
 
 #ifdef CONFIG_X86_PAE
 typedef uint64_t            pte_t;
@@ -79,5 +80,6 @@ typedef uint64_t            pte_t;
 void  *initialize_vmm(start_info_t *, uint32_t, void *);
 pte_t  get_pt_entry(void *addr);
 void   set_pt_entry(void *addr, pte_t entry);
+void  *machine_to_virtual(uint64_t maddr);
 
 #endif

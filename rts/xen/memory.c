@@ -11,6 +11,7 @@
 #include "hypercalls.h"
 #include <sys/mman.h>
 #include "locks.h"
+#include <errno.h>
 
 #define PAGE_ALIGN(t1,t2,x) (t1)(((t2)x + (PAGE_SIZE-1)) & (~(PAGE_SIZE-1)))
 
@@ -92,12 +93,6 @@ unsigned long initialize_memory(start_info_t *start_info,
 
   free_space_start = initialize_vmm(start_info, num_vcpus, init_sp);
   free_space_start = PAGE_ALIGN(void*,uintptr_t,free_space_start);
-  printf("Free space should start at %p\n", free_space_start);
-  printf("Preallocated page tables are at %p\n", start_info->pt_base);
-  printf(" ... and end at %p\n", start_info->pt_base + (start_info->nr_pt_frames * PAGE_SIZE));
-  printf("MFN list starts at %p\n", start_info->mfn_list);
-  printf("  ... and goes to around %p\n", start_info->mfn_list + (start_info->nr_pages * sizeof(mfn_t)));
-  printf("Initial stack was %p\n", init_sp);
   i = ((uintptr_t)free_space_start - (uintptr_t)&_text) >> PAGE_SHIFT;
   for(cur = free_space_start;
       i < used_frames;
@@ -119,20 +114,58 @@ static inline void *advance_page(void *p, int target)
   void *next = CANONICALIZE((void*)((uintptr_t)DECANONICALIZE(p) + 4096));
 
   if( (target == ALLOC_CPU_LOCAL) && (next == (void*)VCPU_LOCAL_END) )
-    return NULL;
+    return VCPU_LOCAL_START;
 
-  /* wrap around */
   if( (target == ALLOC_ALL_CPUS) && ((uintptr_t)next == 0) )
-    return NULL;
+    return VCPU_LOCAL_END;
+
+  if( (target == ALLOC_GLOBAL_ONLY) && ((uintptr_t)next == 0) )
+    return GLOBAL_TABLE_START;
 
   return next;
+}
+
+static inline void *run_search_loop(void *start, size_t length, int target)
+{
+  void *cur = start, *retval = NULL;
+  size_t needed_space = length;
+
+  assert(start);
+  while(needed_space > 0) {
+    pte_t ent = get_pt_entry(cur);
+
+    if(ENTRY_PRESENT(ent) || ENTRY_CLAIMED(ent)) {
+      /* nevermind, we can't use anything we've found up until now */
+      needed_space = length;
+      retval       = NULL;
+    } else {
+      /* we can start or extend the current run */
+      if(!retval) retval = cur;
+      needed_space     = needed_space - PAGE_SIZE;
+    }
+
+    if(needed_space > 0) {
+      cur = advance_page(cur, target);
+
+      /* check for wraparound, which is bad */
+      if( cur < retval ) {
+        needed_space = length;
+        retval       = NULL;
+      }
+
+      /* if we're back where we started from, give up */
+      if( cur == start )
+        return NULL;
+    }
+  }
+
+  return retval;
 }
 
 static inline void *find_new_addr(void *start_in, size_t length, int target)
 {
   static void *glob_search_hint = VCPU_LOCAL_END;
-  void *start = PAGE_ALIGN(void*,uintptr_t,start_in), *cur;
-  size_t needed_space;
+  void *start = PAGE_ALIGN(void*,uintptr_t,start_in);
 
   /* now we do some processing to make start something reasonable */
   if(target == ALLOC_CPU_LOCAL) {
@@ -157,32 +190,7 @@ static inline void *find_new_addr(void *start_in, size_t length, int target)
       start = glob_search_hint;
   }
 
-  /* next step: find some space to put this */
-  assert(start);
-  needed_space = length;
-  cur = start;
-  start = NULL;
-  while(needed_space > 0) {
-    pte_t ent = get_pt_entry(cur);
-
-    if(ENTRY_PRESENT(ent) || ENTRY_CLAIMED(ent)) {
-      needed_space = length;
-      start        = NULL;
-    } else {
-      if(!start) start = cur;
-      needed_space     = needed_space - PAGE_SIZE;
-    }
-
-    // FIXME: This could allow allocations that span the page-extension gap
-    // on x86_64.
-    cur = advance_page(cur, target);
-    if(!cur) {
-      halvm_release_lock(&memory_search_lock);
-      return NULL;
-    }
-  }
-
-  return start;
+  return run_search_loop(start, length, target);
 }
 
 void *runtime_alloc(void *start, size_t length_in, int prot, int target)
@@ -241,11 +249,41 @@ void *map_frames(mfn_t *frames, size_t num_frames)
   return dest;
 }
 
+long pin_frame(int level, mfn_t mfn, domid_t dom)
+{
+  mmuext_op_t op;
+
+  switch(level) {
+    case 1: op.cmd = MMUEXT_PIN_L1_TABLE; break;
+    case 2: op.cmd = MMUEXT_PIN_L2_TABLE; break;
+    case 3: op.cmd = MMUEXT_PIN_L3_TABLE; break;
+    case 4: op.cmd = MMUEXT_PIN_L4_TABLE; break;
+    default:
+      return -EINVAL;
+  }
+  op.arg1.mfn = mfn;
+
+  return HYPERCALL_mmuext_op(&op, 1, NULL, dom);
+}
 
 void *runtime_realloc(void *start, size_t oldlen, size_t newlen)
 {
   printf("runtime_realloc(%p, %d, %d)\n", start, oldlen, newlen);
   return NULL; // FIXME
+}
+
+void *claim_shared_space(size_t amt)
+{
+  void *retval;
+  int i;
+
+  amt = (amt + (PAGE_SIZE-1)) & ~(PAGE_SIZE-1);
+  halvm_acquire_lock(&memory_search_lock);
+  retval = run_search_loop(GLOBAL_TABLE_START, amt, ALLOC_GLOBAL_ONLY);
+  for(i = 0; i < (amt / PAGE_SIZE); i++)
+    set_pt_entry((void*)((uintptr_t)retval + (i * PAGE_SIZE)), PG_CLAIMED);
+  halvm_release_lock(&memory_search_lock);
+  return retval;
 }
 
 void runtime_free(void *start, size_t length)
@@ -352,3 +390,31 @@ void setExecutable(void *p, W_ len, rtsBool exec)
     p = (void*)((uintptr_t)p + 4096);
   }
 }
+
+void system_wmb()
+{
+#ifdef __x86_64__
+  asm volatile ("sfence" : : : "memory");
+#else
+  asm volatile ("" : : : "memory");
+#endif
+}
+
+void system_rmb()
+{
+#ifdef __x86_64__
+  asm volatile ("lfence" : : : "memory");
+#else
+  asm volatile ("lock; addl $0, 0(%%esp)" : : : "memory");
+#endif
+}
+
+void system_mb()
+{
+#ifdef __x86_64__
+  asm volatile ("mfence" : : : "memory");
+#else
+  asm volatile ("lock; addl $0, 0(%%esp)" : : : "memory");
+#endif
+}
+

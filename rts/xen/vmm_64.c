@@ -355,4 +355,51 @@ void set_pt_entry(void *addr_unaligned, pte_t new_val)
   halvm_release_lock(&vmm_lock);
 }
 
+void  *machine_to_virtual(uint64_t maddr)
+{
+  pte_t l4_entry, l3_entry, l2_entry, l1_entry;
+  int i, j, k, l;
+
+  for(i = 0; i < 512; i++) {
+    if(i == VADDR_L4_IDX(HYPERVISOR_VIRT_START))
+      i = VADDR_L4_IDX(HYPERVISOR_VIRT_END);
+
+    temporarily_map(local_pts[vcpu_num()].local_l4_physaddr, 0);
+    l4_entry = temp_table[VADDR_L4_IDX(maddr)];
+    if(ENTRY_PRESENT(l4_entry)) {
+      pte_t l3_table_base = ENTRY_MADDR(l4_entry);
+
+      for(j = 0; j < 512; j++) {
+        temporarily_map(l3_table_base, 0);
+        l3_entry = temp_table[VADDR_L3_IDX(maddr)];
+
+        if(ENTRY_PRESENT(l3_entry)) {
+          pte_t l2_table_base = ENTRY_MADDR(l3_entry);
+
+          for(k = 0; k < 512; k++) {
+            temporarily_map(l2_table_base, 0);
+            l2_entry = temp_table[VADDR_L2_IDX(maddr)];
+
+            if(ENTRY_PRESENT(l2_entry)) {
+              pte_t l1_table_base = ENTRY_MADDR(l2_entry);
+
+              temporarily_map(l1_table_base, 0);
+              for(l = 0; l < 512; l++) {
+                if(ENTRY_PRESENT(temp_table[l]))
+                  if(ENTRY_MADDR(maddr) == ENTRY_MADDR(temp_table[l])) {
+                    void *base = BUILD_ADDR(i, j, k, l);
+                    uintptr_t offset = maddr & (PAGE_SIZE-1);
+                    return (void*)((uintptr_t)base + offset);
+                  }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return NULL;
+}
+
 #endif

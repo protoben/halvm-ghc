@@ -57,6 +57,12 @@ void           set_pframe_unused(pfn_t);
 mfn_t          get_free_frame(void);
 
 unsigned long  initialize_memory(start_info_t *, uint32_t, void *);
-void           *map_frames(mfn_t *, size_t);
+void          *claim_shared_space(size_t);
+void          *map_frames(mfn_t *, size_t);
+long           pin_frame(int, mfn_t, domid_t);
+
+void           system_wmb(void);
+void           system_rmb(void);
+void           system_mb(void);
 
 #endif
