@@ -6,6 +6,7 @@
 
 #define ALLOC_CPU_LOCAL         0
 #define ALLOC_ALL_CPUS          1
+#define ALLOC_GLOBAL_ONLY       2
 
 void    runtime_write(size_t len, char *buffer);
 void    runtime_block(unsigned long milliseconds);

@@ -23,6 +23,7 @@
 #define ERANGE          34
 #define EDEADLK         35
 #define ENOTEMPTY       39
+#define EXFULL          54
 #define ENOSYS          78
 #define EISCONN         106
 
