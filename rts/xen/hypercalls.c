@@ -106,3 +106,8 @@ long HYPERCALL_event_channel_op(int cmd, void *arg)
 {
   return hypercall(event_channel_op, cmd, arg, 0, 0, 0);
 }
+
+long HYPERCALL_set_timer_op(uint64_t until)
+{
+  return hypercall(set_timer_op, until, 0, 0, 0, 0);
+}

@@ -18,8 +18,6 @@
 #include "grants.h"
 #include <sys/mman.h>
 
-#define STACK_SIZE                      (1 * 1024 * 1024)
-
 void main(int, char**);
 void runtime_entry(start_info_t *, void *) __attribute__((noreturn));
 
@@ -105,6 +103,7 @@ void runtime_entry(start_info_t *start_info, void *init_sp)
   system_start_info = start_info;
   num_vcpus = get_num_vcpus();
   assert(num_vcpus > 0);
+  printf("Starting HaLVM with %d vCPUS\n", num_vcpus);
   maxpages = initialize_memory(start_info, num_vcpus, init_sp);
   runtime_stack = runtime_alloc(NULL,STACK_SIZE,PROT_READWRITE,ALLOC_ALL_CPUS);
 #ifdef __x86_64__

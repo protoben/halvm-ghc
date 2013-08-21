@@ -9,6 +9,7 @@
 #include <sys/mman.h>
 #include <xen/xen.h>
 #include <xen/event_channel.h>
+#include <xen/sched.h>
 #include "hypercalls.h"
 #include <assert.h>
 #include "locks.h"
@@ -129,9 +130,8 @@ void unmask_channel(uint32_t chan)
               : "=r"(was_set)
               : "m"(shared_info->evtchn_pending), "r"(chan));
   if(was_set) {
-    void *pending_sel = &(vcpu_local_info->other_info.evtchn_pending_sel);
     asm volatile("lock btsl %k2, %1 ; sbbl %0, %0"
-                : "=r"(was_set), "=m"(pending_sel)
+                : "=r"(was_set), "=m"(local_vcpu_info.evtchn_pending_sel)
                 : "r"(chan / (sizeof(unsigned long) * 8)) : "memory");
     if(!was_set) {
       vcpu_local_info->other_info.evtchn_upcall_pending = 1;
@@ -197,8 +197,6 @@ int signals_pending(void)
 
 void allow_signals(int allow)
 {
-  uint8_t was = 0x23;
-
 #if defined(__x86_64__)
   asm volatile("movl %0,%%fs ; movl %0,%%gs" :: "r" (0));
   asm volatile("wrmsr" : : "c"(0xc0000101), /* MSR_GS_BASE */
@@ -207,9 +205,9 @@ void allow_signals(int allow)
   cpu0_pda.irqcount    = -1;
   cpu0_pda.irqstackptr = vcpu_local_info->irq_stack_top;
 #endif
-  was = __sync_lock_test_and_set(&vcpu_mask, !!!allow);
+  __sync_lock_test_and_set(&vcpu_mask, !!!allow);
   asm volatile("" : : : "memory");
-  if(vcpu_local_info->other_info.evtchn_upcall_pending)
+  if(allow && vcpu_local_info->other_info.evtchn_upcall_pending)
     force_hypervisor_callback();
 }
 
@@ -287,27 +285,25 @@ static rtsBool wakeUpSleepingThreads(StgWord now)
   rtsBool retval = rtsFalse;
 
    /* wake up anyone that's sleeping */
-   while((sleeping_queue != END_TSO_QUEUE) &&
-         (now - sleeping_queue->block_info.target > 0))
-   {
-     StgTSO *tso      = sleeping_queue;
-     retval           = rtsTrue;
-     sleeping_queue   = tso->_link;
-     tso->why_blocked = NotBlocked;
-     tso->_link       = END_TSO_QUEUE;
-     pushOnRunQueue(&MainCapability, tso);
-   }
+  while((sleeping_queue != END_TSO_QUEUE) &&
+        (sleeping_queue->block_info.target <= now))
+  {
+    StgTSO *tso      = sleeping_queue;
+    retval           = rtsTrue;
+    sleeping_queue   = tso->_link;
+    tso->why_blocked = NotBlocked;
+    tso->_link       = END_TSO_QUEUE;
+    pushOnRunQueue(&MainCapability, tso);
+  }
 
-   return retval;
+  return retval;
 }
 
 void awaitEvent(rtsBool wait)
 {
-  printf("awaitEvent(%d)\n", wait);
   do {
     StgWord now = getDelayTarget(0);
 
-    printf("now = %ld\n", now);
     if(wakeUpSleepingThreads(now))
       return;
 
@@ -338,8 +334,20 @@ void awaitEvent(rtsBool wait)
 
 void runtime_block(unsigned long milliseconds)
 {
-  printf("runtime_block(%d)\n", milliseconds);
-  // FIXME
+  if(!signals_pending()) {
+    allow_signals(0);
+    force_hypervisor_callback();
+    if(!signals_pending()) {
+      uint64_t now   = monotonic_clock();
+      uint64_t until = now + (milliseconds * 1000000UL);
+      if(monotonic_clock() < until) {
+        assert(HYPERCALL_set_timer_op(until) >= 0);
+        assert(HYPERCALL_sched_op(SCHEDOP_block, 0) >= 0);
+        force_hypervisor_callback();
+        now = monotonic_clock();
+      } else allow_signals(1);
+    } else allow_signals(1);
+  }
 }
 
 int stg_sig_install(int sig, int spi, void *mask __attribute__((unused)))
