@@ -25,4 +25,7 @@ int       mkstemp(char *template);
 void     *bsearch(const void *, const void *, size_t, size_t,
                   int (*)(const void *, const void *));
 
+int       putenv(char *str);
+int       unsetenv(const char *name);
+
 #endif
