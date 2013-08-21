@@ -2,6 +2,8 @@
 #define MINLIBC_RUNTIME_REQS
 
 #include <sys/types.h>
+#include <sys/resource.h>
+#include <sys/time.h>
 #include <time.h>
 
 #define ALLOC_CPU_LOCAL         0
@@ -17,5 +19,7 @@ void    runtime_free(void *start, size_t length);
 int     runtime_memprotect(void *addr, size_t length, int prot);
 int     runtime_pagesize(void);
 time_t  runtime_time(void);
+int     runtime_gettimeofday(struct timeval *);
+int     runtime_rusage(int who, struct rusage *);
 
 #endif

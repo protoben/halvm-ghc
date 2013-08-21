@@ -99,6 +99,45 @@ time_t runtime_time()
   return retval;
 }
 
+int runtime_gettimeofday(struct timeval *tv)
+{
+  uint32_t start_version, end_version;
+  uint64_t offset = monotonic_clock();
+
+  if(!tv) return EFAULT;
+
+  do {
+    /* if the low bit in the version is set, an update is in progress */
+    do { start_version = vcpu_local_info->other_info.time.version; }
+         while (start_version & 0x1);
+    rmb();
+    tv->tv_sec  = shared_info->wc_sec + (offset / 1000000000ULL);
+    tv->tv_usec = (shared_info->wc_nsec + (offset % 1000000000ULL)) / 1000ULL;
+    rmb();
+    end_version = vcpu_local_info->other_info.time.version;
+    rmb();
+  } while(start_version != end_version);
+
+  return 0;
+}
+
+int runtime_rusage(int who __attribute__((unused)), struct rusage *usage)
+{
+  uint64_t now  = monotonic_clock();
+  uint64_t diff = now - start_time;
+
+  assert(now >= start_time);
+  memset(usage, 0, sizeof(struct rusage));
+  usage->ru_utime.tv_sec  = diff / 1000000000;
+  usage->ru_utime.tv_usec = (diff % 1000000000) / 1000;
+  usage->ru_maxrss        = max_pages * 4096;
+  usage->ru_ixrss         = cur_pages * 4096;
+  usage->ru_idrss         = cur_pages * 4096;
+  usage->ru_isrss         = STACK_SIZE;
+
+  return 0;
+}
+
 void getProcessTimes(Time *user, Time *elapsed)
 {
   uint64_t now = monotonic_clock();
