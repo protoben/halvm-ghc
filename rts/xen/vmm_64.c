@@ -365,20 +365,20 @@ void  *machine_to_virtual(uint64_t maddr)
       i = VADDR_L4_IDX(HYPERVISOR_VIRT_END);
 
     temporarily_map(local_pts[vcpu_num()].local_l4_physaddr, 0);
-    l4_entry = temp_table[VADDR_L4_IDX(maddr)];
+    l4_entry = temp_table[i];
     if(ENTRY_PRESENT(l4_entry)) {
       pte_t l3_table_base = ENTRY_MADDR(l4_entry);
 
       for(j = 0; j < 512; j++) {
         temporarily_map(l3_table_base, 0);
-        l3_entry = temp_table[VADDR_L3_IDX(maddr)];
+        l3_entry = temp_table[j];
 
         if(ENTRY_PRESENT(l3_entry)) {
           pte_t l2_table_base = ENTRY_MADDR(l3_entry);
 
           for(k = 0; k < 512; k++) {
             temporarily_map(l2_table_base, 0);
-            l2_entry = temp_table[VADDR_L2_IDX(maddr)];
+            l2_entry = temp_table[k];
 
             if(ENTRY_PRESENT(l2_entry)) {
               pte_t l1_table_base = ENTRY_MADDR(l2_entry);
