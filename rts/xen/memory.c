@@ -15,9 +15,9 @@
 
 #define PAGE_ALIGN(t1,t2,x) (t1)(((t2)x + (PAGE_SIZE-1)) & (~(PAGE_SIZE-1)))
 
-static unsigned long  cur_pages = 0;
-static unsigned long  max_pages = 0;
 extern int            _text;
+       unsigned long  cur_pages = 0;
+       unsigned long  max_pages = 0;
 
 extern void initMutex(halvm_mutex_t *mutex);
 

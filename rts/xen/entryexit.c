@@ -119,7 +119,7 @@ void runtime_entry(start_info_t *start_info, void *init_sp)
   // given for the shared info struct is page aligned.
   assert(!((uintptr_t)start_info->shared_info & (PAGE_SIZE-1)));
   HYPERVISOR_shared_info = map_frames(&shared_info_mfn,1);
-  //assert(HYPERCALL_set_trap_table(trap_table) >= 0);
+  assert(HYPERCALL_set_trap_table(trap_table) >= 0);
   assert(HYPERCALL_set_callbacks(hypervisor_callback, failsafe_callback) >= 0);
   init_signals(HYPERVISOR_shared_info);
   allow_signals(1);

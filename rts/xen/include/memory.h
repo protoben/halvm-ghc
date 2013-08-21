@@ -11,6 +11,8 @@
 
 #define PAGE_SHIFT                12
 #define PAGE_SIZE                 (1 << 12)
+#define STACK_SIZE                (1 * 1024 * 1024)
+
 
 #ifdef CONFIG_X86_32
 typedef uint32_t mfn_t;
@@ -50,7 +52,9 @@ typedef uint64_t maddr_t;
 #error "Need to be compiled with CONFIG_X86_32, 64, or PAE."
 #endif
 
-extern mfn_t  *p2m_map;
+extern mfn_t         *p2m_map;
+extern unsigned long  cur_pages;
+extern unsigned long  max_pages;
 
 void           set_pframe_used(pfn_t);
 void           set_pframe_unused(pfn_t);

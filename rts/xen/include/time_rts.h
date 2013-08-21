@@ -8,7 +8,8 @@
 #include <xen/xen.h>
 #include "Rts.h"
 
-void init_time(struct shared_info *);
-StgWord getDelayTarget(HsInt /* microseconds */);
+void     init_time(struct shared_info *);
+StgWord  getDelayTarget(HsInt /* microseconds */);
+uint64_t monotonic_clock(void);
 
 #endif
