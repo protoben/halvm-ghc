@@ -4,6 +4,7 @@
 #include "Ticker.h"
 #include "GetTime.h"
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <runtime_reqs.h>
 #include "time_rts.h"
@@ -12,7 +13,9 @@
 #include <xen/vcpu.h>
 #include <assert.h>
 #include "hypercalls.h"
+#include "memory.h"
 #include "vcpu.h"
+#include <errno.h>
 
 #ifdef __x86_64
 # define rmb() asm volatile("lfence" : : : "memory")
@@ -22,6 +25,7 @@
 
 /* ************************************************************************* */
 
+static uint64_t            start_time  = 0;
 static uint32_t            timer_echan = 0;
 static struct shared_info *shared_info = NULL;
 
@@ -31,46 +35,43 @@ void init_time(struct shared_info *sinfo)
   assert(res >= 0);
   timer_echan = res;
   shared_info = sinfo;
+  start_time = monotonic_clock();
 }
 
 static inline uint64_t rdtscll(void)
 {
-  unsigned long highbits, lowbits;
+  uint32_t highbits, lowbits;
+  uint64_t retval;
 
   asm volatile("rdtsc" : "=a"(lowbits), "=d"(highbits));
-  return ((uint64_t)highbits << 32) | (uint64_t)lowbits;
+  retval = (((uint64_t)highbits) << 32) | ((uint64_t)lowbits);
+  return retval;
 }
 
-static uint64_t monotonic_clock(void)
+uint64_t monotonic_clock(void)
 {
+  struct vcpu_time_info *time = &vcpu_local_info->other_info.time;
   uint32_t start_version, end_version;
-  uint64_t retval = 0;
+  uint64_t now, delta, retval = 0;
 
   do {
-    uint64_t now, delta, shift, offset;
-
     /* if the low bit in the version is set, an update is in progress */
-    do { start_version = vcpu_local_info->other_info.time.version; }
-         while (start_version & 0x1);
-    /* fetch the version when we start */
-    start_version = vcpu_local_info->other_info.time.version;
-    rmb();
+    do { start_version = time->version; } while (start_version & 0x1);
+    __sync_synchronize();
     /* pull in the base system time */
-    retval = vcpu_local_info->other_info.time.system_time;
+    retval = time->system_time;
     /* now we figure out the difference between now and when that was written */
     now    = rdtscll();
-    delta  = now - vcpu_local_info->other_info.time.tsc_timestamp;
-    if(vcpu_local_info->other_info.time.tsc_shift < 0)
-      shift = delta >> -vcpu_local_info->other_info.time.tsc_shift;
+    delta  = now - time->tsc_timestamp;
+    if(time->tsc_shift < 0)
+      delta >>= -time->tsc_shift;
     else
-      shift = delta << vcpu_local_info->other_info.time.tsc_shift;
-    offset = (shift * vcpu_local_info->other_info.time.tsc_to_system_mul) >> 32;
-    /* now we can add that difference back to our system time */
-    retval += offset;
-    rmb();
+      delta <<= time->tsc_shift;
+    retval += (delta * time->tsc_to_system_mul) >> 32;
+    __sync_synchronize();
     /* get our end version */
-    end_version = vcpu_local_info->other_info.time.version;
-    rmb();
+    end_version = time->version;
+    __sync_synchronize();
     /* if the two values are different, we my have an inconsistent time */
   } while(start_version != end_version);
 
@@ -176,11 +177,12 @@ StgWord64 getMonotonicNSec()
 
 StgWord getDelayTarget(HsInt us /* microseconds */)
 {
-  Time now = monotonic_clock() / 1000; /* ns -> us */
+  Time now = (Time)((uint64_t)monotonic_clock() / (uint64_t)1000); /* ns->us */
 
-  /* this checks for an overflow case */
-  if(us > ((~0) - now))
-    return ~0;
+  if( (now + us) < now ) {
+    printf("Exceptional case in getDelayTarget.\n");
+    return 0;
+  }
 
   return now + us;
 }
