@@ -210,7 +210,7 @@ static pte_t create_table_entry(maddr_t table_base, int idx, int level)
 
   /* write in the value */
   retval = (mfn << PAGE_SHIFT) | PG_USER | PG_PRESENT | PG_READWRITE;
-  assert(mmu_update(table_base + (64 * idx), retval));
+  assert(mmu_update(table_base + (sizeof(pte_t) * idx), retval));
 
   return retval;
 }
@@ -300,33 +300,33 @@ static inline void set_dupped_pt_entry(void *addr, pte_t val)
   assert(mmu_update(l1_base + (sizeof(pte_t) * VADDR_L1_IDX(addr)), val));
 }
 
-static inline void set_global_pt_entry(void *addr, pte_t new_val)
+static inline void set_global_pt_entry(void *addr, pte_t val)
 {
-  pte_t l4_entry, l3_entry, l2_entry;
+  pte_t l4ent, l3ent, l2ent;
   halvm_acquire_lock(&vmm_lock);
 
-  printf("set_global_pt_entry(%p, %lx)\n", addr, new_val);
   temporarily_map(local_pts[vcpu_num()].local_l4_physaddr, 0);
-  l4_entry = temp_table[VADDR_L4_IDX(addr)];
-  if(!ENTRY_PRESENT(l4_entry))
-    l4_entry = create_table_entry(local_pts[vcpu_num()].local_l4_physaddr,
-                                  VADDR_L4_IDX(addr), MMUEXT_PIN_L3_TABLE);
+  l4ent = temp_table[VADDR_L4_IDX(addr)];
+  if(!ENTRY_PRESENT(l4ent)) {
+    l4ent = create_table_entry(local_pts[vcpu_num()].local_l4_physaddr,
+                               VADDR_L4_IDX(addr), MMUEXT_PIN_L3_TABLE);
+  }
 
-  temporarily_map(ENTRY_MADDR(l4_entry), 0);
-  l3_entry = temp_table[VADDR_L3_IDX(addr)];
-  if(!ENTRY_PRESENT(l3_entry))
-    l3_entry = create_table_entry(ENTRY_MADDR(l4_entry), VADDR_L3_IDX(addr),
-                                  MMUEXT_PIN_L2_TABLE);
+  temporarily_map(ENTRY_MADDR(l4ent), 0);
+  l3ent = temp_table[VADDR_L3_IDX(addr)];
+  if(!ENTRY_PRESENT(l3ent)) {
+    l3ent = create_table_entry(ENTRY_MADDR(l4ent), VADDR_L3_IDX(addr),
+                               MMUEXT_PIN_L2_TABLE);
+  }
 
-  temporarily_map(ENTRY_MADDR(l3_entry), 0);
-  l2_entry = temp_table[VADDR_L2_IDX(addr)];
-  if(!ENTRY_PRESENT(l2_entry))
-    l2_entry = create_table_entry(ENTRY_MADDR(l3_entry), VADDR_L2_IDX(addr),
-                                  MMUEXT_PIN_L1_TABLE);
+  temporarily_map(ENTRY_MADDR(l3ent), 0);
+  l2ent = temp_table[VADDR_L2_IDX(addr)];
+  if(!ENTRY_PRESENT(l2ent)) {
+    l2ent = create_table_entry(ENTRY_MADDR(l3ent), VADDR_L2_IDX(addr),
+                               MMUEXT_PIN_L1_TABLE);
+  }
 
-  assert(mmu_update(ENTRY_MADDR(l2_entry) +
-                       (VADDR_L1_IDX(addr) * sizeof(pte_t)),
-                    new_val));
+  assert(mmu_update(ENTRY_MADDR(l2ent)+(VADDR_L1_IDX(addr)*sizeof(pte_t)),val));
 
   halvm_release_lock(&vmm_lock);
 }
@@ -357,7 +357,7 @@ void set_pt_entry(void *addr_unaligned, pte_t new_val)
 
 void  *machine_to_virtual(uint64_t maddr)
 {
-  pte_t l4_entry, l3_entry, l2_entry, l1_entry;
+  pte_t l4_entry, l3_entry, l2_entry;
   int i, j, k, l;
 
   for(i = 0; i < 512; i++) {
