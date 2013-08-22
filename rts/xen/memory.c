@@ -368,7 +368,6 @@ void osMemInit(void)
 
 void osFreeMBlocks(char *addr, nat n)
 {
-  printf("osFreeMBlocks(%p, %d)\n", addr, n);
   runtime_free(addr, n * MBLOCK_SIZE);
 }
 
