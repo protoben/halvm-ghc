@@ -220,8 +220,9 @@ void initUserSignals(void)
 
 void awaitUserSignals(void)
 {
+  force_hypervisor_callback();
   while(!signals_pending() && sched_state == SCHED_RUNNING)
-    runtime_block(0);
+    runtime_block(10 * 60 * 1000); // 10 minutes
 }
 
 rtsBool anyUserHandlers(void)
@@ -376,7 +377,10 @@ void do_hypervisor_callback(void *u __attribute__((unused)))
   halvm_acquire_lock(&handler_run_lock);
   halvm_acquire_lock(&handler_buf_lock);
   vcpu_local_info->other_info.evtchn_upcall_pending = 0;
-  lev1 = __sync_lock_test_and_set(&local_vcpu_info.evtchn_pending_sel, 0);
+
+start:
+  lev1 = *(volatile unsigned long*)(&local_vcpu_info.evtchn_pending_sel);
+
   while(lev1) {
     /* remember, ffsl returns offset + 1 */
     unsigned long idx = __builtin_ffsl(lev1);
@@ -405,6 +409,8 @@ void do_hypervisor_callback(void *u __attribute__((unused)))
       }
     } while(lev2);
   }
+  goto start;
+
   halvm_release_lock(&handler_buf_lock);
   halvm_release_lock(&handler_run_lock);
 }
