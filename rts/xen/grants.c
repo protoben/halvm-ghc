@@ -265,7 +265,7 @@ long copy_frame(unsigned long src, int src_is_ref, domid_t sdom, uint16_t soff,
   } else copy.source.u.gmfn = src;
 
   if(dst_is_ref) {
-    copy.dest.u.ref = src;
+    copy.dest.u.ref = dst;
     copy.flags |= GNTCOPY_dest_gref;
   } else copy.dest.u.gmfn = dst;
 
