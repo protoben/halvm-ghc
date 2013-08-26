@@ -21,6 +21,8 @@ static void force_hypervisor_callback(void);
 
 #define local_vcpu_info         vcpu_local_info->other_info
 #define vcpu_mask               (local_vcpu_info.evtchn_upcall_mask)
+#define sync_swap               __sync_lock_test_and_set
+
 
 /* ************************************************************************ */
 
@@ -34,8 +36,6 @@ typedef struct signal_handler {
 
 static signal_handler_t   *signal_handlers;
 static struct shared_info *shared_info;
-static halvm_mutex_t       handler_run_lock;
-static halvm_mutex_t       handler_buf_lock;
 
 #ifdef __x86_64__
 static struct pda
@@ -52,8 +52,6 @@ void init_signals(struct shared_info *sinfo)
                                   PROT_READWRITE, ALLOC_ALL_CPUS);
   memset(signal_handlers, 0, MAX_EVTCHANS * sizeof(signal_handler_t));
   memset(shared_info->evtchn_mask, 0xFF, sizeof(shared_info->evtchn_mask));
-  initMutex(&handler_run_lock);
-  initMutex(&handler_buf_lock);
 }
 
 long bind_virq(uint32_t virq, uint32_t vcpu)
@@ -75,9 +73,7 @@ long bind_pirq(uint32_t pirq, int will_share)
 void set_c_handler(uint32_t chan, void (handler)(int))
 {
   assert(chan < MAX_EVTCHANS);
-  halvm_acquire_lock(&handler_buf_lock);
-  signal_handlers[chan].c_handler = handler;
-  halvm_release_lock(&handler_buf_lock);
+  (void)sync_swap(&(signal_handlers[chan].c_handler), handler);
   unmask_channel(chan);
 }
 
@@ -85,17 +81,13 @@ void clear_c_handler(uint32_t chan)
 {
   assert(chan < MAX_EVTCHANS);
   mask_channel(chan);
-  halvm_acquire_lock(&handler_buf_lock);
-  signal_handlers[chan].c_handler = NULL;
-  halvm_release_lock(&handler_buf_lock);
+  (void)sync_swap(&(signal_handlers[chan].c_handler), NULL);
 }
 
 void set_haskell_handler(uint32_t chan, StgStablePtr handler)
 {
   assert(chan < MAX_EVTCHANS);
-  halvm_acquire_lock(&handler_buf_lock);
-  signal_handlers[chan].haskell_handler = handler;
-  halvm_release_lock(&handler_buf_lock);
+  (void)sync_swap(&(signal_handlers[chan].haskell_handler), handler);
   unmask_channel(chan);
 }
 
@@ -103,9 +95,7 @@ void clear_haskell_handler(uint32_t chan)
 {
   assert(chan < MAX_EVTCHANS);
   mask_channel(chan);
-  halvm_acquire_lock(&handler_buf_lock);
-  signal_handlers[chan].haskell_handler = NULL;
-  halvm_release_lock(&handler_buf_lock);
+  (void)sync_swap(&(signal_handlers[chan].haskell_handler), NULL);
 }
 
 void mask_channel(uint32_t chan)
@@ -190,6 +180,7 @@ static unsigned int   next_pending_handler = 0;
 
 int signals_pending(void)
 {
+  force_hypervisor_callback();
   return next_pending_handler;
 }
 
@@ -215,7 +206,6 @@ void initUserSignals(void)
 {
   pending_handler_buf  = calloc(MAX_PENDING_HANDLERS, sizeof(StgStablePtr));
   next_pending_handler = 0;
-  initMutex(&handler_buf_lock);
 }
 
 void awaitUserSignals(void)
@@ -229,13 +219,10 @@ rtsBool anyUserHandlers(void)
 {
   int i;
 
-  halvm_acquire_lock(&handler_buf_lock);
   for(i = 0; i < (int)MAX_EVTCHANS; i++)
     if(signal_handlers[i].haskell_handler) {
-      halvm_release_lock(&handler_buf_lock);
       return rtsTrue;
     }
-  halvm_release_lock(&handler_buf_lock);
 
   return rtsFalse;
 }
@@ -267,15 +254,13 @@ void startSignalHandlers(Capability *cap)
 {
   unsigned int i;
 
-  halvm_acquire_lock(&handler_buf_lock);
-  __sync_lock_test_and_set(&vcpu_mask, 1);
+  sync_swap(&vcpu_mask, 1);
   for(i = 0; i < next_pending_handler; i++) {
     StgClosure *h = (StgClosure*)deRefStablePtr(pending_handler_buf[i]);
     scheduleThread(cap, createIOThread(cap,RtsFlags.GcFlags.initialStkSize,h));
   }
   next_pending_handler = 0;
-  __sync_lock_test_and_set(&vcpu_mask, 0);
-  halvm_release_lock(&handler_buf_lock);
+  sync_swap(&vcpu_mask, 0);
 }
 
 /* ************************************************************************ */
@@ -374,45 +359,37 @@ void do_hypervisor_callback(void *u __attribute__((unused)))
 {
   unsigned long lev1, lev2;
 
-  halvm_acquire_lock(&handler_run_lock);
-  halvm_acquire_lock(&handler_buf_lock);
-  vcpu_local_info->other_info.evtchn_upcall_pending = 0;
+  while( sync_swap(&local_vcpu_info.evtchn_upcall_pending, 0) ) {
+    while( (lev1 = sync_swap(&local_vcpu_info.evtchn_pending_sel, 0)) ) {
+      while(lev1) {
+        unsigned long idx = __builtin_ffsl(lev1);
 
-start:
-  lev1 = *(volatile unsigned long*)(&local_vcpu_info.evtchn_pending_sel);
+        assert(idx);
+        idx = idx - 1; /* ffsl returns offset + 1 */
+        lev1 = lev1 & ~(1UL << idx);
+        while( (lev2 = sync_swap(&(shared_info->evtchn_pending[idx]), 0)) ) {
+          while(lev2) {
+            unsigned long idx2 = __builtin_ffsl(lev2), chn;
 
-  while(lev1) {
-    /* remember, ffsl returns offset + 1 */
-    unsigned long idx = __builtin_ffsl(lev1);
+            assert(idx2);
+            idx2 = idx2 - 1;
+            chn = (idx * sizeof(unsigned long) * 8) + idx2;
+            lev2 = lev2 & ~(1UL << idx2);
 
-    assert(idx); idx = idx - 1;
-    lev1 = lev1 & ~(1UL << idx);
-    do {
-      unsigned long idx2, chn;
+            if(signal_handlers[chn].c_handler) {
+              signal_handlers[chn].c_handler(chn);
+            }
 
-      lev2 = shared_info->evtchn_pending[idx] & ~shared_info->evtchn_mask[idx];
-      idx2 = __builtin_ffsl(lev2);
-      if(idx2) {
-        idx2 -= 1;
-        chn  = (idx * sizeof(unsigned long) * 8) + idx2;
-        clear_channel(chn);
-
-        if(signal_handlers[chn].c_handler) {
-          signal_handlers[chn].c_handler(chn);
-        }
-
-        if(signal_handlers[chn].haskell_handler) {
-          assert(next_pending_handler < MAX_PENDING_HANDLERS);
-          pending_handler_buf[next_pending_handler++] =
-            signal_handlers[chn].haskell_handler;
+            if(signal_handlers[chn].haskell_handler) {
+              assert(next_pending_handler < MAX_PENDING_HANDLERS);
+              pending_handler_buf[next_pending_handler++] =
+                signal_handlers[chn].haskell_handler;
+            }
+          }
         }
       }
-    } while(lev2);
+    }
   }
-  goto start;
-
-  halvm_release_lock(&handler_buf_lock);
-  halvm_release_lock(&handler_run_lock);
 }
 
 
