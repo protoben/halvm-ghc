@@ -286,7 +286,7 @@ void *runtime_realloc(void *start, size_t oldlen, size_t newlen)
 void *claim_shared_space(size_t amt)
 {
   void *retval;
-  int i;
+  size_t i;
 
   amt = (amt + (PAGE_SIZE-1)) & ~(PAGE_SIZE-1);
   halvm_acquire_lock(&memory_search_lock);
@@ -345,6 +345,11 @@ void *osGetMBlocks(nat n)
   void *allocp, *retval, *extra;
 
   allocp = runtime_alloc(NULL, padsize, PROT_READWRITE, ALLOC_ALL_CPUS);
+  if(!allocp) {
+    printf("WARNING: Out of memory. The GHC RTS is about to go nuts.\n");
+    return NULL;
+  }
+
   retval = (void*)(((uintptr_t)allocp + (MBLOCK_SIZE-1)) & ~(MBLOCK_SIZE-1));
   /* free the stuff at the beginning and end that we don't need */
   if(allocp == retval) {
