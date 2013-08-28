@@ -4,6 +4,7 @@
 #include <alloca.h>
 #include <xen/xen.h>
 #include <xen/grant_table.h>
+#include <xen/memory.h>
 #include "grants.h"
 #include "hypercalls.h"
 #include <assert.h>
@@ -134,7 +135,7 @@ long map_grants(domid_t dom, int readonly, grant_ref_t *refs, size_t count,
   if(!args)
     return -ENOMEM;
 
-  addr = claim_shared_space(count * 4096);
+  addr = (uint64_t)claim_shared_space(count * 4096);
 
   flags = GNTMAP_host_map | GNTMAP_application_map;
   if(readonly)
@@ -215,10 +216,45 @@ long prepare_transfer(domid_t dom)
   return -EXFULL;
 }
 
-long transfer_frame(domid_t dom, grant_ref_t ref, xen_pfn_t mfn)
+long transfer_frame(domid_t dom, grant_ref_t ref, void *ptr)
 {
-  gnttab_transfer_t trans = { .mfn = mfn, .domid = dom, .ref = ref };
-  long res = HYPERCALL_grant_table_op(GNTTABOP_transfer, &trans, 1);
+  xen_memory_reservation_t rsv;
+  gnttab_transfer_t trans;
+  xen_pfn_t pfn, mfn, new_mfn;
+  pte_t pte;
+  long res;
+
+  if( (uintptr_t)ptr & (PAGE_SIZE-1) ) {
+    return -EINVAL; /* this needs to be page aligned */
+  }
+
+  pte = get_pt_entry(ptr);
+  if( !ENTRY_PRESENT(pte) ) {
+    return -EINVAL; /* and it must be mapped */
+  }
+
+  mfn = pte >> PAGE_SHIFT;
+  set_pt_entry(ptr, NULL); /* unmap it */
+
+  /* replace the PFN we're using */
+  pfn = machine_to_phys_mapping[mfn];
+  assert(pfn);
+  rsv.extent_start.p = &new_mfn;
+  rsv.nr_extents     = 1;
+  rsv.extent_order   = 0;
+  rsv.mem_flags      = 0;
+  rsv.domid          = DOMID_SELF;
+  res = HYPERCALL_memory_op(XENMEM_increase_reservation, &rsv);
+  if( res < 0 ) {
+    return res;
+  }
+  p2m_map[pfn] = new_mfn;
+
+  /* do the transfer */
+  trans.mfn = mfn;
+  trans.domid = dom;
+  trans.ref = ref;
+  res = HYPERCALL_grant_table_op(GNTTABOP_transfer, &trans, 1);
   return (res < 0) ? res : trans.status;
 }
 
