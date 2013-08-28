@@ -59,6 +59,7 @@ extern unsigned long  max_pages;
 void           set_pframe_used(pfn_t);
 void           set_pframe_unused(pfn_t);
 mfn_t          get_free_frame(void);
+unsigned long  used_frames(void);
 
 unsigned long  initialize_memory(start_info_t *, uint32_t, void *);
 void          *claim_shared_space(size_t);

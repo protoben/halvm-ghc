@@ -56,6 +56,17 @@ mfn_t get_free_frame()
   return 0;
 }
 
+unsigned long used_frames(void)
+{
+  unsigned long i, retval;
+
+  for(i = 0, retval = 0; i < cur_pages; i++)
+    if(p2m_map[i] & PFN_SET_BIT)
+      retval += 1;
+
+  return retval;
+}
+
 /******************************************************************************/
 
 static halvm_mutex_t  memory_search_lock;
