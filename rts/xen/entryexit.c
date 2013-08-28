@@ -182,6 +182,7 @@ void runtime_entry(start_info_t *start_info, void *init_sp)
         break;
     }
   }
+  if(argv[argc]) argc++;
 
   /* Jump to GHC */
   main(argc, argv);
