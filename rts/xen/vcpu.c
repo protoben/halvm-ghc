@@ -48,10 +48,11 @@ void init_smp_system(uint32_t vcpus)
 
 void init_vcpu(int num)
 {
-  vcpu_register_vcpu_info_t vcpu_info;
   vcpu_register_runstate_memory_area_t rstat_info;
-  mfn_t linfo_mfn;
+  vcpu_register_vcpu_info_t vcpu_info;
+  int offset, modulus;
   void *p, *stk_top;
+  mfn_t linfo_mfn;
 
   assert(sizeof(vcpu_local_info) < PAGE_SIZE);
   stk_top = (void*)((uintptr_t)VCPU_LOCAL_START + IRQ_STACK_SIZE);
@@ -93,6 +94,9 @@ void init_vcpu(int num)
   /* bind an IPI (inter-processor interrupt) port for us to signal on */
   ipi_ports[num] = bind_ipi(num);
   assert(ipi_ports[num] > 0);
+  offset = ipi_ports[num] / (sizeof(unsigned long) * 8);
+  modulus = ipi_ports[num] % (sizeof(unsigned long) * 8);
+  vcpu_local_info->local_evt_bits[offset] = 1 << modulus;
   set_c_handler(ipi_ports[num], ipi_handler);
 }
 
@@ -103,7 +107,6 @@ void signal_vcpu(int vcpu)
 
 static void ipi_handler(int port)
 {
-  printf("Received IPI for VCPU %d on %d\n", vcpu_local_info->vcpu_num, port);
   ipi_fired[vcpu_local_info->vcpu_num] = 1;
 }
 

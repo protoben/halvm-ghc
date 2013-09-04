@@ -35,6 +35,7 @@ typedef struct signal_handler {
 
 static signal_handler_t   *signal_handlers;
 static struct shared_info *shared_info;
+static unsigned long      *ipi_mask;
 
 #ifdef __x86_64__
 static struct pda
@@ -49,6 +50,8 @@ void init_signals(struct shared_info *sinfo)
   shared_info = sinfo;
   signal_handlers = calloc(MAX_EVTCHANS, sizeof(signal_handler_t));
   memset(shared_info->evtchn_mask, 0xFF, sizeof(shared_info->evtchn_mask));
+  ipi_mask = calloc(sizeof(unsigned long) * 8, sizeof(unsigned long));
+  memset(ipi_mask, 0, sizeof(unsigned long) * 8 * sizeof(unsigned long));
 }
 
 long bind_virq(uint32_t virq, uint32_t vcpu)
@@ -71,7 +74,17 @@ long bind_ipi(uint32_t vcpu)
 {
   evtchn_bind_ipi_t arg = { .vcpu = vcpu, .port = 0 };
   long res = HYPERCALL_event_channel_op(EVTCHNOP_bind_ipi, &arg);
-  return (res >= 0) ? arg.port : res;
+  unsigned long bit;
+  int offset;
+
+  if(res < 0)
+    return res;
+
+  offset = arg.port / (sizeof(unsigned long) * 8);
+  bit    = 1 << (arg.port % (sizeof(unsigned long) * 8));
+  __sync_fetch_and_or( &(ipi_mask[offset]), bit);
+
+  return arg.port;
 }
 
 void set_c_handler(uint32_t chan, void (handler)(int))
@@ -366,12 +379,16 @@ void do_hypervisor_callback(void *u __attribute__((unused)))
   while( sync_swap(&local_vcpu_info.evtchn_upcall_pending, 0) ) {
     while( (lev1 = sync_swap(&local_vcpu_info.evtchn_pending_sel, 0)) ) {
       while(lev1) {
-        unsigned long idx = __builtin_ffsl(lev1);
+        unsigned long idx = __builtin_ffsl(lev1), ipi_filter;
+        unsigned long *pending;
 
         assert(idx);
         idx = idx - 1; /* ffsl returns offset + 1 */
         lev1 = lev1 & ~(1UL << idx);
-        while( (lev2 = sync_swap(&(shared_info->evtchn_pending[idx]), 0)) ) {
+        ipi_filter = ipi_mask[idx] ^ vcpu_local_info->local_evt_bits[idx];
+        pending = &(shared_info->evtchn_pending[idx]);
+        while( (lev2 = __sync_fetch_and_and(pending, ipi_filter))) {
+          lev2 = lev2 & ~ipi_filter;
           while(lev2) {
             unsigned long idx2 = __builtin_ffsl(lev2), chn;
 
