@@ -210,15 +210,13 @@ static void startSubordinateVCPU(uint32_t vcpu_num,
                                  OSThreadProc *startProc,
                                  void *param)
 {
-  printf("Starting subordinate VCPU #%d\n", vcpu_num);
   init_vcpu(vcpu_num);
   startProc(param);
 }
 
 static void subordinateQuit(void)
 {
-  printf("Reached subordinate quit. Weird.\n");
-  while(1) runtime_block(ULONG_MAX);
+  while(1) (void)HYPERCALL_vcpu_op(VCPUOP_down, vcpu_local_info->vcpu_num, 0);
 }
 
 int createOSThread(OSThreadId *pId, OSThreadProc *startProc, void *param)
@@ -306,18 +304,13 @@ void shutdownThread(void)
 
 void yieldThread(void)
 {
-  printf("yieldThread()\n");
-  // FIXME
+  runtime_block(0);
 }
 
 rtsBool osThreadIsAlive(OSThreadId id)
 {
-  vcpu_runstate_info_t rinf;
-  long res = HYPERCALL_vcpu_op(VCPUOP_get_runstate_info, id, &rinf);
-  if(res < 0)
-    return rtsFalse;
-
-  return (rinf.state == RUNSTATE_offline) ? rtsFalse : rtsTrue;
+  long res = HYPERCALL_vcpu_op(VCPUOP_is_up, id, NULL);
+  return res ? rtsTrue : rtsFalse;
 }
 
 void setThreadAffinity(nat n, nat m)
