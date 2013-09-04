@@ -16,7 +16,6 @@
 #include "vcpu.h"
 #include "time_rts.h"
 
-extern void initMutex(halvm_mutex_t *mutex);
 static void force_hypervisor_callback(void);
 
 #define local_vcpu_info         vcpu_local_info->other_info
@@ -48,9 +47,7 @@ static struct pda
 void init_signals(struct shared_info *sinfo)
 {
   shared_info = sinfo;
-  signal_handlers = runtime_alloc(NULL, MAX_EVTCHANS * sizeof(signal_handler_t),
-                                  PROT_READWRITE, ALLOC_ALL_CPUS);
-  memset(signal_handlers, 0, MAX_EVTCHANS * sizeof(signal_handler_t));
+  signal_handlers = calloc(MAX_EVTCHANS, sizeof(signal_handler_t));
   memset(shared_info->evtchn_mask, 0xFF, sizeof(shared_info->evtchn_mask));
 }
 
@@ -67,6 +64,13 @@ long bind_pirq(uint32_t pirq, int will_share)
                              .flags = will_share ? BIND_PIRQ__WILL_SHARE : 0,
                              .port  = 0 };
   long res = HYPERCALL_event_channel_op(EVTCHNOP_bind_pirq, &arg);
+  return (res >= 0) ? arg.port : res;
+}
+
+long bind_ipi(uint32_t vcpu)
+{
+  evtchn_bind_ipi_t arg = { .vcpu = vcpu, .port = 0 };
+  long res = HYPERCALL_event_channel_op(EVTCHNOP_bind_ipi, &arg);
   return (res >= 0) ? arg.port : res;
 }
 

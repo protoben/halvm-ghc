@@ -12,14 +12,13 @@
 #include <sys/mman.h>
 #include "locks.h"
 #include <errno.h>
+#include <string.h>
 
 #define PAGE_ALIGN(t1,t2,x) (t1)(((t2)x + (PAGE_SIZE-1)) & (~(PAGE_SIZE-1)))
 
 extern int            _text;
        unsigned long  cur_pages = 0;
        unsigned long  max_pages = 0;
-
-extern void initMutex(halvm_mutex_t *mutex);
 
 /******************************************************************************/
 
@@ -136,7 +135,7 @@ static inline void *advance_page(void *p, int target)
   return next;
 }
 
-static inline void *run_search_loop(void *start, size_t length, int target)
+static void *run_search_loop(void *start, size_t length, int target)
 {
   void *cur = start, *retval = NULL;
   size_t needed_space = length;
@@ -243,6 +242,7 @@ void *runtime_alloc(void *start, size_t length_in, int prot, int target)
 
   /* done! */
   halvm_release_lock(&memory_search_lock);
+  memset(dest, 0, length);
   return dest;
 }
 
@@ -277,10 +277,97 @@ long pin_frame(int level, mfn_t mfn, domid_t dom)
   return HYPERCALL_mmuext_op(&op, 1, NULL, dom);
 }
 
-void *runtime_realloc(void *start, size_t oldlen, size_t newlen)
+void *runtime_realloc(void *start, int can_move, size_t oldlen, size_t newlen)
 {
-  printf("runtime_realloc(%p, %d, %d)\n", start, oldlen, newlen);
-  return NULL; // FIXME
+  void *retval, *oldcur, *oldend, *newcur, *newend;
+  pte_t page_flags, ent;
+  int locale;
+
+  if(!start)
+    return NULL;
+
+  /* special case, when we're shrinking */
+  if(newlen < oldlen) {
+    runtime_free((void*)((uintptr_t)start + newlen), oldlen - newlen);
+    return start;
+  }
+
+  /* weird case, when things are equal */
+  if(newlen == oldlen)
+    return start;
+
+  /* get the flags that this entry uses */
+  page_flags = get_pt_entry(start);
+  page_flags = page_flags & (PAGE_SIZE-1);
+  if( !ENTRY_PRESENT(page_flags) && !ENTRY_CLAIMED(page_flags) )
+    return NULL;
+
+  /* figure out what region this is in */
+  if( (start >= VCPU_LOCAL_START) && (start <= VCPU_LOCAL_END) ) {
+    locale = ALLOC_CPU_LOCAL;
+  } else if(start > GLOBAL_TABLE_START) {
+    locale = ALLOC_ALL_CPUS;
+  } else {
+    locale = ALLOC_GLOBAL_ONLY;
+  }
+
+  /* find where to put the new stuff */
+  halvm_acquire_lock(&memory_search_lock);
+  oldend = (void*)((uintptr_t)start + oldlen);
+  newend = (void*)((uintptr_t)start + newlen);
+  while(oldend < newend) {
+    ent = get_pt_entry(oldend);
+    if( ENTRY_CLAIMED(ent) || ENTRY_PRESENT(ent) )
+      break;
+    oldend = (void*)((uintptr_t)oldend + PAGE_SIZE);
+  }
+
+  if(oldend >= newend) {
+    /* in this case, we have sufficient room to map the new stuff at the end */
+    oldend = (void*)((uintptr_t)start + oldlen);
+    while(oldend < newend)
+      set_pt_entry(oldend, (get_free_frame() << PAGE_SHIFT) | page_flags);
+    return start;
+  }
+
+  /* there isn't room at the end. can we move the pointer? */
+  if(!can_move) {
+    printf("WARNING: Can't realloc without moving, and !can_move\n");
+    halvm_release_lock(&memory_search_lock);
+    return NULL;
+  }
+
+  /* we can, so we need to find a place to put it */
+  retval = find_new_addr(start, newlen, locale);
+  if(!retval) {
+    halvm_release_lock(&memory_search_lock);
+    printf("WARNING: No room for mremap()!\n");
+    return NULL;
+  }
+
+  /* shift the pages over */
+  oldcur = start;  oldend = (void*)((uintptr_t)oldcur + oldlen);
+  newcur = retval; newend = (void*)((uintptr_t)newcur + newlen);
+  while(newcur < newend) {
+    if(oldcur < oldend) {
+      ent = get_pt_entry(oldcur);
+      set_pt_entry(oldcur, 0);
+      set_pt_entry(newcur, ENTRY_MADDR(ent) | page_flags);
+    } else {
+      ent = get_free_frame();
+      if(!ent) {
+        halvm_release_lock(&memory_search_lock);
+        printf("WARNING: Ran out of free frames in mremap()\n");
+        return NULL;
+      }
+      set_pt_entry(newcur, (ent << PAGE_SHIFT) | page_flags);
+    }
+    oldcur = (void*)((uintptr_t)oldcur + PAGE_SIZE);
+    newcur = (void*)((uintptr_t)newcur + PAGE_SIZE);
+  }
+  halvm_release_lock(&memory_search_lock);
+
+  return retval;
 }
 
 void *claim_shared_space(size_t amt)

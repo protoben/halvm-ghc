@@ -1,16 +1,19 @@
 #include "Rts.h"
+#include "Prelude.h"
 
-#ifndef THREADED_RTS
+static int controlFd = 0;
+static int wakeupFd = 0;
+
 void setIOManagerControlFd(int fd)
 {
   printf("setIOManagerControlFd()\n");
-  // FIXME
+  controlFd = fd;
 }
 
 void setIOManagerWakeupFd(int fd)
 {
   printf("setIOManagerWakeupFd()\n");
-  // FIXME
+  wakeupFd = fd;
 }
 
 void ioManagerWakeup(void)
@@ -18,7 +21,6 @@ void ioManagerWakeup(void)
   printf("ioManagerWakeup()\n");
   // FIXME
 }
-#endif
 
 #ifdef THREADED_RTS
 void ioManagerDie(void)
@@ -29,7 +31,13 @@ void ioManagerDie(void)
 
 void ioManagerStart(void)
 {
-  printf("ioManagerStart()\n");
-  // FIXME
+  Capability *cap;
+
+  if(controlFd < 0 || wakeupFd < 0) {
+    printf("starting ioManager capability?\n");
+    cap = rts_lock();
+    rts_evalIO(&cap, &base_GHCziConcziIO_ensureIOManagerIsRunning_closure,NULL);
+    rts_unlock(cap);
+  }
 }
 #endif

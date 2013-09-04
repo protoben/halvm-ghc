@@ -13,6 +13,7 @@ void init_signals(struct shared_info *);
 
 long bind_virq(uint32_t, uint32_t);
 long bind_pirq(uint32_t, int);
+long bind_ipi(uint32_t);
 void set_c_handler(uint32_t, void (*)(int));
 void clear_c_handler(uint32_t);
 void set_haskell_handler(uint32_t, StgStablePtr);

@@ -27,7 +27,9 @@ extern vcpu_local_info_t *vcpu_local_info;
 
 #define vcpu_num() (vcpu_local_info ? vcpu_local_info->vcpu_num : 0)
 
-void init_smp_system(void);
+void init_smp_system(uint32_t);
 void init_vcpu(int);
+void signal_vcpu(int);
+void wait_for_vcpu_signal(int);
 
 #endif

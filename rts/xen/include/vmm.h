@@ -80,6 +80,8 @@ typedef uint64_t            pte_t;
 void  *initialize_vmm(start_info_t *, uint32_t, void *);
 pte_t  get_pt_entry(void *addr);
 void   set_pt_entry(void *addr, pte_t entry);
+void   set_local_pt_entry(uint32_t vcpu, void *addr, pte_t new_val);
 void  *machine_to_virtual(uint64_t maddr);
+pte_t  vcpu_pt_base(uint32_t);
 
 #endif

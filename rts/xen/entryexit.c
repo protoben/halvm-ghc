@@ -13,6 +13,7 @@
 #include <runtime_reqs.h>
 #include "memory.h"
 #include "vcpu.h"
+#include "locks.h"
 #include "time_rts.h"
 #include "signals.h"
 #include "grants.h"
@@ -103,24 +104,25 @@ void runtime_entry(start_info_t *start_info, void *init_sp)
   system_start_info = start_info;
   num_vcpus = get_num_vcpus();
   assert(num_vcpus > 0);
-  printf("Starting HaLVM with %d vCPUS\n", num_vcpus);
+  printf("Starting %d-CPU HaLVM\n", num_vcpus);
   maxpages = initialize_memory(start_info, num_vcpus, init_sp);
+  shared_info_mfn = (mfn_t)start_info->shared_info >> PAGE_SHIFT;
+  // just for my own sanity, make sure that the machine address we're
+  // given for the shared info struct is page aligned.
+  assert(!((uintptr_t)start_info->shared_info & (PAGE_SIZE-1)));
+  HYPERVISOR_shared_info = map_frames(&shared_info_mfn,1);
   runtime_stack = runtime_alloc(NULL,STACK_SIZE,PROT_READWRITE,ALLOC_ALL_CPUS);
 #ifdef __x86_64__
   asm("mov %0, %%rsp" : : "r"((uintptr_t)runtime_stack + STACK_SIZE));
 #else
   asm("mov %0, %%esp" : : "r"((uintptr_t)runtime_stack + STACK_SIZE));
 #endif
-  init_smp_system();
-  init_vcpu(0);
-  shared_info_mfn = (mfn_t)start_info->shared_info >> PAGE_SHIFT;
-  // just for my own sanity, make sure that the machine address we're
-  // given for the shared info struct is page aligned.
-  assert(!((uintptr_t)start_info->shared_info & (PAGE_SIZE-1)));
-  HYPERVISOR_shared_info = map_frames(&shared_info_mfn,1);
-  assert(HYPERCALL_set_trap_table(trap_table) >= 0);
-  assert(HYPERCALL_set_callbacks(hypervisor_callback, failsafe_callback) >= 0);
   init_signals(HYPERVISOR_shared_info);
+  init_smp_system(num_vcpus);
+  init_vcpu(0);
+  init_locks(num_vcpus);
+  //assert(HYPERCALL_set_trap_table(trap_table) >= 0);
+  assert(HYPERCALL_set_callbacks(hypervisor_callback, failsafe_callback) >= 0);
   allow_signals(1);
   init_time(HYPERVISOR_shared_info);
   init_grants();
@@ -138,8 +140,7 @@ void runtime_entry(start_info_t *start_info, void *init_sp)
   snprintf(argv[argc],16,"-M%dm", (maxpages - used_frames()) / 256);
   argc++;
 #ifdef THREADED_RTS
-  /* tell GHC how many cores to use */
-  argv[argc] = malloc(16); snprintf(argv[argc], 16, "-N%d", num_vcpus); argc++;
+  argv[argc++] = "-N";
 #endif
   /* close off the RTS section */
   argv[argc++] = "-RTS";

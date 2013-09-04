@@ -7,8 +7,10 @@
 
 #ifdef __x86_64__
 # define LONG_MAX       9223372036854775807L
+# define ULONG_MAX      18446744073709551615UL
 #else
 # define LONG_MAX       2147483647L
+# define ULONG_MAX      4294967295UL
 #endif
 # define LONG_MIN       (-LONG_MAX - 1L)
 

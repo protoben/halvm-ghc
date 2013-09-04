@@ -14,7 +14,7 @@ void    runtime_write(size_t len, char *buffer);
 void    runtime_block(unsigned long milliseconds);
 void    runtime_exit(void) __attribute__((noreturn));
 void   *runtime_alloc(void *start, size_t length, int prot, int target);
-void   *runtime_realloc(void *start, size_t oldlen, size_t newlen);
+void   *runtime_realloc(void *start, int canmove, size_t oldlen, size_t newlen);
 void    runtime_free(void *start, size_t length);
 int     runtime_memprotect(void *addr, size_t length, int prot);
 int     runtime_pagesize(void);

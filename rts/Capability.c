@@ -483,6 +483,7 @@ releaseCapability_ (Capability* cap,
 	return;
     }
 
+#ifndef HaLVM_TARGET_OS
     if (!cap->spare_workers) {
 	// Create a worker thread if we don't have one.  If the system
 	// is interrupted, we only create a worker task if there
@@ -495,6 +496,7 @@ releaseCapability_ (Capability* cap,
 	    return;
 	}
     }
+#endif
 
     // If we have an unbound thread on the run queue, or if there's
     // anything else to do, give the Capability to a worker thread.

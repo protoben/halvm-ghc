@@ -26,8 +26,6 @@ static uint32_t          num_local_pts;
 // The start of where we've been mapped
 extern int               _text;
 
-extern void initMutex(halvm_mutex_t *mutex);
-
 static inline int mmu_update(uint64_t ptr, uint64_t val)
 {
   mmu_update_t update;
@@ -243,9 +241,9 @@ pte_t get_pt_entry(void *addr)
    return 0;
 }
 
-static inline void set_local_pt_entry(void *addr, pte_t new_val)
+void set_local_pt_entry(uint32_t vcpu, void *addr, pte_t new_val)
 {
-  assert(mmu_update(local_pts[vcpu_num()].local_l1_physaddr +
+  assert(mmu_update(local_pts[vcpu].local_l1_physaddr +
                      (VADDR_L1_IDX(addr) * sizeof(pte_t)),
                     new_val));
 }
@@ -286,25 +284,32 @@ static inline void set_dupped_pt_entry(void *addr, pte_t val)
     /* this address needs an L1 table created. because we share L2 tables */
     /* we shouldn't need to loop around like the previous !present case */
     xen_pfn_t l1_mfn;
+    uint32_t i;
 
     l1_mfn = create_new_pagetable(0, 0, MMUEXT_PIN_L1_TABLE);
     l1_base = l1_mfn << PAGE_SHIFT;
     assert(mmu_update(l1_base + (sizeof(pte_t) * VADDR_L1_IDX(addr)), val));
     assert(mmu_update(l2_base + (sizeof(pte_t) * VADDR_L2_IDX(addr)),
                       l1_base | PG_PRESENT | PG_USER | PG_READWRITE));
+    for(i = 0; i < num_local_pts; i++) {
+      l2_base = local_pts[i].local_l2_physaddr;
+      assert(mmu_update( l2_base + (sizeof(pte_t) * VADDR_L2_IDX(addr)),
+                         l1_base | PG_PRESENT | PG_USER | PG_READWRITE));
+    }
     halvm_release_lock(&vmm_lock);
     return;
   }
 
   l1_base = ENTRY_MADDR(temp_table[VADDR_L2_IDX(addr)]);
   assert(mmu_update(l1_base + (sizeof(pte_t) * VADDR_L1_IDX(addr)), val));
+  halvm_release_lock(&vmm_lock);
 }
 
 static inline void set_global_pt_entry(void *addr, pte_t val)
 {
   pte_t l4ent, l3ent, l2ent;
-  halvm_acquire_lock(&vmm_lock);
 
+  halvm_acquire_lock(&vmm_lock);
   temporarily_map(local_pts[vcpu_num()].local_l4_physaddr, 0);
   l4ent = temp_table[VADDR_L4_IDX(addr)];
   if(!ENTRY_PRESENT(l4ent)) {
@@ -327,7 +332,6 @@ static inline void set_global_pt_entry(void *addr, pte_t val)
   }
 
   assert(mmu_update(ENTRY_MADDR(l2ent)+(VADDR_L1_IDX(addr)*sizeof(pte_t)),val));
-
   halvm_release_lock(&vmm_lock);
 }
 
@@ -338,7 +342,7 @@ void set_pt_entry(void *addr_unaligned, pte_t new_val)
   assert(addr);
   if( ((uintptr_t)addr >= (uintptr_t)VCPU_LOCAL_START) &&
       ((uintptr_t)addr <  (uintptr_t)VCPU_LOCAL_END) )
-    set_local_pt_entry(addr, new_val);
+    set_local_pt_entry(vcpu_num(), addr, new_val);
   else if( ((uintptr_t)addr >= (uintptr_t)VCPU_LOCAL_END) &&
            ((uintptr_t)addr <  (uintptr_t)GLOBAL_TABLE_START) )
     set_dupped_pt_entry(addr, new_val);
@@ -351,8 +355,6 @@ void set_pt_entry(void *addr_unaligned, pte_t new_val)
     flush.arg1.linear_addr = (unsigned long)addr;
     assert(HYPERCALL_mmuext_op(&flush, 1, NULL, DOMID_SELF) >= 0);
   }
-
-  halvm_release_lock(&vmm_lock);
 }
 
 void  *machine_to_virtual(uint64_t maddr)
@@ -402,4 +404,8 @@ void  *machine_to_virtual(uint64_t maddr)
   return NULL;
 }
 
+pte_t vcpu_pt_base(uint32_t vcpu)
+{
+  return local_pts[vcpu].local_l4_physaddr;
+}
 #endif
