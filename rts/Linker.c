@@ -170,7 +170,6 @@ static ObjectCode* mkOc( pathchar *path, char *image, int imageSize,
 #define struct_stat struct _stat
 #define open wopen
 #define WSTR(s) L##s
-#define PATH_FMT "S"
 #else
 #define pathcmp strcmp
 #define pathlen strlen
@@ -178,7 +177,6 @@ static ObjectCode* mkOc( pathchar *path, char *image, int imageSize,
 #define pathstat stat
 #define struct_stat struct stat
 #define WSTR(s) s
-#define PATH_FMT "s"
 #endif
 
 static pathchar* pathdup(pathchar *path)
@@ -1145,8 +1143,11 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_labelThreadzh)                                  \
       SymI_HasProto(stg_newArrayzh)                                     \
       SymI_HasProto(stg_newArrayArrayzh)                                \
+      SymI_HasProto(stg_casArrayzh)                                     \
       SymI_HasProto(stg_newBCOzh)                                       \
       SymI_HasProto(stg_newByteArrayzh)                                 \
+      SymI_HasProto(stg_casIntArrayzh)                                  \
+      SymI_HasProto(stg_fetchAddIntArrayzh)                             \
       SymI_HasProto_redirect(newCAF, newDynCAF)                         \
       SymI_HasProto(stg_newMVarzh)                                      \
       SymI_HasProto(stg_newMutVarzh)                                    \
@@ -2051,9 +2052,8 @@ mmap_again:
 
 void freeObjectCode (ObjectCode *oc)
 {
-    int pagesize, size, r;
-
 #ifdef USE_MMAP
+    int pagesize, size, r;
 
     pagesize = getpagesize();
     size = ROUND_UP(oc->fileSize, pagesize);
@@ -2063,16 +2063,25 @@ void freeObjectCode (ObjectCode *oc)
         sysErrorBelch("munmap");
     }
 
+#if defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH) || defined(arm_HOST_ARCH)
+#if !defined(x86_64_HOST_ARCH) || !defined(mingw32_HOST_OS)
     if (!USE_CONTIGUOUS_MMAP)
     {
         munmap(oc->symbol_extras,
                ROUND_UP(sizeof(SymbolExtra) * oc->n_symbol_extras, pagesize));
     }
+#endif
+#endif
 
 #else
 
     stgFree(oc->image);
+
+#if defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH) || defined(arm_HOST_ARCH)
+#if !defined(x86_64_HOST_ARCH) || !defined(mingw32_HOST_OS)
     stgFree(oc->symbol_extras);
+#endif
+#endif
 
 #endif
 
@@ -3794,6 +3803,11 @@ ocGetNames_PEi386 ( ObjectCode* oc )
       /* I'm sure this is the Right Way to do it.  However, the
          alternative of testing the sectab_i->Name field seems to
          work ok with Cygwin.
+
+         EZY: We should strongly consider using this style, because
+         it lets us pick up sections that should be added (e.g.
+         for a while the linker did not work due to missing .eh_frame
+         in this section.)
       */
       if (sectab_i->Characteristics & MYIMAGE_SCN_CNT_CODE ||
           sectab_i->Characteristics & MYIMAGE_SCN_CNT_INITIALIZED_DATA)
@@ -3803,6 +3817,7 @@ ocGetNames_PEi386 ( ObjectCode* oc )
       if (0==strcmp(".text",(char*)secname) ||
           0==strcmp(".text.startup",(char*)secname) ||
           0==strcmp(".rdata",(char*)secname)||
+          0==strcmp(".eh_frame", (char*)secname)||
           0==strcmp(".rodata",(char*)secname))
          kind = SECTIONKIND_CODE_OR_RODATA;
       if (0==strcmp(".data",(char*)secname) ||
@@ -3831,6 +3846,8 @@ ocGetNames_PEi386 ( ObjectCode* oc )
           /* ignore unknown section that appeared in gcc 3.4.5(?) */
           && 0!= strcmp(".reloc", (char*)secname)
           && 0 != strcmp(".rdata$zzz", (char*)secname)
+          /* ignore linker directive sections */
+          && 0 != strcmp(".drectve", (char*)secname)
          ) {
          errorBelch("Unknown PEi386 section name `%s' (while processing: %" PATH_FMT")", secname, oc->fileName);
          stgFree(secname);
