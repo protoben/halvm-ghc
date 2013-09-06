@@ -335,14 +335,19 @@ void awaitEvent(rtsBool wait)
 }
 #endif
 
+#define one_day   (1 * 24 * 60 * 60 * 1000)
+
 void runtime_block(unsigned long milliseconds)
 {
   if(!signals_pending()) {
     allow_signals(0);
     force_hypervisor_callback();
     if(!signals_pending()) {
-      uint64_t now   = monotonic_clock();
-      uint64_t until = now + (milliseconds * 1000000UL);
+      uint64_t now, until;
+
+      milliseconds = (milliseconds > one_day) ? one_day : milliseconds;
+      now = monotonic_clock();
+      until = now + (milliseconds * 1000000UL);
       if(monotonic_clock() < until) {
         assert(HYPERCALL_set_timer_op(until) >= 0);
         assert(HYPERCALL_sched_op(SCHEDOP_block, 0) >= 0);
