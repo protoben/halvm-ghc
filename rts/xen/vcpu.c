@@ -15,6 +15,7 @@
 #include "Task.h"
 #include <xen/xen.h>
 #include <xen/vcpu.h>
+#include "time_rts.h"
 
 #define INIT_KEYTAB_SIZE        4096
 #define IRQ_STACK_SIZE          (8 * PAGE_SIZE)
@@ -75,6 +76,7 @@ void init_vcpu(int num)
   memset(vcpu_local_info, 0, sizeof(vcpu_local_info_t));
   vcpu_local_info->vcpu_num = num;
   vcpu_local_info->irq_stack_top = (void*)vcpu_local_info;
+  vcpu_local_info->timer_target = (uint64_t)-1;
   vcpu_local_info->local_keys_allocated =
      (PAGE_SIZE - sizeof(vcpu_local_info_t)) / sizeof(void*);
   memset(vcpu_local_info->local_vals, 0,
@@ -113,9 +115,23 @@ static void ipi_handler(int port)
 void wait_for_vcpu_signal(int vcpu)
 {
   while(!ipi_fired[vcpu])
-    runtime_block(ULONG_MAX);
+    runtime_block(100000);
   assert(ipi_fired[vcpu]);
   ipi_fired[vcpu] = 0;
+}
+
+void set_vcpu_timer(uint64_t target)
+{
+  uint64_t now = monotonic_clock();
+
+  if(vcpu_local_info->timer_target < now)
+    vcpu_local_info->timer_target = (uint64_t)-1;
+
+  if(vcpu_local_info->timer_target > target) {
+    vcpu_set_singleshot_timer_t timer = {.timeout_abs_ns = target, .flags = 0};
+    vcpu_local_info->timer_target = target;
+    assert(HYPERCALL_vcpu_op(VCPUOP_set_singleshot_timer,vcpu_num(),&timer)>=0);
+  }
 }
 
 #ifdef THREADED_RTS
@@ -227,6 +243,11 @@ int createOSThread(OSThreadId *pId, OSThreadProc *startProc, void *param)
   void **vcpu_stack;
 
   vcpu_num = __sync_fetch_and_add(&next_new_vcpu, 1);
+  if(vcpu_num >= num_vcpus) {
+    printf("ERROR: Attempt to create too many vCPUs (%d)\n", vcpu_num + 1);
+    runtime_exit();
+  }
+
   memset(context, 0, sizeof(vcpu_guest_context_t));
   vcpu_stack = runtime_alloc(NULL, STACK_SIZE, PROT_READWRITE, ALLOC_ALL_CPUS);
   vcpu_stack = (void**)((uintptr_t)vcpu_stack + STACK_SIZE);

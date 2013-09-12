@@ -14,6 +14,7 @@ struct vcpu_local_info {
   uint32_t              vcpu_num; /* what VCPU this is */
   unsigned long         local_evt_bits[sizeof(unsigned long)];
   void*                 irq_stack_top;
+  uint64_t              timer_target;
   vcpu_runstate_info_t  runstate_info;
   struct vcpu_info      other_info;
   uintptr_t             local_keys_allocated;
@@ -32,5 +33,6 @@ void init_smp_system(uint32_t);
 void init_vcpu(int);
 void signal_vcpu(int);
 void wait_for_vcpu_signal(int);
+void set_vcpu_timer(uint64_t);
 
 #endif

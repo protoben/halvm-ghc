@@ -349,7 +349,7 @@ void runtime_block(unsigned long milliseconds)
       now = monotonic_clock();
       until = now + (milliseconds * 1000000UL);
       if(monotonic_clock() < until) {
-        assert(HYPERCALL_set_timer_op(until) >= 0);
+        set_vcpu_timer(until);
         assert(HYPERCALL_sched_op(SCHEDOP_block, 0) >= 0);
         force_hypervisor_callback();
         now = monotonic_clock();

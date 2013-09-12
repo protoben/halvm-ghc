@@ -25,6 +25,10 @@
 #include "Capability.h"
 #include "RtsSignals.h"
 
+#ifdef HaLVM_TARGET_OS
+#include "iomanager.h"
+#endif
+
 /* ticks left before next pre-emptive context switch */
 static int ticks_to_ctxt_switch = 0;
 
@@ -49,6 +53,9 @@ handle_tick(int unused STG_UNUSED)
           contextSwitchAllCapabilities(); /* schedule a context switch */
       }
   }
+#ifdef HaLVM_TARGET_OS
+  checkWaiters();
+#endif
 
   /*
    * If we've been inactive for idleGCDelayTime (set by +RTS
