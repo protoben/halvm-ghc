@@ -119,10 +119,12 @@ rtsBool signalCondition(halvm_condlock_t *cond)
   uint32_t i;
 
   halvm_acquire_lock( &(cond->lock) );
-  signal_vcpu(cond->waiters[0]);
-  for(i = 1; i < cond->numWaiters; i++)
-    cond->waiters[i-1] = cond->waiters[i];
-  cond->numWaiters -= 1;
+  if(cond->numWaiters > 0) {
+    signal_vcpu(cond->waiters[0]);
+    for(i = 1; i < cond->numWaiters; i++)
+      cond->waiters[i-1] = cond->waiters[i];
+    cond->numWaiters -= 1;
+  }
   halvm_release_lock( &(cond->lock) );
   return rtsTrue;
 }
