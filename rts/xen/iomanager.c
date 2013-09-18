@@ -40,9 +40,11 @@ static void forceSingleShotTimer(void)
 
   set_vcpu_timer((uint64_t)waiters->target * 1000);
 }
+#endif
 
 void registerWaiter(int usecs, StgStablePtr action)
 {
+#ifdef THREADED_RTS
   waiter_t *newWaiter = malloc(sizeof(waiter_t));
   waiter_t *cur, *prev;
 
@@ -59,10 +61,12 @@ void registerWaiter(int usecs, StgStablePtr action)
   newWaiter->next = NULL;
   if(prev) prev->next = newWaiter; else waiters = newWaiter;
   forceSingleShotTimer();
+#endif
 }
 
 void checkWaiters()
 {
+#ifdef THREADED_RTS
   StgWord now = getDelayTarget(0);
   Task *me = NULL;
 
@@ -87,8 +91,10 @@ void checkWaiters()
   }
 
   if(waiters) forceSingleShotTimer();
+#endif
 }
 
+#ifndef THREADED_RTS
 void ioManagerDie(void)
 {
   if(waiters) {
