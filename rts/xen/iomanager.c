@@ -94,16 +94,16 @@ void checkWaiters()
 #endif
 }
 
-#ifndef THREADED_RTS
 void ioManagerDie(void)
 {
+#ifdef THREADED_RTS
   if(waiters) {
     printf("WARNING: IO Manager is dying with people waiting to run.\n");
   }
+#endif
 }
 
 void ioManagerStart(void)
 {
   /* nothing */
 }
-#endif
