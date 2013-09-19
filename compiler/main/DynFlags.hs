@@ -197,7 +197,7 @@ data DumpFlag
    | Opt_D_dump_cmm_cfg
    | Opt_D_dump_cmm_cbe
    | Opt_D_dump_cmm_proc
-   | Opt_D_dump_cmm_rewrite
+   | Opt_D_dump_cmm_sink
    | Opt_D_dump_cmm_sp
    | Opt_D_dump_cmm_procmap
    | Opt_D_dump_cmm_split
@@ -308,6 +308,9 @@ data GeneralFlag
    | Opt_OmitYields
    | Opt_SimpleListLiterals
    | Opt_FunToThunk               -- allow WwLib.mkWorkerArgs to remove all value lambdas
+   | Opt_DictsStrict                     -- be strict in argument dictionaries
+   | Opt_DmdTxDictSel              -- use a special demand transformer for dictionary selectors
+   | Opt_Loopification                  -- See Note [Self-recursive tail calls]
 
    -- Interface files
    | Opt_IgnoreInterfacePragmas
@@ -431,6 +434,7 @@ data WarningFlag =
    | Opt_WarnUnusedMatches
    | Opt_WarnWarningsDeprecations
    | Opt_WarnDeprecatedFlags
+   | Opt_WarnAMP
    | Opt_WarnDodgyExports
    | Opt_WarnDodgyImports
    | Opt_WarnOrphans
@@ -449,7 +453,6 @@ data WarningFlag =
    | Opt_WarnUnsupportedCallingConventions
    | Opt_WarnUnsupportedLlvmVersion
    | Opt_WarnInlineRuleShadowing
-   | Opt_WarnTypeableInstances
    deriving (Eq, Show, Enum)
 
 data Language = Haskell98 | Haskell2010
@@ -583,6 +586,10 @@ data DynFlags = DynFlags {
   ruleCheck             :: Maybe String,
   strictnessBefore      :: [Int],       -- ^ Additional demand analysis
 
+  parMakeCount          :: Maybe Int,   -- ^ The number of modules to compile in parallel
+                                        --   in --make mode, where Nothing ==> compile as
+                                        --   many in parallel as there are CPUs.
+
   maxRelevantBinds      :: Maybe Int,   -- ^ Maximum number of bindings from the type envt
                                         --   to show in type error messages
   simplTickFactor       :: Int,         -- ^ Multiplier for simplifier ticks
@@ -690,7 +697,8 @@ data DynFlags = DynFlags {
   filesToClean          :: IORef [FilePath],
   dirsToClean           :: IORef (Map FilePath FilePath),
   filesToNotIntermediateClean :: IORef [FilePath],
-
+  -- The next available suffix to uniquely name a temp file, updated atomically
+  nextTempSuffix        :: IORef Int,
 
   -- Names of files which were generated from -ddump-to-file; used to
   -- track which ones we need to truncate because it's our first run
@@ -754,7 +762,7 @@ data DynFlags = DynFlags {
 
   llvmVersion           :: IORef Int,
 
-  nextWrapperNum        :: IORef Int,
+  nextWrapperNum        :: IORef (ModuleEnv Int),
 
   -- | Machine dependant flags (-m<blah> stuff)
   sseVersion            :: Maybe (Int, Int),  -- (major, minor)
@@ -1225,13 +1233,14 @@ initDynFlags dflags = do
      platformCanGenerateDynamicToo
          = platformOS (targetPlatform dflags) /= OSMinGW32
  refCanGenerateDynamicToo <- newIORef platformCanGenerateDynamicToo
+ refNextTempSuffix <- newIORef 0
  refFilesToClean <- newIORef []
  refDirsToClean <- newIORef Map.empty
  refFilesToNotIntermediateClean <- newIORef []
  refGeneratedDumps <- newIORef Set.empty
  refLlvmVersion <- newIORef 28
  refRtldFlags <- newIORef Nothing
- wrapperNum <- newIORef 0
+ wrapperNum <- newIORef emptyModuleEnv
  canUseUnicodeQuotes <- do let enc = localeEncoding
                                str = "‛’"
                            (withCString enc str $ \cstr ->
@@ -1240,6 +1249,7 @@ initDynFlags dflags = do
                                `catchIOError` \_ -> return False
  return dflags{
         canGenerateDynamicToo = refCanGenerateDynamicToo,
+        nextTempSuffix = refNextTempSuffix,
         filesToClean   = refFilesToClean,
         dirsToClean    = refDirsToClean,
         filesToNotIntermediateClean = refFilesToNotIntermediateClean,
@@ -1274,6 +1284,8 @@ defaultDynFlags mySettings =
 
         historySize             = 20,
         strictnessBefore        = [],
+
+        parMakeCount            = Just 1,
 
         cmdlineHcIncludes       = [],
         importPaths             = ["."],
@@ -1334,6 +1346,7 @@ defaultDynFlags mySettings =
         depExcludeMods    = [],
         depSuffixes       = [],
         -- end of ghc -M values
+        nextTempSuffix = panic "defaultDynFlags: No nextTempSuffix",
         filesToClean   = panic "defaultDynFlags: No filesToClean",
         dirsToClean    = panic "defaultDynFlags: No dirsToClean",
         filesToNotIntermediateClean = panic "defaultDynFlags: No filesToNotIntermediateClean",
@@ -2032,6 +2045,8 @@ dynamic_flags = [
                            addWarn "-#include and INCLUDE pragmas are deprecated: They no longer have any effect"))
   , Flag "v"        (OptIntSuffix setVerbosity)
 
+  , Flag "j"        (OptIntSuffix (\n -> upd (\d -> d {parMakeCount = n})))
+
         ------- ways --------------------------------------------------------
   , Flag "prof"           (NoArg (addWay WayProf))
   , Flag "eventlog"       (NoArg (addWay WayEventLog))
@@ -2206,7 +2221,7 @@ dynamic_flags = [
   , Flag "ddump-cmm-cfg"           (setDumpFlag Opt_D_dump_cmm_cfg)
   , Flag "ddump-cmm-cbe"           (setDumpFlag Opt_D_dump_cmm_cbe)
   , Flag "ddump-cmm-proc"          (setDumpFlag Opt_D_dump_cmm_proc)
-  , Flag "ddump-cmm-rewrite"       (setDumpFlag Opt_D_dump_cmm_rewrite)
+  , Flag "ddump-cmm-sink"          (setDumpFlag Opt_D_dump_cmm_sink)
   , Flag "ddump-cmm-sp"            (setDumpFlag Opt_D_dump_cmm_sp)
   , Flag "ddump-cmm-procmap"       (setDumpFlag Opt_D_dump_cmm_procmap)
   , Flag "ddump-cmm-split"         (setDumpFlag Opt_D_dump_cmm_split)
@@ -2490,6 +2505,7 @@ fWarningFlags = [
   ( "warn-warnings-deprecations",       Opt_WarnWarningsDeprecations, nop ),
   ( "warn-deprecations",                Opt_WarnWarningsDeprecations, nop ),
   ( "warn-deprecated-flags",            Opt_WarnDeprecatedFlags, nop ),
+  ( "warn-amp",                         Opt_WarnAMP, nop ),
   ( "warn-orphans",                     Opt_WarnOrphans, nop ),
   ( "warn-identities",                  Opt_WarnIdentities, nop ),
   ( "warn-auto-orphans",                Opt_WarnAutoOrphans, nop ),
@@ -2504,8 +2520,7 @@ fWarningFlags = [
   ( "warn-pointless-pragmas",           Opt_WarnPointlessPragmas, nop ),
   ( "warn-unsupported-calling-conventions", Opt_WarnUnsupportedCallingConventions, nop ),
   ( "warn-inline-rule-shadowing",       Opt_WarnInlineRuleShadowing, nop ),
-  ( "warn-unsupported-llvm-version",    Opt_WarnUnsupportedLlvmVersion, nop ),
-  ( "warn-typeable-instances",          Opt_WarnTypeableInstances, nop ) ]
+  ( "warn-unsupported-llvm-version",    Opt_WarnUnsupportedLlvmVersion, nop ) ]
 
 -- | These @-\<blah\>@ flags can all be reversed with @-no-\<blah\>@
 negatableFlags :: [FlagSpec GeneralFlag]
@@ -2590,7 +2605,10 @@ fFlags = [
   ( "flat-cache",                       Opt_FlatCache, nop ),
   ( "use-rpaths",                       Opt_RPath, nop ),
   ( "kill-absence",                     Opt_KillAbsence, nop),
-  ( "kill-one-shot",                    Opt_KillOneShot, nop)
+  ( "kill-one-shot",                    Opt_KillOneShot, nop),
+  ( "dicts-strict",                     Opt_DictsStrict, nop ),
+  ( "dmd-tx-dict-sel",                  Opt_DmdTxDictSel, nop ),
+  ( "loopification",                    Opt_Loopification, nop )
   ]
 
 -- | These @-f\<blah\>@ flags can all be reversed with @-fno-\<blah\>@
@@ -2874,6 +2892,8 @@ optLevelFlags
     , ([1,2],   Opt_CmmSink)
     , ([1,2],   Opt_CmmElimCommonBlocks)
 
+    , ([0,1,2],     Opt_DmdTxDictSel)
+
 --     , ([2],     Opt_StaticArgumentTransformation)
 -- Max writes: I think it's probably best not to enable SAT with -O2 for the
 -- 6.10 release. The version of SAT in HEAD at the moment doesn't incorporate
@@ -2900,6 +2920,7 @@ standardWarnings
     = [ Opt_WarnOverlappingPatterns,
         Opt_WarnWarningsDeprecations,
         Opt_WarnDeprecatedFlags,
+        Opt_WarnAMP,
         Opt_WarnUnrecognisedPragmas,
         Opt_WarnPointlessPragmas,
         Opt_WarnDuplicateConstraints,
@@ -2912,7 +2933,6 @@ standardWarnings
         Opt_WarnWrongDoBind,
         Opt_WarnUnsupportedCallingConventions,
         Opt_WarnDodgyForeignImports,
-        Opt_WarnTypeableInstances,
         Opt_WarnInlineRuleShadowing,
         Opt_WarnAlternativeLayoutRuleTransitional,
         Opt_WarnUnsupportedLlvmVersion
@@ -3453,6 +3473,7 @@ compilerInfo dflags
        ("Tables next to code",         cGhcEnableTablesNextToCode),
        ("RTS ways",                    cGhcRTSWays),
        ("Support dynamic-too",         "YES"),
+       ("Support parallel --make",     "YES"),
        ("Dynamic by default",          if dYNAMIC_BY_DEFAULT dflags
                                        then "YES" else "NO"),
        ("GHC Dynamic",                 if cDYNAMIC_GHC_PROGRAMS

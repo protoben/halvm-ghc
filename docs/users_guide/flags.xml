@@ -1503,11 +1503,10 @@
           </row>
 
           <row>
-            <entry><option>-fwarn-typeable-instances</option></entry>
-            <entry>warn if there are any handwritten <literal>Typeable</literal>
-                   instances (see <xref linkend="deriving-typeable"/>)</entry>
+            <entry><option>-fwarn-amp</option></entry>
+            <entry>warn on definitions conflicting with the Applicative-Monad Proposal (AMP)</entry>
             <entry>dynamic</entry>
-            <entry><option>-fno-warn-typeable-instances</option></entry>
+            <entry><option>-fno-warn-amp</option></entry>
           </row>
 
         </tbody>
@@ -2991,6 +2990,12 @@
           </row>
         </thead>
         <tbody>
+          <row>
+            <entry><option>-j <replaceable>N</replaceable></option></entry>
+            <entry>When compiling with <literal>--make</literal>, compile <replaceable>N</replaceable> modules in parallel.</entry>
+            <entry>dynamic</entry>
+            <entry>-</entry>
+          </row>
           <row>
             <entry><option>-fno-hi-version-check</option></entry>
             <entry>Don't complain about <literal>.hi</literal> file mismatches</entry>
