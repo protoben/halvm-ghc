@@ -49,6 +49,7 @@ import NameSet
 import PrelNames
 import HscTypes
 import OccName
+import Hooks
 import Var
 import Module
 import Annotations
@@ -72,7 +73,8 @@ import Util
 import Data.List        ( mapAccumL )
 import Unique
 import Data.Maybe
-import BasicTypes
+import BasicTypes hiding( SuccessFlag(..) )
+import Maybes( MaybeErr(..) )
 import DynFlags
 import Panic
 import FastString
@@ -721,10 +723,12 @@ runQuasiQuote (HsQuasiQuote quoter q_span quote) quote_selector meta_ty meta_ops
         ; checkTc (not is_local) (quoteStageError quoter')
 
         ; traceTc "runQQ" (ppr quoter <+> ppr is_local)
+        ; HsQuasiQuote quoter'' _ quote' <- getHooked runQuasiQuoteHook return >>=
+             ($ HsQuasiQuote quoter' q_span quote)
 
           -- Build the expression
-        ; let quoterExpr = L q_span $! HsVar $! quoter'
-        ; let quoteExpr = L q_span $! HsLit $! HsString quote
+        ; let quoterExpr = L q_span $! HsVar $! quoter''
+        ; let quoteExpr = L q_span $! HsLit $! HsString quote'
         ; let expr = L q_span $
                      HsApp (L q_span $
                             HsApp (L q_span (HsVar quote_selector)) quoterExpr) quoteExpr
@@ -1135,14 +1139,10 @@ tcLookupTh name
                 Nothing    -> failWithTc (notInEnv name)
 
           else do               -- It's imported
-        { (eps,hpt) <- getEpsAndHpt
-        ; dflags <- getDynFlags
-        ; case lookupType dflags hpt (eps_PTE eps) name of
-            Just thing -> return (AGlobal thing)
-            Nothing    -> do { thing <- tcImportDecl name
-                             ; return (AGlobal thing) }
-                -- Imported names should always be findable;
-                -- if not, we fail hard in tcImportDecl
+        { mb_thing <- tcLookupImported_maybe name
+        ; case mb_thing of
+            Succeeded thing -> return (AGlobal thing)
+            Failed msg      -> failWithTc msg
     }}}}
 
 notInScope :: TH.Name -> SDoc

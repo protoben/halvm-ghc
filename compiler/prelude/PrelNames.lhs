@@ -1465,7 +1465,7 @@ rep1TyConKey = mkPreludeTyConUnique 156
 -- Type-level naturals
 typeNatKindConNameKey, typeSymbolKindConNameKey,
   typeNatAddTyFamNameKey, typeNatMulTyFamNameKey, typeNatExpTyFamNameKey,
-  typeNatLeqTyFamNameKey
+  typeNatLeqTyFamNameKey, typeNatSubTyFamNameKey
   :: Unique
 typeNatKindConNameKey     = mkPreludeTyConUnique 160
 typeSymbolKindConNameKey  = mkPreludeTyConUnique 161
@@ -1473,15 +1473,7 @@ typeNatAddTyFamNameKey    = mkPreludeTyConUnique 162
 typeNatMulTyFamNameKey    = mkPreludeTyConUnique 163
 typeNatExpTyFamNameKey    = mkPreludeTyConUnique 164
 typeNatLeqTyFamNameKey    = mkPreludeTyConUnique 165
-
--- SIMD vector types (Unique keys)
-floatX4PrimTyConKey, doubleX2PrimTyConKey, int32X4PrimTyConKey,
-  int64X2PrimTyConKey :: Unique
-
-floatX4PrimTyConKey  = mkPreludeTyConUnique 170
-doubleX2PrimTyConKey = mkPreludeTyConUnique 171
-int32X4PrimTyConKey  = mkPreludeTyConUnique 172
-int64X2PrimTyConKey  = mkPreludeTyConUnique 173
+typeNatSubTyFamNameKey    = mkPreludeTyConUnique 166
 
 ntTyConKey:: Unique
 ntTyConKey = mkPreludeTyConUnique 174
@@ -1491,6 +1483,12 @@ coercibleTyConKey = mkPreludeTyConUnique 175
 ---------------- Template Haskell -------------------
 --      USES TyConUniques 200-299
 -----------------------------------------------------
+
+----------------------- SIMD ------------------------
+--      USES TyConUniques 300-399
+-----------------------------------------------------
+
+#include "primop-vector-uniques.hs-incl"
 
 unitTyConKey :: Unique
 unitTyConKey = mkTupleTyConUnique BoxedTuple 0

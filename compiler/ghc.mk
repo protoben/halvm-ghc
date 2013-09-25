@@ -250,8 +250,12 @@ PRIMOP_BITS_NAMES = primop-data-decl.hs-incl        \
                     primop-code-size.hs-incl        \
                     primop-can-fail.hs-incl         \
                     primop-strictness.hs-incl       \
-                    primop-fixity.hs-incl       \
-                    primop-primop-info.hs-incl
+                    primop-fixity.hs-incl           \
+                    primop-primop-info.hs-incl      \
+                    primop-vector-uniques.hs-incl   \
+                    primop-vector-tys.hs-incl       \
+                    primop-vector-tys-exports.hs-incl \
+                    primop-vector-tycons.hs-incl
 
 PRIMOP_BITS_STAGE1 = $(addprefix compiler/stage1/build/,$(PRIMOP_BITS_NAMES))
 PRIMOP_BITS_STAGE2 = $(addprefix compiler/stage2/build/,$(PRIMOP_BITS_NAMES))
@@ -290,6 +294,14 @@ compiler/stage$1/build/primop-fixity.hs-incl: compiler/stage$1/build/primops.txt
 	"$$(genprimopcode_INPLACE)" --fixity             < $$< > $$@
 compiler/stage$1/build/primop-primop-info.hs-incl: compiler/stage$1/build/primops.txt $$$$(genprimopcode_INPLACE)
 	"$$(genprimopcode_INPLACE)" --primop-primop-info < $$< > $$@
+compiler/stage$1/build/primop-vector-uniques.hs-incl: compiler/stage$1/build/primops.txt $$$$(genprimopcode_INPLACE)
+	"$$(genprimopcode_INPLACE)" --primop-vector-uniques     < $$< > $$@
+compiler/stage$1/build/primop-vector-tys.hs-incl: compiler/stage$1/build/primops.txt $$$$(genprimopcode_INPLACE)
+	"$$(genprimopcode_INPLACE)" --primop-vector-tys         < $$< > $$@
+compiler/stage$1/build/primop-vector-tys-exports.hs-incl: compiler/stage$1/build/primops.txt $$$$(genprimopcode_INPLACE)
+	"$$(genprimopcode_INPLACE)" --primop-vector-tys-exports < $$< > $$@
+compiler/stage$1/build/primop-vector-tycons.hs-incl: compiler/stage$1/build/primops.txt $$$$(genprimopcode_INPLACE)
+	"$$(genprimopcode_INPLACE)" --primop-vector-tycons      < $$< > $$@
 
 # Usages aren't used any more; but the generator
 # can still generate them if we want them back
@@ -445,7 +457,7 @@ compiler_stage3_SplitObjs = NO
 # We therefore need to split some of the modules off into a separate
 # DLL. This clump are the modules reachable from DynFlags:
 compiler_stage2_dll0_START_MODULE = DynFlags
-compiler_stage2_dll0_MODULES = Annotations Avail Bag BasicTypes BinIface Binary Bitmap BlockId BooleanFormula BreakArray BufWrite BuildTyCl ByteCodeAsm ByteCodeInstr ByteCodeItbls ByteCodeLink CLabel Class CmdLineParser Cmm CmmCallConv CmmExpr CmmInfo CmmMachOp CmmNode CmmType CmmUtils CoAxiom CodeGen.Platform CodeGen.Platform.ARM CodeGen.Platform.NoRegs CodeGen.Platform.PPC CodeGen.Platform.PPC_Darwin CodeGen.Platform.SPARC CodeGen.Platform.X86 CodeGen.Platform.X86_64 Coercion Config Constants CoreArity CoreFVs CoreLint CoreSubst CoreSyn CoreTidy CoreUnfold CoreUtils CostCentre DataCon Demand Digraph DriverPhases DynFlags Encoding ErrUtils Exception ExtsCompat46 FamInst FamInstEnv FastBool FastFunctions FastMutInt FastString FastTypes Finder Fingerprint FiniteMap ForeignCall Hoopl Hoopl.Dataflow HsBinds HsDecls HsDoc HsExpr HsImpExp HsLit HsPat HsSyn HsTypes HsUtils HscTypes IOEnv Id IdInfo IfaceEnv IfaceSyn IfaceType InstEnv InteractiveEvalTypes Kind ListSetOps Literal LoadIface Maybes MkCore MkGraph MkId Module MonadUtils Name NameEnv NameSet ObjLink OccName OccurAnal OptCoercion OrdList Outputable PackageConfig Packages Pair Panic Platform PlatformConstants PprCmm PprCmmDecl PprCmmExpr PprCore PrelInfo PrelNames PrelRules Pretty PrimOp RdrName Reg RegClass Rules SMRep Serialized SrcLoc StaticFlags StgCmmArgRep StgCmmClosure StgCmmEnv StgCmmLayout StgCmmMonad StgCmmProf StgCmmTicky StgCmmUtils StgSyn Stream StringBuffer TcEvidence TcIface TcMType TcRnMonad TcRnTypes TcType TcTypeNats TrieMap TyCon Type TypeRep TysPrim TysWiredIn Unify UniqFM UniqSet UniqSupply Unique Util Var VarEnv VarSet
+compiler_stage2_dll0_MODULES = Annotations Avail Bag BasicTypes BinIface Binary Bitmap BlockId BooleanFormula BreakArray BufWrite BuildTyCl ByteCodeAsm ByteCodeInstr ByteCodeItbls CLabel Class CmdLineParser Cmm CmmCallConv CmmExpr CmmInfo CmmMachOp CmmNode CmmType CmmUtils CoAxiom CodeGen.Platform CodeGen.Platform.ARM CodeGen.Platform.NoRegs CodeGen.Platform.PPC CodeGen.Platform.PPC_Darwin CodeGen.Platform.SPARC CodeGen.Platform.X86 CodeGen.Platform.X86_64 Coercion Config Constants CoreArity CoreFVs CoreLint CoreSubst CoreSyn CoreTidy CoreUnfold CoreUtils CostCentre DataCon Demand Digraph DriverPhases DsMonad DynFlags Encoding ErrUtils Exception ExtsCompat46 FamInst FamInstEnv FastBool FastFunctions FastMutInt FastString FastTypes Finder Fingerprint FiniteMap ForeignCall Hooks Hoopl Hoopl.Dataflow HsBinds HsDecls HsDoc HsExpr HsImpExp HsLit HsPat HsSyn HsTypes HsUtils HscTypes IOEnv Id IdInfo IfaceEnv IfaceSyn IfaceType InstEnv InteractiveEvalTypes Kind ListSetOps Literal LoadIface Maybes MkCore MkGraph MkId Module MonadUtils Name NameEnv NameSet OccName OccurAnal OptCoercion OrdList Outputable PackageConfig Packages Pair Panic PipelineMonad Platform PlatformConstants PprCmm PprCmmDecl PprCmmExpr PprCore PrelInfo PrelNames PrelRules Pretty PrimOp RdrName Reg RegClass Rules SMRep Serialized SrcLoc StaticFlags StgCmmArgRep StgCmmClosure StgCmmEnv StgCmmLayout StgCmmMonad StgCmmProf StgCmmTicky StgCmmUtils StgSyn Stream StringBuffer TcEvidence TcIface TcMType TcRnMonad TcRnTypes TcType TcTypeNats TrieMap TyCon Type TypeRep TysPrim TysWiredIn Unify UniqFM UniqSet UniqSupply Unique Util Var VarEnv VarSet
 
 compiler_stage2_dll0_HS_OBJS = \
     $(patsubst %,compiler/stage2/build/%.$(dyn_osuf),$(subst .,/,$(compiler_stage2_dll0_MODULES)))

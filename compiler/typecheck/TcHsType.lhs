@@ -306,7 +306,6 @@ tcCheckHsTypeAndGen :: HsType Name -> Kind -> TcM Type
 tcCheckHsTypeAndGen hs_ty kind
   = do { ty  <- tc_hs_type hs_ty (EK kind expectedKindMsg)
        ; traceTc "tcCheckHsTypeAndGen" (ppr hs_ty)
-       ; traceTc "tcCheckHsTypeAndGen" (ppr ty)
        ; kvs <- zonkTcTypeAndFV ty 
        ; kvs <- kindGeneralize kvs
        ; return (mkForAllTys kvs ty) }
@@ -885,7 +884,7 @@ as if $(..blah..) :: forall k. k.
 
 In the e1 example, the context of the splice fixes kappa to *.  But
 in the e2 example, we'll desugar the type, zonking the kind unification
-variables as we go.  When we encournter the unconstrained kappa, we
+variables as we go.  When we encounter the unconstrained kappa, we
 want to default it to '*', not to AnyK.
 
 

@@ -888,6 +888,8 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_ap_d_ret)                       \
       SymI_HasProto(stg_ap_l_ret)                       \
       SymI_HasProto(stg_ap_v16_ret)                     \
+      SymI_HasProto(stg_ap_v32_ret)                     \
+      SymI_HasProto(stg_ap_v64_ret)                     \
       SymI_HasProto(stg_ap_n_ret)                       \
       SymI_HasProto(stg_ap_p_ret)                       \
       SymI_HasProto(stg_ap_pv_ret)                      \
@@ -1119,6 +1121,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(getProgArgv)                                        \
       SymI_HasProto(getFullProgArgv)                                    \
       SymI_HasProto(getStablePtr)                                       \
+      SymI_HasProto(foreignExportStablePtr)                             \
       SymI_HasProto(hs_init)                                            \
       SymI_HasProto(hs_exit)                                            \
       SymI_HasProto(hs_set_argv)                                        \
@@ -1257,6 +1260,8 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_ap_d_info)                                      \
       SymI_HasProto(stg_ap_l_info)                                      \
       SymI_HasProto(stg_ap_v16_info)                                    \
+      SymI_HasProto(stg_ap_v32_info)                                    \
+      SymI_HasProto(stg_ap_v64_info)                                    \
       SymI_HasProto(stg_ap_n_info)                                      \
       SymI_HasProto(stg_ap_p_info)                                      \
       SymI_HasProto(stg_ap_pv_info)                                     \
@@ -1273,6 +1278,8 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_ap_d_fast)                                      \
       SymI_HasProto(stg_ap_l_fast)                                      \
       SymI_HasProto(stg_ap_v16_fast)                                    \
+      SymI_HasProto(stg_ap_v32_fast)                                    \
+      SymI_HasProto(stg_ap_v64_fast)                                    \
       SymI_HasProto(stg_ap_n_fast)                                      \
       SymI_HasProto(stg_ap_p_fast)                                      \
       SymI_HasProto(stg_ap_pv_fast)                                     \
@@ -1947,6 +1954,37 @@ lookupSymbol( char *lbl )
 }
 
 /* -----------------------------------------------------------------------------
+   Create a StablePtr for a foreign export.  This is normally called by
+   a C function with __attribute__((constructor)), which is generated
+   by GHC and linked into the module.
+
+   If the object code is being loaded dynamically, then we remember
+   which StablePtrs were allocated by the constructors and free them
+   again in unloadObj().
+   -------------------------------------------------------------------------- */
+
+static ObjectCode *loading_obj = NULL;
+
+StgStablePtr foreignExportStablePtr (StgPtr p)
+{
+    ForeignExportStablePtr *fe_sptr;
+    StgStablePtr *sptr;
+
+    sptr = getStablePtr(p);
+
+    if (loading_obj != NULL) {
+        fe_sptr = stgMallocBytes(sizeof(ForeignExportStablePtr),
+                                 "foreignExportStablePtr");
+        fe_sptr->stable_ptr = sptr;
+        fe_sptr->next = loading_obj->stable_ptrs;
+        loading_obj->stable_ptrs = fe_sptr;
+    }
+
+    return sptr;
+}
+
+
+/* -----------------------------------------------------------------------------
  * Debugging aid: look in GHCi's object symbol tables for symbols
  * within DELTA bytes of the specified address, and show their names.
  */
@@ -2142,6 +2180,7 @@ mkOc( pathchar *path, char *image, int imageSize,
    oc->symbols           = NULL;
    oc->sections          = NULL;
    oc->proddables        = NULL;
+   oc->stable_ptrs       = NULL;
 
 #ifndef USE_MMAP
 #ifdef darwin_HOST_OS
@@ -2785,6 +2824,8 @@ resolveObjs( void )
             if (!r) { return r; }
 
             // run init/init_array/ctors/mod_init_func
+
+            loading_obj = oc; // tells foreignExportStablePtr what to do
 #if defined(OBJFORMAT_ELF)
             r = ocRunInit_ELF ( oc );
 #elif defined(OBJFORMAT_PEi386)
@@ -2794,6 +2835,8 @@ resolveObjs( void )
 #else
             barf("resolveObjs: initializers not implemented on this platform");
 #endif
+            loading_obj = NULL;
+
             if (!r) { return r; }
 
             oc->status = OBJECT_RESOLVED;
@@ -2861,6 +2904,18 @@ unloadObj( pathchar *path )
             }
 
             freeProddableBlocks(oc);
+
+            // Release any StablePtrs that were created when this
+            // object module was initialized.
+            {
+                ForeignExportStablePtr *fe_ptr, *next;
+
+                for (fe_ptr = oc->stable_ptrs; fe_ptr != NULL; fe_ptr = next) {
+                    next = fe_ptr->next;
+                    freeStablePtr(fe_ptr->stable_ptr);
+                    stgFree(fe_ptr);
+                }
+            }
 
             oc->status = OBJECT_UNLOADED;
 

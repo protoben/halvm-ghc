@@ -154,24 +154,21 @@
             <para>
                 PrimOps for comparing unboxed values now return
                 <literal>Int#</literal> instead of <literal>Bool</literal>.
-                New PrimOps' names end with <literal>$#</literal> for operators and
-                <literal>I#</literal> for ordinary names, e.g. <literal>==$#</literal>
-                compares <literal>Int#</literal>s for equality and
-                <literal>eqCharI#</literal> does the same for <literal>Char#</literal>s.
-                Old PrimOps have been removed and turned into wrappers. See
+                This change is backwards incompatible. See
                 <ulink url="http://ghc.haskell.org/trac/ghc/wiki/NewPrimopsInGHC7.8">
                 this GHC wiki page</ulink> for instructions how to update your
-                existing code.
+                existing code. See <ulink url="http://ghc.haskell.org/trac/ghc/wiki/PrimBool">
+                here</ulink> for motivation and discussion of implementation details.
            </para>
        </listitem>
 
         <listitem>
-            <para> 
+            <para>
                 New PrimOps for atomic memory operations.
                 The <literal>casMutVar#</literal> PrimOp was introduced in
-                GHC 7.2 (debugged in 7.4).  This release also includes additional 
-                PrimOps for compare-and-swap (<literal>casArray#</literal> and 
-                <literal>casIntArray#</literal>) and one for fetch-and-add 
+                GHC 7.2 (debugged in 7.4).  This release also includes additional
+                PrimOps for compare-and-swap (<literal>casArray#</literal> and
+                <literal>casIntArray#</literal>) and one for fetch-and-add
                 (<literal>fetchAddIntArray#</literal>).
            </para>
        </listitem>
@@ -208,6 +205,16 @@
 
         <listitem>
             <para>
+                GHC now has support for a new pragma,
+                <literal>{-# MINIMAL #-}</literal>, allowing you to
+                explicitly declare the minimal complete definition of
+                a class. Should an instance not provide the minimal
+                required definitions, a warning will be emitted.
+           </para>
+       </listitem>
+
+        <listitem>
+            <para>
                 GHC now generates warnings when definitions conflict with the
                 Applicative-Monad Proposal (AMP).
 
@@ -228,6 +235,21 @@
             <para>
                 The warnings are enabled by default, and can be controlled
                 using the new flag <literal>-f[no-]warn-amp</literal>.
+           </para>
+       </listitem>
+        <listitem>
+            <para>
+                GHC's internal compiler pipeline is now exposed
+                through a <literal>Hooks</literal> module inside the
+                GHC API. These hooks allow you to control most of the
+                internal compiler phase machinery, including compiling
+                expressions, phase control, and linking.
+           </para>
+
+            <para>
+                Note: this interface will likely see continuous
+                refinment and API changes in future releases, so it
+                should be considered a preview.
            </para>
        </listitem>
    </itemizedlist>
@@ -313,7 +335,21 @@
            </listitem>
        </itemizedlist>
 
+        <itemizedlist>
+            <listitem>
+                <para>
+                     The new pragma, <literal>{-# MINIMAL #-}</literal>,
+                     allows to explicitly declare the minimal complete
+                     definition of a class. Should an instance not provide
+                     the minimal required definitions, a warning will be
+                     emitted.
+               </para>
 
+                <para>
+                     See <xref linkend="minimal-pragma"/> for more details.
+               </para>
+           </listitem>
+       </itemizedlist>
     </sect3>
 
     <sect3>
@@ -391,6 +427,20 @@
                     The new <literal>:shows paths</literal> command
                     shows the current working directory and the
                     current search path for Haskell modules.
+               </para>
+           </listitem>
+
+            <listitem>
+                <para>
+                    The GHCi linker now runs constructors for linked
+                    libraries. This means for example that C code
+                    using
+                    <literal>__attribute__((constructor))</literal>
+                    can now properly be loaded into GHCi.
+               </para>
+
+                <para>
+                    Note: destructors are not supported.
                </para>
            </listitem>
        </itemizedlist>
@@ -576,6 +626,23 @@
                      These changes were contributed by Bart Massey.
                </para>
            </listitem>
+            <listitem>
+                <para>
+                     The minimal complete definitions for all
+                     type-classes with cyclic default implementations
+                     have been explicitly annotated with the new
+                     <literal>{-# MINIMAL #-}</literal> pragma.
+               </para>
+           </listitem>
+            <listitem>
+                <para>
+                     <literal>Control.Applicative.WrappedMonad</literal>,
+                     which can be used to convert a <literal>Monad</literal>
+                     to an <literal>Applicative</literal>, has now
+                     a <literal>Monad m => Monad (WrappedMonad m)</literal>
+                     instance.
+               </para>
+           </listitem>
        </itemizedlist>
     </sect3>
 
@@ -673,6 +740,14 @@
             <listitem>
                 <para>
                     Version number XXXX (was XXXX)
+               </para>
+           </listitem>
+            <listitem>
+                <para>
+                     The type-classes <literal>Eq</literal> and
+                     <literal>Ord</literal> have been annotated with
+                     the new <literal>{-# MINIMAL #-}</literal>
+                     pragma.
                </para>
            </listitem>
        </itemizedlist>
