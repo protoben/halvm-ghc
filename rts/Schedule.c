@@ -969,17 +969,6 @@ scheduleDetectDeadlock (Capability **pcap, Task *task)
 static void
 scheduleSendPendingMessages(void)
 {
-#ifdef HaLVM_TARGET_OS
-  if( emptyThreadQueues(cap) ) {
-    if( RtsFlags.MiscFlags.install_signal_handlers && anyUserHandlers() ) {
-      awaitUserSignals();
-      if(signals_pending()) {
-        startSignalHandlers(cap);
-      }
-    }
-  }
-#else 
-
 # if defined(PAR) // global Mem.Mgmt., omit for now
     if (PendingFetches != END_BF_QUEUE) {
         processFetches();
@@ -991,7 +980,6 @@ scheduleSendPendingMessages(void)
       // packets which have become too old...
       sendOldBuffers();
     }
-#endif
 }
 #endif
 

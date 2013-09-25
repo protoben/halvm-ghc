@@ -9,5 +9,5 @@ void *mmap(void *start, size_t length, int prot,
   if(fd != -1)
     return NULL;
 
-  return runtime_alloc(start, length, prot, ALLOC_ALL_CPUS);
+  return runtime_alloc(start, length, prot);
 }

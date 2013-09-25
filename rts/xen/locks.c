@@ -1,20 +1,17 @@
 #include <errno.h>
 #include "locks.h"
-#include "vcpu.h"
+#include "smp.h"
 #include "signals.h"
 #include "Rts.h"
+#include "sm/GC.h"
+#include "RtsSignals.h"
+#include "Task.h"
 #include <runtime_reqs.h>
+#include <assert.h>
 
 #define LOCK_FREE             0
 #define LOCK_TAKEN            1
 #define LOCK_CLOSED           0xbadbadFF
-
-static uint32_t  num_vcpus = 0;
-
-void init_locks(uint32_t vcpus)
-{
-  num_vcpus = vcpus;
-}
 
 int halvm_acquire_lock(halvm_mutex_t *mutex)
 {
@@ -86,44 +83,37 @@ void closeMutex(halvm_mutex_t *mut)
 /* ************************************************************************* */
 
 #ifdef THREADED_RTS
-
+/* the GHC RTS doesn't use the full power of conditional locks. instead,    */
+/* it uses them as a handy way to go to sleep or get woken up when a task   */
+/* runs out of things to do, while ensuring that a particular lock is held  */
+/* when it wakes up. This means, for example, that there's always a maximum */
+/* of one person waiting on the lock, which in turn means we can greatly    */
+/* simplify our implementation.                                             */
 void initCondition(halvm_condlock_t *cond)
 {
   initMutex( &(cond->lock) );
-  cond->numWaiters = 0;
-  cond->waiters = calloc(num_vcpus, sizeof(halvm_vcpu_t));
+  cond->waiter = 0;
+  cond->state = CONDLOCK_EMPTY;
 }
 
 void closeCondition(halvm_condlock_t *cond)
 {
-  broadcastCondition(cond); /* flush anyone waiting */
-  halvm_acquire_lock( &(cond->lock) );
-  free(cond->waiters); cond->waiters = NULL;
   closeMutex( &(cond->lock) );
 }
 
-rtsBool broadcastCondition(halvm_condlock_t *cond)
-{
-  uint32_t i;
 
-  halvm_acquire_lock( &(cond->lock) );
-  for(i = 0; i < cond->numWaiters; i++)
-    signal_vcpu(cond->waiters[i]);
-  cond->numWaiters = 0;
-  halvm_release_lock( &(cond->lock) );
-  return rtsTrue;
+rtsBool broadcastCondition(halvm_condlock_t *cond __attribute__((unused)))
+{
+  assert(0); /* not called by the RTS */
 }
 
 rtsBool signalCondition(halvm_condlock_t *cond)
 {
-  uint32_t i;
-
   halvm_acquire_lock( &(cond->lock) );
-  if(cond->numWaiters > 0) {
-    signal_vcpu(cond->waiters[0]);
-    for(i = 1; i < cond->numWaiters; i++)
-      cond->waiters[i-1] = cond->waiters[i];
-    cond->numWaiters -= 1;
+  if(cond->state == CONDLOCK_WAITING) {
+    cond->state = CONDLOCK_SIGNALED;
+    unlockThread(cond->waiter);
+    cond->waiter = NULL;
   }
   halvm_release_lock( &(cond->lock) );
   return rtsTrue;
@@ -132,13 +122,15 @@ rtsBool signalCondition(halvm_condlock_t *cond)
 rtsBool waitCondition(halvm_condlock_t *cond, Mutex *mut)
 {
   halvm_acquire_lock( &(cond->lock) );
-  allow_signals(0); /* avoid a race with a broadcast on this condlock */
-  cond->waiters[cond->numWaiters++] = vcpu_local_info->vcpu_num;
+  halvm_release_lock( mut );
+  assert(cond->state != CONDLOCK_WAITING);
+  assert(cond->state != CONDLOCK_SIGNALED);
+  cond->waiter = vcpu_cur_thread();
+  cond->state  = CONDLOCK_WAITING;
+  lockCurrentThread( &(cond->lock) );
+  assert(cond->state == CONDLOCK_SIGNALED);
+  cond->state = CONDLOCK_EMPTY;
   halvm_release_lock( &(cond->lock) );
-  halvm_release_lock(mut);
-  wait_for_vcpu_signal(vcpu_local_info->vcpu_num);
-  /* we will come out of the block with signals enabled, so no need to */
-  /* re-enable. */
   halvm_acquire_lock(mut);
   return rtsTrue;
 }

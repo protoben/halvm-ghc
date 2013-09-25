@@ -12,7 +12,7 @@
 #include <assert.h>
 #include <runtime_reqs.h>
 #include "memory.h"
-#include "vcpu.h"
+#include "smp.h"
 #include "locks.h"
 #include "time_rts.h"
 #include "signals.h"
@@ -105,22 +105,25 @@ void runtime_entry(start_info_t *start_info, void *init_sp)
   num_vcpus = get_num_vcpus();
   assert(num_vcpus > 0);
   printf("Starting %d-CPU HaLVM\n", num_vcpus);
-  maxpages = initialize_memory(start_info, num_vcpus, init_sp);
+  maxpages = initialize_memory(start_info, init_sp);
   shared_info_mfn = (mfn_t)start_info->shared_info >> PAGE_SHIFT;
   // just for my own sanity, make sure that the machine address we're
   // given for the shared info struct is page aligned.
   assert(!((uintptr_t)start_info->shared_info & (PAGE_SIZE-1)));
   HYPERVISOR_shared_info = map_frames(&shared_info_mfn,1);
-  runtime_stack = runtime_alloc(NULL,STACK_SIZE,PROT_READWRITE,ALLOC_ALL_CPUS);
+  runtime_stack = runtime_alloc(NULL, VCPU_STACK_SIZE, PROT_READWRITE);
 #ifdef __x86_64__
-  asm("mov %0, %%rsp" : : "r"((uintptr_t)runtime_stack + STACK_SIZE));
+  asm("mov %0, %%rsp" : : "r"((uintptr_t)runtime_stack + VCPU_STACK_SIZE));
 #else
-  asm("mov %0, %%esp" : : "r"((uintptr_t)runtime_stack + STACK_SIZE));
+  asm("mov %0, %%esp" : : "r"((uintptr_t)runtime_stack + VCPU_STACK_SIZE));
 #endif
   init_signals(HYPERVISOR_shared_info);
+#ifdef THREADED_RTS
   init_smp_system(num_vcpus);
-  init_vcpu(0);
-  init_locks(num_vcpus);
+#else
+  if(num_vcpus > 1)
+    printf("WARNING: Allocated >1 CPUs in the non-threaded RTS.\n");
+#endif
   //assert(HYPERCALL_set_trap_table(trap_table) >= 0);
   assert(HYPERCALL_set_callbacks(hypervisor_callback, failsafe_callback) >= 0);
   allow_signals(1);

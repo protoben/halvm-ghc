@@ -5,7 +5,7 @@
 #include "time_rts.h"
 #include "Task.h"
 #include "Schedule.h"
-#include "vcpu.h"
+#include "smp.h"
 
 void setIOManagerControlFd(int fd)
 {
@@ -31,18 +31,11 @@ typedef struct waiter {
   StgStablePtr action;
 } waiter_t;
 
-static waiter_t *waiters = NULL;
-
-static void forceSingleShotTimer(void)
-{
-  if(!waiters)
-    return;
-
-  set_vcpu_timer((uint64_t)waiters->target * 1000);
-}
+static halvm_mutex_t  waiters_lock;
+static waiter_t      *waiters = NULL;
 #endif
 
-void registerWaiter(int usecs, StgStablePtr action)
+void registerWaiter(int usecs MUNUSED, StgStablePtr action MUNUSED)
 {
 #ifdef THREADED_RTS
   waiter_t *newWaiter = malloc(sizeof(waiter_t));
@@ -51,59 +44,69 @@ void registerWaiter(int usecs, StgStablePtr action)
   newWaiter->target = getDelayTarget(usecs);
   newWaiter->action = action;
 
+  halvm_acquire_lock(&waiters_lock);
   for(cur = waiters, prev = NULL; cur; prev = cur, cur = cur->next)
     if(cur->target > newWaiter->target) {
       newWaiter->next = cur;
       if(prev) prev->next = newWaiter; else waiters = newWaiter;
+      halvm_release_lock(&waiters_lock);
       return;
     }
 
   newWaiter->next = NULL;
   if(prev) prev->next = newWaiter; else waiters = newWaiter;
-  forceSingleShotTimer();
+  halvm_release_lock(&waiters_lock);
+  pokeSleepThread();
 #endif
 }
 
-void checkWaiters()
+StgStablePtr waitForWaiter()
 {
 #ifdef THREADED_RTS
-  StgWord now = getDelayTarget(0);
-  Task *me = NULL;
+  while(1) {
+    StgStablePtr signal = dequeueSignalHandler();
+    unsigned long target;
 
-  while(waiters && (waiters->target <= now)) {
-    waiter_t *next = waiters->next;
-    StgClosure *h;
-    StgTSO *t;
+    if(signal) {
+      return signal;
+    }
 
-    if(!me) assert(me = myTask());
-    h = (StgClosure*)deRefStablePtr(waiters->action);
-    t = createIOThread(me->cap, RtsFlags.GcFlags.initialStkSize, h);
-    scheduleThread(me->cap, t);
-    /* add the thread */
-    free(waiters);
-    waiters = next;
+    halvm_acquire_lock(&waiters_lock);
+    if(waiters && waiters->target <= getDelayTarget(0)) {
+      StgStablePtr retval = waiters->action;
+      waiter_t *dead = waiters;
+
+      waiters = waiters->next;
+      halvm_release_lock(&waiters_lock);
+      free(dead);
+      return retval;
+    }
+    target = waiters ? waiters->target : getDelayTarget(6000000);
+    halvm_release_lock(&waiters_lock);
+
+    sleepUntilWaiter(target);
   }
-
-  if(me) {
-    Task *me = myTask();
-    me->wakeup = rtsTrue;
-    signalCondition(&me->cond);
-  }
-
-  if(waiters) forceSingleShotTimer();
+#else
+  assert(0);
+  return NULL;
 #endif
 }
 
+#ifdef THREADED_RTS
 void ioManagerDie(void)
 {
-#ifdef THREADED_RTS
   if(waiters) {
     printf("WARNING: IO Manager is dying with people waiting to run.\n");
   }
-#endif
 }
 
 void ioManagerStart(void)
 {
-  /* nothing */
+  Capability *cap;
+
+  initMutex(&waiters_lock);
+  cap = rts_lock();
+  rts_evalIO(&cap, &base_GHCziConcziIO_ensureIOManagerIsRunning_closure, NULL);
+  rts_unlock(cap);
 }
+#endif

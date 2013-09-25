@@ -11,7 +11,8 @@
 
 #define PAGE_SHIFT                12
 #define PAGE_SIZE                 (1 << 12)
-#define STACK_SIZE                (1 * 1024 * 1024)
+#define VCPU_STACK_SIZE           (256 * PAGE_SIZE)
+#define IRQ_STACK_SIZE            (8 * PAGE_SIZE)
 
 
 #ifdef CONFIG_X86_32
@@ -61,7 +62,7 @@ void           set_pframe_unused(pfn_t);
 mfn_t          get_free_frame(void);
 unsigned long  used_frames(void);
 
-unsigned long  initialize_memory(start_info_t *, uint32_t, void *);
+unsigned long  initialize_memory(start_info_t *, void *);
 void          *claim_shared_space(size_t);
 void          *map_frames(mfn_t *, size_t);
 long           pin_frame(int, mfn_t, domid_t);

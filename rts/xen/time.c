@@ -14,7 +14,7 @@
 #include <assert.h>
 #include "hypercalls.h"
 #include "memory.h"
-#include "vcpu.h"
+#include "smp.h"
 #include <errno.h>
 
 #ifdef __x86_64
@@ -50,7 +50,7 @@ static inline uint64_t rdtscll(void)
 
 uint64_t monotonic_clock(void)
 {
-  struct vcpu_time_info *time = &vcpu_local_info->other_info.time;
+  struct vcpu_time_info *time = &vcpu_info().time;
   uint32_t start_version, end_version;
   uint64_t now, delta, retval = 0;
 
@@ -87,13 +87,13 @@ time_t runtime_time()
 
   do {
     /* if the low bit in the version is set, an update is in progress */
-    do { start_version = vcpu_local_info->other_info.time.version; }
+    do { start_version = vcpu_info().time.version; }
          while (start_version & 0x1);
     rmb();
     retval  = shared_info->wc_sec;
     retval += monotonic_clock() / (10 ^ 9); /* ns -> s */
     rmb();
-    end_version = vcpu_local_info->other_info.time.version;
+    end_version = vcpu_info().time.version;
     rmb();
   } while(start_version != end_version);
 
@@ -109,13 +109,13 @@ int runtime_gettimeofday(struct timeval *tv)
 
   do {
     /* if the low bit in the version is set, an update is in progress */
-    do { start_version = vcpu_local_info->other_info.time.version; }
+    do { start_version = vcpu_info().time.version; }
          while (start_version & 0x1);
     rmb();
     tv->tv_sec  = shared_info->wc_sec + (offset / 1000000000ULL);
     tv->tv_usec = (shared_info->wc_nsec + (offset % 1000000000ULL)) / 1000ULL;
     rmb();
-    end_version = vcpu_local_info->other_info.time.version;
+    end_version = vcpu_info().time.version;
     rmb();
   } while(start_version != end_version);
 
@@ -134,7 +134,7 @@ int runtime_rusage(int who __attribute__((unused)), struct rusage *usage)
   usage->ru_maxrss        = max_pages * 4096;
   usage->ru_ixrss         = cur_pages * 4096;
   usage->ru_idrss         = cur_pages * 4096;
-  usage->ru_isrss         = STACK_SIZE;
+  usage->ru_isrss         = VCPU_STACK_SIZE;
 
   return 0;
 }

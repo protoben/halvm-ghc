@@ -53,9 +53,6 @@ handle_tick(int unused STG_UNUSED)
           contextSwitchAllCapabilities(); /* schedule a context switch */
       }
   }
-#ifdef HaLVM_TARGET_OS
-  checkWaiters();
-#endif
 
   /*
    * If we've been inactive for idleGCDelayTime (set by +RTS

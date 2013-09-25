@@ -3,6 +3,7 @@
 #include "Schedule.h"
 #include "RtsSignals.h"
 #include "RtsUtils.h"
+#include "Task.h"
 #include "signals.h"
 #include <runtime_reqs.h>
 #include <string.h>
@@ -10,16 +11,16 @@
 #include <xen/xen.h>
 #include <xen/event_channel.h>
 #include <xen/sched.h>
+#include <xen/vcpu.h>
 #include "hypercalls.h"
 #include <assert.h>
 #include "locks.h"
-#include "vcpu.h"
+#include "memory.h"
+#include "smp.h"
 #include "time_rts.h"
 
 static void force_hypervisor_callback(void);
 
-#define local_vcpu_info         vcpu_local_info->other_info
-#define vcpu_mask               (local_vcpu_info.evtchn_upcall_mask)
 #define sync_swap               __sync_lock_test_and_set
 
 
@@ -37,7 +38,7 @@ static signal_handler_t   *signal_handlers;
 static struct shared_info *shared_info;
 static unsigned long      *ipi_mask;
 
-#ifdef __x86_64__
+#if defined(__x86_64__) && !defined(THREADED_RTS)
 static struct pda
 {
     int irqcount;       /* offset 0 (used in x86_64.S) */
@@ -138,11 +139,11 @@ void unmask_channel(uint32_t chan)
               : "m"(shared_info->evtchn_pending), "r"(chan));
   if(was_set) {
     asm volatile("lock btsl %k2, %1 ; sbbl %0, %0"
-                : "=r"(was_set), "=m"(local_vcpu_info.evtchn_pending_sel)
+                : "=r"(was_set), "=m"(vcpu_info().evtchn_pending_sel)
                 : "r"(chan / (sizeof(unsigned long) * 8)) : "memory");
     if(!was_set) {
-      vcpu_local_info->other_info.evtchn_upcall_pending = 1;
-      if(!vcpu_mask) force_hypervisor_callback();
+      vcpu_info().evtchn_upcall_pending = 1;
+      if(!vcpu_info().evtchn_upcall_mask) force_hypervisor_callback();
     }
   }
 }
@@ -192,45 +193,87 @@ void resetDefaultHandlers(void)
 
 /* ************************************************************************ */
 
-static StgStablePtr  *pending_handler_buf  = NULL;
-static unsigned int   next_pending_handler = 0;
+static StgStablePtr  *pending_handler_queue  = NULL;
+static unsigned int   pending_handler_head   = 0;
+static unsigned int   pending_handler_tail   = 0;
+static halvm_mutex_t  pending_handler_lock;
+
+void initUserSignals(void)
+{
+  pending_handler_queue = calloc(MAX_PENDING_HANDLERS, sizeof(StgStablePtr));
+  pending_handler_head  = pending_handler_tail = 0;
+}
 
 int signals_pending(void)
 {
+  int res;
+
   force_hypervisor_callback();
-  return next_pending_handler;
+  if(pending_handler_lock > 1) printf("[0] pending_handler_lock = %x\n", pending_handler_lock);
+  halvm_acquire_lock(&pending_handler_lock);
+  res = pending_handler_head != pending_handler_tail;
+  halvm_release_lock(&pending_handler_lock);
+  if(pending_handler_lock > 1) printf("[1] pending_handler_lock = %x\n", pending_handler_lock);
+  return res;
+}
+
+static void enqueueSignalHandler(StgStablePtr handler)
+{
+  if(pending_handler_lock > 1) printf("[2] pending_handler_lock = %x\n", pending_handler_lock);
+  halvm_acquire_lock(&pending_handler_lock);
+  pending_handler_queue[pending_handler_tail] = handler;
+  pending_handler_tail = (pending_handler_tail + 1) % MAX_PENDING_HANDLERS;
+  assert(pending_handler_tail != pending_handler_head);
+  halvm_release_lock(&pending_handler_lock);
+  if(pending_handler_lock > 1) printf("[3] pending_handler_lock = %x\n", pending_handler_lock);
+}
+
+StgStablePtr dequeueSignalHandler(void)
+{
+  StgStablePtr retval;
+
+  if(pending_handler_lock > 1) printf("[4] pending_handler_lock = %x\n", pending_handler_lock);
+  allow_signals(0);
+  halvm_acquire_lock(&pending_handler_lock);
+  if(pending_handler_head == pending_handler_tail) {
+    retval = NULL;
+  } else {
+    retval = pending_handler_queue[pending_handler_head];
+    pending_handler_head = (pending_handler_head + 1) % MAX_PENDING_HANDLERS;
+  }
+  halvm_release_lock(&pending_handler_lock);
+  allow_signals(1);
+  if(pending_handler_lock > 1) printf("[5] pending_handler_lock = %x\n", pending_handler_lock);
+
+  return retval;
 }
 
 #include "vmm.h"
 
 void allow_signals(int allow)
 {
-#if defined(__x86_64__)
+#if defined(__x86_64__) && !defined(THREADED_RTS)
   asm volatile("movl %0,%%fs ; movl %0,%%gs" :: "r" (0));
-  asm volatile("wrmsr" : : "c"(0xc0000101), /* MSR_GS_BASE */
+  asm volatile("wrmsr" : : "c"(0xc0000100), /* MSR_FS_BASE */
                            "a"((uintptr_t)&cpu0_pda & 0xFFFFFFFF),
                            "d"((uintptr_t)&cpu0_pda >> 32));
   cpu0_pda.irqcount    = -1;
-  cpu0_pda.irqstackptr = vcpu_local_info->irq_stack_top;
+  cpu0_pda.irqstackptr = runtime_alloc(NULL, IRQ_STACK_SIZE, PROT_READWRITE);
 #endif
-  __sync_lock_test_and_set(&vcpu_mask, !!!allow);
+  __sync_lock_test_and_set(&vcpu_info().evtchn_upcall_mask, !!!allow);
   asm volatile("" : : : "memory");
-  if(allow && vcpu_local_info->other_info.evtchn_upcall_pending)
+  if(allow && vcpu_info().evtchn_upcall_pending)
     force_hypervisor_callback();
 }
 
-void initUserSignals(void)
-{
-  pending_handler_buf  = calloc(MAX_PENDING_HANDLERS, sizeof(StgStablePtr));
-  next_pending_handler = 0;
-}
-
+#ifndef THREADED_RTS
 void awaitUserSignals(void)
 {
   force_hypervisor_callback();
   while(!signals_pending() && sched_state == SCHED_RUNNING)
     runtime_block(10 * 60 * 1000); // 10 minutes
 }
+#endif
 
 rtsBool anyUserHandlers(void)
 {
@@ -254,8 +297,6 @@ void unblockUserSignals(void)
   /* nothing to do */
 }
 
-/* ************************************************************************ */
-
 void markSignalHandlers(evac_fn evac __attribute__((unused)),
                         void *user __attribute__((unused)))
 {
@@ -267,22 +308,19 @@ void freeSignalHandlers(void)
   /* nothing */
 }
 
-void startSignalHandlers(Capability *cap)
-{
-  unsigned int i;
-
-  sync_swap(&vcpu_mask, 1);
-  for(i = 0; i < next_pending_handler; i++) {
-    StgClosure *h = (StgClosure*)deRefStablePtr(pending_handler_buf[i]);
-    scheduleThread(cap, createIOThread(cap,RtsFlags.GcFlags.initialStkSize,h));
-  }
-  next_pending_handler = 0;
-  sync_swap(&vcpu_mask, 0);
-}
-
 /* ************************************************************************ */
 
 #ifndef THREADED_RTS
+void startSignalHandlers(Capability *cap)
+{
+  StgStablePtr next;
+
+  while( next = dequeueSignalHandler() ) {
+    StgClosure *h = (StgClosure*)deRefStablePtr(next);
+    scheduleThread(cap, createIOThread(cap,RtsFlags.GcFlags.initialStkSize,h));
+  }
+}
+
 static rtsBool wakeUpSleepingThreads(StgWord now)
 {
   rtsBool retval = rtsFalse;
@@ -349,7 +387,8 @@ void runtime_block(unsigned long milliseconds)
       now = monotonic_clock();
       until = now + (milliseconds * 1000000UL);
       if(monotonic_clock() < until) {
-        set_vcpu_timer(until);
+        vcpu_set_singleshot_timer_t t = { .timeout_abs_ns = until, .flags = 0 };
+        assert(HYPERCALL_vcpu_op(VCPUOP_set_singleshot_timer,vcpu_num(),&t)>=0);
         assert(HYPERCALL_sched_op(SCHEDOP_block, 0) >= 0);
         force_hypervisor_callback();
         now = monotonic_clock();
@@ -370,10 +409,10 @@ static void force_hypervisor_callback(void)
 {
   uint8_t save;
 
-  while(local_vcpu_info.evtchn_upcall_pending) {
-    save = __sync_lock_test_and_set(&vcpu_mask, 1);
+  while(vcpu_info().evtchn_upcall_pending) {
+    save = __sync_lock_test_and_set(&vcpu_info().evtchn_upcall_mask, 1);
     do_hypervisor_callback(NULL);
-    save = __sync_lock_test_and_set(&vcpu_mask, save);
+    save = __sync_lock_test_and_set(&vcpu_info().evtchn_upcall_mask, save);
   }
 }
 
@@ -381,8 +420,8 @@ void do_hypervisor_callback(void *u __attribute__((unused)))
 {
   unsigned long lev1, lev2;
 
-  while( sync_swap(&local_vcpu_info.evtchn_upcall_pending, 0) ) {
-    while( (lev1 = sync_swap(&local_vcpu_info.evtchn_pending_sel, 0)) ) {
+  while( sync_swap(&vcpu_info().evtchn_upcall_pending, 0) ) {
+    while( (lev1 = sync_swap(&vcpu_info().evtchn_pending_sel, 0)) ) {
       while(lev1) {
         unsigned long idx = __builtin_ffsl(lev1), ipi_filter;
         unsigned long *pending;
@@ -390,10 +429,24 @@ void do_hypervisor_callback(void *u __attribute__((unused)))
         assert(idx);
         idx = idx - 1; /* ffsl returns offset + 1 */
         lev1 = lev1 & ~(1UL << idx);
-        ipi_filter = ipi_mask[idx] ^ vcpu_local_info->local_evt_bits[idx];
+        /* ipi_mask[idx] contains 1s for all IPI channels, so xor the
+           current VCPU's event channel bits to get "all but the current"
+           set. */
+        ipi_filter = ipi_mask[idx] ^ vcpu_evt_bits(idx);
         pending = &(shared_info->evtchn_pending[idx]);
+        /* we then want lev2 to set the pending bits to include everything
+           in lev2 except for items in ipi_filter, because we'll handle
+           all non-IPIs and IPIs directed at us */
         while( (lev2 = __sync_fetch_and_and(pending, ipi_filter))) {
+          /* this is the value that existed before the and, above, so it
+             includes all the events. so mask off the IPIs we don't care
+             about. */
           lev2 = lev2 & ~ipi_filter;
+          /* there exists the chance that this leaves nothing, which
+             can get is in an awkward loop. so we need to explicitly
+             break to get out of here. */
+          if(!lev2) break;
+          /* and now we can process as normal. */
           while(lev2) {
             unsigned long idx2 = __builtin_ffsl(lev2), chn;
 
@@ -407,9 +460,7 @@ void do_hypervisor_callback(void *u __attribute__((unused)))
             }
 
             if(signal_handlers[chn].haskell_handler) {
-              assert(next_pending_handler < MAX_PENDING_HANDLERS);
-              pending_handler_buf[next_pending_handler++] =
-                signal_handlers[chn].haskell_handler;
+              enqueueSignalHandler(signal_handlers[chn].haskell_handler);
             }
           }
         }

@@ -38,10 +38,6 @@ typedef uint64_t            pte_t;
                                      (((uintptr_t)(d)) << 12)))
 #define CANONICALIZE(x)     x
 #define DECANONICALIZE(x)   x
-
-#define VCPU_LOCAL_START    BUILD_ADDR(0,0,1)
-#define VCPU_LOCAL_END      BUILD_ADDR(0,1,0)
-#define GLOBAL_TABLE_START  BUILD_ADDR(1,0,0)
 #endif
 
 #ifdef CONFIG_X86_64
@@ -60,10 +56,6 @@ typedef uint64_t            pte_t;
                                     ? ((uintptr_t)x | 0xffff000000000000)  \
                                     : ((uintptr_t)x & 0xFFFFFFFFFFFF))
 #define DECANONICALIZE(x)   ((void*)((uintptr_t)(x) & 0xFFFFFFFFFFFF))
-
-#define VCPU_LOCAL_START    BUILD_ADDR(0,0,0,1)
-#define VCPU_LOCAL_END      BUILD_ADDR(0,0,1,0)
-#define GLOBAL_TABLE_START  BUILD_ADDR(1,0,0,0)
 #endif
 
 #define INDEX_MASK          ((NUM_PT_ENTRIES) - 1)
@@ -77,11 +69,9 @@ typedef uint64_t            pte_t;
 #define ENTRY_CLAIMED(x)    ((x) & PG_CLAIMED)
 #define ENTRY_MADDR(x)      ((pte_t)(x) & MADDR_MASK)
 
-void  *initialize_vmm(start_info_t *, uint32_t, void *);
+void  *initialize_vmm(start_info_t *, void *);
 pte_t  get_pt_entry(void *addr);
 void   set_pt_entry(void *addr, pte_t entry);
-void   set_local_pt_entry(uint32_t vcpu, void *addr, pte_t new_val);
 void  *machine_to_virtual(uint64_t maddr);
-pte_t  vcpu_pt_base(uint32_t);
 
 #endif

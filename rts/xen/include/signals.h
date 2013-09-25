@@ -31,6 +31,7 @@ void do_hypervisor_callback(void *);
 rtsBool anyUserHandlers(void);
 int     signals_pending(void);
 void    allow_signals(int);
+StgStablePtr dequeueSignalHandler(void);
 
 #ifndef THREADED_RTS
 void    awaitEvent(rtsBool);

@@ -70,9 +70,7 @@ unsigned long used_frames(void)
 
 static halvm_mutex_t  memory_search_lock;
 
-unsigned long initialize_memory(start_info_t *start_info,
-                                uint32_t num_vcpus,
-                                void *init_sp)
+unsigned long initialize_memory(start_info_t *start_info, void *init_sp)
 {
   domid_t self = DOMID_SELF;
   void *free_space_start, *init_alloc_end, *cur;
@@ -87,7 +85,6 @@ unsigned long initialize_memory(start_info_t *start_info,
   assert(p2m_map);
   assert((long)cur_pages > 0);
   assert((long)max_pages > 0);
-  assert((uintptr_t)VCPU_LOCAL_END <= (uintptr_t)&_text);
 
   /* basic setup */
   init_alloc_end = (void*)(((uintptr_t)init_sp + 0x3FFFFF) & (~0x3FFFFF));
@@ -101,7 +98,7 @@ unsigned long initialize_memory(start_info_t *start_info,
   for(i = 0; i < used_frames; i++)
     set_pframe_used(i);
 
-  free_space_start = initialize_vmm(start_info, num_vcpus, init_sp);
+  free_space_start = initialize_vmm(start_info, init_sp);
   free_space_start = PAGE_ALIGN(void*,uintptr_t,free_space_start);
   i = ((uintptr_t)free_space_start - (uintptr_t)&_text) >> PAGE_SHIFT;
   for(cur = free_space_start;
@@ -119,23 +116,12 @@ unsigned long initialize_memory(start_info_t *start_info,
 
 /******************************************************************************/
 
-static inline void *advance_page(void *p, int target)
+static inline void *advance_page(void *p)
 {
-  void *next = CANONICALIZE((void*)((uintptr_t)DECANONICALIZE(p) + 4096));
-
-  if( (target == ALLOC_CPU_LOCAL) && (next == (void*)VCPU_LOCAL_END) )
-    return VCPU_LOCAL_START;
-
-  if( (target == ALLOC_ALL_CPUS) && ((uintptr_t)next == 0) )
-    return VCPU_LOCAL_END;
-
-  if( (target == ALLOC_GLOBAL_ONLY) && ((uintptr_t)next == 0) )
-    return GLOBAL_TABLE_START;
-
-  return next;
+  return CANONICALIZE((void*)((uintptr_t)DECANONICALIZE(p) + 4096));
 }
 
-static void *run_search_loop(void *start, size_t length, int target)
+static void *run_search_loop(void *start, size_t length)
 {
   void *cur = start, *retval = NULL;
   size_t needed_space = length;
@@ -155,7 +141,7 @@ static void *run_search_loop(void *start, size_t length, int target)
     }
 
     if(needed_space > 0) {
-      cur = advance_page(cur, target);
+      cur = advance_page(cur);
 
       /* check for wraparound, which is bad */
       if( cur < retval ) {
@@ -172,44 +158,26 @@ static void *run_search_loop(void *start, size_t length, int target)
   return retval;
 }
 
-static inline void *find_new_addr(void *start_in, size_t length, int target)
+static inline void *find_new_addr(void *start_in, size_t length)
 {
-  static void *glob_search_hint = VCPU_LOCAL_END;
-  void *start = PAGE_ALIGN(void*,uintptr_t,start_in);
+  static void *glob_search_hint = (void*)0x1000;
+  void *p = PAGE_ALIGN(void*,uintptr_t,start_in);
 
-  /* now we do some processing to make start something reasonable */
-  if(target == ALLOC_CPU_LOCAL) {
-    /* so we're doing local allocation. if they gave us an address, then */
-    /* make sure it's in the right ballpark.                             */
-    if( ((uintptr_t)start < (uintptr_t)VCPU_LOCAL_START) ||
-        ((uintptr_t)start >= (uintptr_t)VCPU_LOCAL_END) )
-      start = NULL;
-
-    if(!start)
-      start = (void*)VCPU_LOCAL_START;
-  } else {
-    /* in this case we're doing global allocation. So if they've tried to */
-    /* give us something in the global region, ignore them.               */
-    if( ((uintptr_t)start >= (uintptr_t)VCPU_LOCAL_START) &&
-        ((uintptr_t)start <  (uintptr_t)VCPU_LOCAL_END) )
-      start = NULL;
-
-    /* and if they didn't give us any info (or it's junk, see above), */
-    /* let's use a reasonable hint about where to start our search.   */
-    if(!start)
-      start = glob_search_hint;
-  }
-
-  return run_search_loop(start, length, target);
+  /* and if they didn't give us any info (or it's junk, see above), */
+  /* let's use a reasonable hint about where to start our search.   */
+  if(!p) p = glob_search_hint;
+  p = run_search_loop(p, length);
+  glob_search_hint = PAGE_ALIGN(void*,uintptr_t,((uintptr_t)p + length));
+  return p;
 }
 
-void *runtime_alloc(void *start, size_t length_in, int prot, int target)
+void *runtime_alloc(void *start, size_t length_in, int prot)
 {
   size_t length = PAGE_ALIGN(size_t,size_t,length_in);
   void *dest, *cur, *end;
 
   halvm_acquire_lock(&memory_search_lock);
-  assert(dest = find_new_addr(start, length, target));
+  assert(dest = find_new_addr(start, length));
   cur = dest;
   end = (void*)((uintptr_t)dest + length);
   while( (uintptr_t)cur < (uintptr_t)end ) {
@@ -237,7 +205,7 @@ void *runtime_alloc(void *start, size_t length_in, int prot, int target)
       set_pt_entry(cur, entry);
     }
 
-    cur = advance_page(cur, target);
+    cur = advance_page(cur);
   }
 
   /* done! */
@@ -252,7 +220,7 @@ void *map_frames(mfn_t *frames, size_t num_frames)
   size_t i;
 
   halvm_acquire_lock(&memory_search_lock);
-  assert(dest = find_new_addr(NULL, num_frames * PAGE_SIZE, ALLOC_ALL_CPUS));
+  assert(dest = find_new_addr(NULL, num_frames * PAGE_SIZE));
   for(i = 0; i < num_frames; i++)
     set_pt_entry((void*)((uintptr_t)dest + (i * PAGE_SIZE)),
                  (frames[i] << PAGE_SHIFT) | STANDARD_RW_PERMS);
@@ -281,7 +249,6 @@ void *runtime_realloc(void *start, int can_move, size_t oldlen, size_t newlen)
 {
   void *retval, *oldcur, *oldend, *newcur, *newend;
   pte_t page_flags, ent;
-  int locale;
 
   if(!start)
     return NULL;
@@ -301,15 +268,6 @@ void *runtime_realloc(void *start, int can_move, size_t oldlen, size_t newlen)
   page_flags = page_flags & (PAGE_SIZE-1);
   if( !ENTRY_PRESENT(page_flags) && !ENTRY_CLAIMED(page_flags) )
     return NULL;
-
-  /* figure out what region this is in */
-  if( (start >= VCPU_LOCAL_START) && (start <= VCPU_LOCAL_END) ) {
-    locale = ALLOC_CPU_LOCAL;
-  } else if(start > GLOBAL_TABLE_START) {
-    locale = ALLOC_ALL_CPUS;
-  } else {
-    locale = ALLOC_GLOBAL_ONLY;
-  }
 
   /* find where to put the new stuff */
   halvm_acquire_lock(&memory_search_lock);
@@ -338,7 +296,7 @@ void *runtime_realloc(void *start, int can_move, size_t oldlen, size_t newlen)
   }
 
   /* we can, so we need to find a place to put it */
-  retval = find_new_addr(start, newlen, locale);
+  retval = find_new_addr(start, newlen);
   if(!retval) {
     halvm_release_lock(&memory_search_lock);
     printf("WARNING: No room for mremap()!\n");
@@ -375,9 +333,9 @@ void *claim_shared_space(size_t amt)
   void *retval;
   size_t i;
 
-  amt = (amt + (PAGE_SIZE-1)) & ~(PAGE_SIZE-1);
   halvm_acquire_lock(&memory_search_lock);
-  retval = run_search_loop(GLOBAL_TABLE_START, amt, ALLOC_GLOBAL_ONLY);
+  amt = (amt + (PAGE_SIZE-1)) & ~(PAGE_SIZE-1);
+  retval = find_new_addr(NULL, amt);
   for(i = 0; i < (amt / PAGE_SIZE); i++)
     set_pt_entry((void*)((uintptr_t)retval + (i * PAGE_SIZE)), PG_CLAIMED);
   halvm_release_lock(&memory_search_lock);
@@ -416,6 +374,8 @@ int runtime_pagesize()
 
 /******************************************************************************/
 
+W_ getPageFaults(void);
+
 W_ getPageSize(void)
 {
   return runtime_pagesize();
@@ -431,7 +391,7 @@ void *osGetMBlocks(nat n)
   size_t padsize = (n + 1) * MBLOCK_SIZE;
   void *allocp, *retval, *extra;
 
-  allocp = runtime_alloc(NULL, padsize, PROT_READWRITE, ALLOC_ALL_CPUS);
+  allocp = runtime_alloc(NULL, padsize, PROT_READWRITE);
   if(!allocp) {
     printf("WARNING: Out of memory. The GHC RTS is about to go nuts.\n");
     return NULL;
