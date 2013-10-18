@@ -438,6 +438,7 @@ endif
 
 ifeq "$(TargetOS_CPP)" "HaLVM"
 PACKAGES_STAGE1 += HALVMCore
+PACKAGES_STAGE1 += XenDevice
 endif
 
 # We normally install only the packages down to this point
