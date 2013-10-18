@@ -664,7 +664,7 @@ qualifier list has just one element, a boolean expression.
 <para>
 View patterns are enabled by the flag <literal>-XViewPatterns</literal>.
 More information and examples of view patterns can be found on the
-<ulink url="http://hackage.haskell.org/trac/ghc/wiki/ViewPatterns">Wiki
+<ulink url="http://ghc.haskell.org/trac/ghc/wiki/ViewPatterns">Wiki
 page</ulink>.
 </para>
 
@@ -782,7 +782,7 @@ let {(x -> y) = e1 ;
 </programlisting>
 
 (For some amplification on this design choice see
-<ulink url="http://hackage.haskell.org/trac/ghc/ticket/4061">Trac #4061</ulink>.)
+<ulink url="http://ghc.haskell.org/trac/ghc/ticket/4061">Trac #4061</ulink>.)
 
 </para>
 </listitem>
@@ -1734,7 +1734,7 @@ has no non-bottom values.  For example:
   f x = case x of { }
 </programlisting>
 With dependently-typed features it is more useful
-(see <ulink url="http://hackage.haskell.org/trac/ghc/ticket/2431">Trac</ulink>).
+(see <ulink url="http://ghc.haskell.org/trac/ghc/ticket/2431">Trac</ulink>).
 For example, consider these two candidate definitions of <literal>absurd</literal>:
 <programlisting>
 data a :==: b where
@@ -1770,7 +1770,35 @@ which is roughly equivalent to
     ...
     _ | guardN -> exprN
 </programlisting>
-except that multi-way if-expressions do not alter the layout.
+</para>
+
+<para>Multi-way if expressions introduce a new layout context.  So the
+example above is equivalent to:
+<programlisting>
+  if { | guard1 -> expr1
+     ; | ...
+     ; | guardN -> exprN
+     }
+</programlisting>
+The following behaves as expected:
+<programlisting>
+  if | guard1 -> if | guard2 -> expr2
+                    | guard3 -> expr3
+     | guard4 -> expr4
+</programlisting>
+because layout translates it as
+<programlisting>
+  if { | guard1 -> if { | guard2 -> expr2
+                      ; | guard3 -> expr3
+                      }
+     ; | guard4 -> expr4
+     }
+</programlisting>
+Layout with multi-way if works in the same way as other layout
+contexts, except that the semi-colons between guards in a multi-way if
+are optional.  So it is not necessary to line up all the guards at the
+same column; this is consistent with the way guards work in function
+definitions and case expressions.
 </para>
 </sect2>
 
@@ -2528,24 +2556,21 @@ After expanding type synonyms, GHC does validity checking on types, looking for
 the following mal-formedness which isn't detected simply by kind checking:
 <itemizedlist>
 <listitem><para>
-Type constructor applied to a type involving for-alls.
-</para></listitem>
-<listitem><para>
-Unboxed tuple on left of an arrow.
+Type constructor applied to a type involving for-alls (if <literal>XImpredicativeTypes</literal>
+is off)
 </para></listitem>
 <listitem><para>
 Partially-applied type synonym.
 </para></listitem>
 </itemizedlist>
-So, for example,
-this will be rejected:
+So, for example, this will be rejected:
 <programlisting>
-  type Pr = (# Int, Int #)
+  type Pr = forall a. a
 
-  h :: Pr -> Int
-  h x = ...
+  h :: [Pr]
+  h = ...
 </programlisting>
-because GHC does not allow  unboxed tuples on the left of a function arrow.
+because GHC does not allow type constructors applied to for-all types.
 </para>
 </sect2>
 
@@ -6269,7 +6294,7 @@ existential, and the above code is valid.
 </para>
 
 <para>
-See also <ulink url="http://hackage.haskell.org/trac/ghc/ticket/7347">Trac #7347</ulink>.
+See also <ulink url="http://ghc.haskell.org/trac/ghc/ticket/7347">Trac #7347</ulink>.
 </para>
 </sect2>
 
@@ -6466,9 +6491,7 @@ The ambiguity check rejects functions that can never be called; for example:
 </programlisting>
 The idea is there can be no legal calls to <literal>f</literal> because every call will
 give rise to an ambiguous constraint.  
-</para>
-<para>
-The <emphasis>only</emphasis> purpose of the
+Indeed, the <emphasis>only</emphasis> purpose of the
 ambiguity check is to report functions that cannot possibly be called.
 We could soundly omit the
 ambiguity check on type signatures entirely, at the expense of
@@ -6513,18 +6536,48 @@ After all <literal>f</literal> has exactly the same type, and <literal>g=f</lite
 But in fact <literal>f</literal>'s type
 is instantiated and the instantiated constraints are solved against
 the constraints bound by <literal>g</literal>'s signature.  So, in the case an ambiguous type, solving will fail.
-For example, consider the earlier definition <literal>f :: C a => Int</literal>.  Then in <literal>g</literal>'s definition,
-we'll instantiate to <literal>(C alpha)</literal> and try to 
+For example, consider the earlier definition <literal>f :: C a => Int</literal>:
+<programlisting>
+  f :: C a => Int
+  f = ...blah...
+
+  g :: C a => Int
+  g = f
+</programlisting>
+In <literal>g</literal>'s definition,
+we'll instantiate to <literal>(C alpha)</literal> and try to
 deduce <literal>(C alpha)</literal> from <literal>(C a)</literal>,
-and fail.  
+and fail.
 </para>
 <para>
-So in fact we use this as our <emphasis>definition</emphasis> of ambiguity: a type 
+So in fact we use this as our <emphasis>definition</emphasis> of ambiguity: a type
 <literal><replaceable>ty</replaceable></literal> is
-ambiguious if and only if <literal>((undefined :: <replaceable>ty</replaceable>) 
+ambiguious if and only if <literal>((undefined :: <replaceable>ty</replaceable>)
 :: <replaceable>ty</replaceable>)</literal> would fail to typecheck.  We use a
 very similar test for <emphasis>inferred</emphasis> types, to ensure that they too are
-unambiguous. 
+unambiguous.
+</para>
+<para><emphasis>Switching off the ambiguity check.</emphasis>
+Even if a function is has an ambiguous type according the "guiding principle",
+it is possible that the function is callable.  For example:
+<programlisting>
+  class D a b where ...
+  instance D Bool b where ...
+
+  strange :: D a b => a -> a
+  strange = ...blah...
+
+  foo = strange True
+</programlisting>
+Here <literal>strange</literal>'s type is ambiguous, but the call in <literal>foo</literal>
+is OK because it gives rise to a constraint <literal>(D Bool beta)</literal>, which is
+soluble by the <literal>(D Bool b)</literal> instance.  So the language extension
+<option>-XAllowAmbiguousTypes</option> allows you to switch off the ambiguity check.
+But even with ambiguity checking switched off, GHC will complain about a function
+that can <emphasis>never</emphasis> be called, such as this one:
+<programlisting>
+  f :: (Int ~ Bool) => a -> a
+</programlisting>
 </para>
 
 <para>
@@ -6941,7 +6994,11 @@ explicit context.  For example in the first argument of the
 constructor <function>MkSwizzle</function>, an implicit "<literal>forall a.</literal>" is
 prefixed to the argument type.  The implicit <literal>forall</literal>
 quantifies all type variables that are not already in scope, and are
-mentioned in the type quantified over.
+mentioned in the type quantified over. (Arguably, it would be better
+to <emphasis>require</emphasis> explicit quantification on constructor arguments
+where that is what is wanted.
+See <ulink url="http://ghc.haskell.org/trac/ghc/ticket/4426">Trac #4426</ulink>.)
+
 </para>
 
 <para>
@@ -6949,19 +7006,17 @@ As for type signatures, implicit quantification happens for non-overloaded
 types too.  So if you write this:
 
 <programlisting>
-  data T a = MkT (Either a b) (b -> b)
+  f :: (a -> a) -> a
 </programlisting>
 
 it's just as if you had written this:
 
 <programlisting>
-  data T a = MkT (forall b. Either a b) (forall b. b -> b)
+  f :: forall a. (a -> a) -> a
 </programlisting>
 
-That is, since the type variable <literal>b</literal> isn't in scope, it's
-implicitly universally quantified.  (Arguably, it would be better
-to <emphasis>require</emphasis> explicit quantification on constructor arguments
-where that is what is wanted.  Feedback welcomed.)
+That is, since the type variable <literal>a</literal> isn't in scope, it's
+implicitly universally quantified.
 </para>
 
 <para>
@@ -7550,7 +7605,7 @@ infer its type.  If you supply a type signature, then that fixes type of the bin
 </para><para>
 The rationale for this more conservative strategy is given in
 <ulink url="http://research.microsoft.com/~simonpj/papers/constraints/index.htm">the papers</ulink> "Let should not be generalised" and "Modular type inference with local assumptions", and
-a related <ulink url="http://hackage.haskell.org/trac/ghc/blog/LetGeneralisationInGhc7">blog post</ulink>.
+a related <ulink url="http://ghc.haskell.org/trac/ghc/blog/LetGeneralisationInGhc7">blog post</ulink>.
 </para><para>
 The flag <option>-XMonoLocalBinds</option> is implied by <option>-XTypeFamilies</option> and <option>-XGADTs</option>.  You can switch it off again
 with <option>-XNoMonoLocalBinds</option> but type inference becomes less predicatable if you do so. (Read the papers!)
@@ -7687,7 +7742,7 @@ main = print "b"
   </para>
   <para>
     For more motivation and details please refer to the <ulink
-      url="http://hackage.haskell.org/trac/ghc/wiki/DeferErrorsToRuntime">HaskellWiki</ulink>
+      url="http://ghc.haskell.org/trac/ghc/wiki/DeferErrorsToRuntime">HaskellWiki</ulink>
     page or the <ulink
       url="http://research.microsoft.com/en-us/um/people/simonpj/papers/ext-f/">original
       paper</ulink>.
@@ -7817,12 +7872,13 @@ Wiki page</ulink>.
 		  <itemizedlist>
 		    <listitem><para> an expression; the spliced expression must
 		    have type <literal>Q Exp</literal></para></listitem>
-		    <listitem><para> an type; the spliced expression must
-		    have type <literal>Q Typ</literal></para></listitem>
-		    <listitem><para> a list of top-level declarations; the spliced expression
+		    <listitem><para> a pattern; the spliced pattern must
+		    have type <literal>Q Pat</literal></para></listitem>
+		    <listitem><para> a type; the spliced expression must
+		    have type <literal>Q Type</literal></para></listitem>
+		    <listitem><para> a list of declarations; the spliced expression
                     must have type <literal>Q [Dec]</literal></para></listitem>
 		    </itemizedlist>
-            Note that pattern splices are not supported.
             Inside a splice you can only call functions defined in imported modules,
 	    not functions defined elsewhere in the same module.</para></listitem>
 
@@ -7839,6 +7895,36 @@ Wiki page</ulink>.
 		    <listitem><para> <literal>[p| ... |]</literal>, where the "..." is a pattern;
                              the quotation has type <literal>Q Pat</literal>.</para></listitem>
 		  </itemizedlist></para></listitem>
+
+	      <listitem>
+		<para>
+		  A <emphasis>typed</emphasis> expression splice is written
+		  <literal>$$x</literal>, where <literal>x</literal> is an
+		  identifier, or <literal>$$(...)</literal>, where the "..." is
+		  an arbitrary expression.
+		</para>
+		<para>
+		  A typed expression splice can occur in place of an
+		  expression; the spliced expression must have type <literal>Q
+		  (TExp a)</literal>
+		</para>
+	      </listitem>
+
+	      <listitem>
+		<para>
+		  A <emphasis>typed</emphasis> expression quotation is written
+		  as <literal>[|| ... ||]</literal>, or <literal>[e||
+		  ... ||]</literal>, where the "..." is an expression; if the
+		  "..." expression has type <literal>a</literal>, then the
+		  quotation has type <literal>Q (TExp a)</literal>.
+		</para>
+
+		<para>
+		  Values of type <literal>TExp a</literal> may be converted to
+		  values of type <literal>Exp</literal> using the function
+		  <literal>unType :: TExp a -> Exp</literal>.
+		</para>
+	      </listitem>
 
 	      <listitem><para>
 		  A quasi-quotation can appear in either a pattern context or an
@@ -7895,13 +7981,117 @@ h z = z-1
 </programlisting>
             This abbreviation makes top-level declaration slices quieter and less intimidating.
 	    </para></listitem>
+	    
+	    <listitem>
+	      <para>
+		Binders are lexically scoped. For example, consider the
+		following code, where a value <literal>g</literal> of type
+		<literal>Bool -> Q Pat</literal> is in scope, having been
+		imported from another module
+<programlisting>
+y :: Int
+y = 7
+
+f :: Int -> Int -> Int
+f n = \ $(g True) -> y+n
+</programlisting>
+                The <literal>y</literal> in the right-hand side of
+                <literal>f</literal> refers to the top-level <literal>y =
+                7</literal>, even if the pattern splice <literal>$(g
+                n)</literal> also generates a binder <literal>y</literal>.
+	      </para>
+
+	      <para>
+		Note that a pattern quasiquoter <emphasis>may</emphasis>
+		generate binders that scope over the right-hand side of a
+		definition because these binders are in scope lexically. For
+		example, given a quasiquoter <literal>haskell</literal> that
+		parses Haskell, in the following code, the <literal>y</literal>
+		in the right-hand side of <literal>f</literal> refers to the
+		<literal>y</literal> bound by the <literal>haskell</literal>
+		pattern quasiquoter, <emphasis>not</emphasis> the top-level
+		<literal>y = 7</literal>.
+<programlisting>
+y :: Int
+y = 7
+
+f :: Int -> Int -> Int
+f n = \ [haskell|y|] -> y+n
+</programlisting>
+	      </para>
+	    </listitem>
+	    <listitem>
+	      <para>
+		The type environment seen by <literal>reify</literal> includes
+		all the top-level declaration up to the end of the immediately
+		preceding <emphasis>declaration group</emphasis>, but no more.
+	      </para>
+
+	      <para>
+		A <emphasis>declaration group</emphasis> is the group of
+		declarations created by a top-level declaration splice, plus
+		those following it, down to but not including the next top-level
+		declaration splice. The first declaration group in a module
+		includes all top-level definitions down to but not including the
+		first top-level declaration splice.
+	      </para>
+
+
+	      <para>
+		Concretely, consider the following code
+<programlisting>
+module M where
+   import ...
+   f x = x
+   $(th1 4)
+   h y = k y y $(blah1)
+   $(th2 10)
+   w z = $(blah2)
+</programlisting>
+
+              In this example
+              <orderedlist>
+		<listitem>
+		  <para>
+		    A <literal>reify</literal> inside the splice <literal>$(th1
+		    ..)</literal> would see the definition of
+		    <literal>f</literal>.
+		  </para>
+		</listitem>
+		<listitem>
+		  <para>
+		    A <literal>reify</literal> inside the splice
+		    <literal>$(blah1)</literal> would see the definition of
+		    <literal>f</literal>, but would not see the definition of
+		    <literal>h</literal>.
+		  </para>
+		</listitem>
+		<listitem>
+		  <para>
+		    A <literal>reify</literal> inside the splice
+		    <literal>$(th2..)</literal> would see the definition of
+		    <literal>f</literal>, all the bindings created by
+		    <literal>$(th1..)</literal>, and the definition of
+		    <literal>h</literal>.
+		  </para>
+		</listitem>
+		<listitem>
+		  <para>
+		    A <literal>reify</literal> inside the splice
+		    <literal>$(blah2)</literal> would see the same definitions
+		    as the splice <literal>$(th2...)</literal>.
+		  </para>
+		</listitem>
+              </orderedlist>
+	      </para>
+	    </listitem>
 
 
 	</itemizedlist>
 (Compared to the original paper, there are many differences of detail.
 The syntax for a declaration splice uses "<literal>$</literal>" not "<literal>splice</literal>".
 The type of the enclosed expression must be  <literal>Q [Dec]</literal>, not  <literal>[Q Dec]</literal>.
-Pattern splices and quotations are not implemented.)
+Typed expression splices and quotations are supported.)
 
 </sect2>
 
@@ -8095,7 +8285,7 @@ as, say, using the string <literal>"|~]"</literal> instead), and make your
 quoter function interpret <literal>"|~]"</literal> as <literal>"|]"</literal>.
 One way to implement this is to compose your quoter with a pre-processing pass to
 perform your escape conversion.  See the
-<ulink url="http://hackage.haskell.org/trac/ghc/ticket/5348">
+<ulink url="http://ghc.haskell.org/trac/ghc/ticket/5348">
 discussion in Trac</ulink> for details.
 </para></listitem>
 </itemizedlist>
@@ -9228,7 +9418,14 @@ mindef ::= name
       <para>A vertical bar denotes disjunction, i.e. one of the two sides is required.
       A comma denotes conjunction, i.e. both sides are required.
       Conjunction binds stronger than disjunction.</para>
-      <para>If no MINIMAL pragma is used, then all methods without a default will be requried, excluding methods with a name that starts with an underscore.</para>
+      <para>
+      If no MINIMAL pragma is given in the class declaration, it is just as if 
+      a pragma <literal>{-# MINIMAL op1, op2, ..., opn #-}</literal> was given, where
+      the <literal>opi</literal> are the methods 
+      (a) that lack a default method in the class declaration, and 
+      (b) whose name that does not start with an underscore  
+      (c.f. <option>-fwarn-missing-methods</option>, <xref linkend="options-sanity"/>).
+      </para>
       <para>This warning can be turned off with the flag <option>-fno-warn-missing-methods</option>.</para>
     </sect2>
 
@@ -9242,13 +9439,32 @@ mindef ::= name
 	<title>INLINE pragma</title>
 	<indexterm><primary>INLINE</primary></indexterm>
 
-	<para>GHC (with <option>-O</option>, as always) tries to
-        inline (or &ldquo;unfold&rdquo;) functions/values that are
-        &ldquo;small enough,&rdquo; thus avoiding the call overhead
-        and possibly exposing other more-wonderful optimisations.
-        Normally, if GHC decides a function is &ldquo;too
-        expensive&rdquo; to inline, it will not do so, nor will it
-        export that unfolding for other modules to use.</para>
+        <para>
+          GHC (with <option>-O</option>, as always) tries to inline
+          (or &ldquo;unfold&rdquo;) functions/values that are
+          &ldquo;small enough,&rdquo; thus avoiding the call overhead
+          and possibly exposing other more-wonderful optimisations.
+          GHC has a set of heuristics, tuned over a long period of
+          time using many benchmarks, that decide when it is
+          beneficial to inline a function at its call site.  The
+          heuristics are designed to inline functions when it appears
+          to be beneficial to do so, but without incurring excessive
+          code bloat.  If a function looks too big, it won't be
+          inlined, and functions larger than a certain size will not
+          even have their definition exported in the interface file.
+          Some of the thresholds that govern these heuristic decisions
+          can be changed using flags, see <xref linkend="options-f"
+          />.
+        </para>
+
+        <para>
+          Normally GHC will do a reasonable job of deciding by itself
+          when it is a good idea to inline a function.  However,
+          sometimes you might want to override the default behaviour.
+          For example, if you have a key function that is important to
+          inline because it leads to further optimisations, but GHC
+          judges it to be too big to inline.
+        </para>
 
         <para>The sledgehammer you can bring to bear is the
         <literal>INLINE</literal><indexterm><primary>INLINE
@@ -9358,11 +9574,6 @@ itself, so an INLINE pragma is always ignored.</para>
 	<para>See also the <literal>NOINLINE</literal> (<xref linkend="noinline-pragma"/>)
         and <literal>INLINABLE</literal> (<xref linkend="inlinable-pragma"/>)
         pragmas.</para>
-
-	<para>Note: the HBC compiler doesn't like <literal>INLINE</literal> pragmas,
-	  so if you want your code to be HBC-compatible you'll have to surround
-	  the pragma with C pre-processor directives
-	  <literal>#ifdef __GLASGOW_HASKELL__</literal>...<literal>#endif</literal>.</para>
 
       </sect3>
 
@@ -9769,10 +9980,6 @@ instance (Eq a) => Eq (Foo a) where {
 The pragma must occur inside the <literal>where</literal> part
 of the instance declaration.
 </para>
-<para>
-Compatible with HBC, by the way, except perhaps in the placement
-of the pragma.
-</para>
 
 </sect2>
 
@@ -9802,7 +10009,7 @@ data T = T {-# UNPACK #-} !Float
       conjunction with <option>-O</option><footnote>in fact, UNPACK
           has no effect without <option>-O</option>, for technical
           reasons
-      (see <ulink url="http://hackage.haskell.org/trac/ghc/ticket/5252">tick
+      (see <ulink url="http://ghc.haskell.org/trac/ghc/ticket/5252">tick
             5252</ulink>)</footnote>, in order to expose
       unfoldings to the compiler so the reboxing can be removed as
       often as possible.  For example:</para>
@@ -11059,13 +11266,13 @@ Here are some examples:</para>
   data T3 a b = MkT3 a     -- OK: nominal is higher than necessary, but safe
 
   type role T4 nominal
-  data T4 a = MkT4 (a Int)    -- OK, but N is higher than necessary
+  data T4 a = MkT4 (a Int) -- OK, but N is higher than necessary
 
   type role C representational _
   class C a b where ...    -- OK
 
   type role X nominal
-  type X a@N = ...           -- ERROR: role annotations not allowed for type synonyms
+  type X a = ...           -- ERROR: role annotations not allowed for type synonyms
 </programlisting>
 
 </sect2>

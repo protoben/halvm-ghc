@@ -577,7 +577,7 @@ newTyConInstRhs tycon tys
 Notes on type synonyms
 ~~~~~~~~~~~~~~~~~~~~~~
 The various "split" functions (splitFunTy, splitRhoTy, splitForAllTy) try
-to return type synonyms whereever possible. Thus
+to return type synonyms wherever possible. Thus
 
         type Foo a = a -> a
 
@@ -1587,7 +1587,7 @@ Kinds
 ~~~~~
 
 For the description of subkinding in GHC, see
-  http://hackage.haskell.org/trac/ghc/wiki/Commentary/Compiler/TypeType#Kinds
+  http://ghc.haskell.org/trac/ghc/wiki/Commentary/Compiler/TypeType#Kinds
 
 \begin{code}
 type MetaKindVar = TyVar  -- invariant: MetaKindVar will always be a

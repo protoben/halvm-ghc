@@ -5,8 +5,8 @@
 # This file is part of the GHC build system.
 #
 # To understand how the build system works and how to modify it, see
-#      http://hackage.haskell.org/trac/ghc/wiki/Building/Architecture
-#      http://hackage.haskell.org/trac/ghc/wiki/Building/Modifying
+#      http://ghc.haskell.org/trac/ghc/wiki/Building/Architecture
+#      http://ghc.haskell.org/trac/ghc/wiki/Building/Modifying
 #
 # -----------------------------------------------------------------------------
 
@@ -110,12 +110,6 @@ ifeq "$(UseLibFFIForAdjustors)" "YES"
 	@echo 'cLibFFI               = True'                                >> $@
 else
 	@echo 'cLibFFI               = False'                               >> $@
-endif
-	@echo 'cDYNAMIC_GHC_PROGRAMS :: Bool'                               >> $@
-ifeq "$(DYNAMIC_GHC_PROGRAMS)" "YES"
-	@echo 'cDYNAMIC_GHC_PROGRAMS = True'                                >> $@
-else
-	@echo 'cDYNAMIC_GHC_PROGRAMS = False'                               >> $@
 endif
 # Note that GhcThreaded just reflects the Makefile variable setting.
 # In particular, the stage1 compiler is never actually compiled with

@@ -113,10 +113,8 @@
 
         <listitem>
             <para>
-                The LLVM backend now supports 128bit SIMD
-                operations. This is now exploited in both the
-                <literal>vector</literal> and <literal>dph</literal>
-                packages, exposing a high level interface.
+                The LLVM backend now supports 128- and 256-bit SIMD
+                operations.
 
                 TODO FIXME: reference.
            </para>
@@ -248,7 +246,7 @@
 
             <para>
                 Note: this interface will likely see continuous
-                refinment and API changes in future releases, so it
+                refinement and API changes in future releases, so it
                 should be considered a preview.
            </para>
        </listitem>
@@ -293,6 +291,17 @@
                     (-123)</literal>. Haskell 98 and Haskell 2010 both
                     specify that it should instead desugar to
                     <literal>negate (fromIntegral 123)</literal>
+               </para>
+           </listitem>
+       </itemizedlist>
+
+        <itemizedlist>
+            <listitem>
+                <para>
+                    There is a new extension,
+                    <literal>EmptyCase</literal>, which allows
+                    to write a case expression with no alternatives
+                    <literal>case ... of {}</literal>.
                </para>
            </listitem>
        </itemizedlist>
@@ -407,6 +416,24 @@
                     in the future.
                </para>
            </listitem>
+            <listitem>
+                <para>
+                    GHC now detects annotation changes during
+                    recompilation, and correctly persists new
+                    annotations.
+               </para>
+           </listitem>
+            <listitem>
+                <para>
+                    There is a new set of primops for utilizing
+                    hardware-based prefetch instructions, to help
+                    guide the processor's caching decisions.
+               </para>
+                <para>
+                    Currently, these are only supported with the LLVM
+                    backend and x86/amd64 backends.
+               </para>
+           </listitem>
        </itemizedlist>
     </sect3>
 
@@ -451,8 +478,27 @@
         <itemizedlist>
             <listitem>
                 <para>
-                    TODO FIXME
+                    Template Haskell now supports Roles (TODO FIXME: elaborate?)
                </para>
+           </listitem>
+            <listitem>
+                <para>
+                    Template Haskell now supports annotation pragmas.
+               </para>
+           </listitem>
+           <listitem>
+             <para>
+                    Typed Template Haskell expressions are now supported. See
+                    <xref linkend="template-haskell"/> for more details.
+             </para>
+           </listitem>
+           <listitem>
+             <para>
+                    Template Haskell declarations, types, patterns, and
+                    <emphasis>untyped</emphasis> expressions are no longer
+                    typechecked at all. This is a backwards-compatible change
+                    since it allows strictly more programs to be typed.
+             </para>
            </listitem>
        </itemizedlist>
     </sect3>
@@ -571,12 +617,25 @@
             <listitem>
                 <para>
                     There are now <literal>Foldable</literal> and <literal>Traversable</literal>
-                    instances for <literal>Either a</literal> and <literal>(,) a</literal>
+                    instances for <literal>Either a</literal>, <literal>Const r</literal>, and <literal>(,) a</literal>
                </para>
            </listitem>
             <listitem>
                 <para>
+                    There is now a <literal>Monoid</literal> instance for <literal>Const</literal>
+               </para>
+           </listitem>
+             <listitem>
+                <para>
                     There is now a <literal>Data</literal> instance for <literal>Data.Version</literal>
+               </para>
+           </listitem>
+            <listitem>
+                <para>
+                    A zero-width unboxed poly-kinded <literal>Proxy#</literal>
+                    was added to <literal>GHC.Prim</literal>. It can be used to make it so
+                    that there is no the operational overhead for passing around proxy
+                    arguments to model type application.
                </para>
            </listitem>
              <listitem>
@@ -662,7 +721,7 @@
         <itemizedlist>
             <listitem>
                 <para>
-                    Version number XXXX (was XXXX)
+                    Version number 0.7.1.0 (was 0.5.1.1)
                </para>
            </listitem>
        </itemizedlist>
@@ -673,7 +732,7 @@
         <itemizedlist>
             <listitem>
                 <para>
-                    Version number XXXX (was XXXX)
+                    Version number 0.10.3.0 (was 0.10.0.0)
                </para>
            </listitem>
        </itemizedlist>
@@ -684,7 +743,7 @@
         <itemizedlist>
             <listitem>
                 <para>
-                    Version number XXXX (was XXXX)
+                    Version number 1.18.1 (was 1.16.0)
               </para>
           </listitem>
       </itemizedlist>
@@ -838,6 +897,13 @@
                     Version number XXXX (was XXXX)
                </para>
            </listitem>
+            <listitem>
+                <para>
+                    Several bugs have been fixed, including deadlocks
+                    in <literal>readProcess</literal> and
+                    <literal>readProcessWithExitCode</literal>.
+               </para>
+           </listitem>
        </itemizedlist>
     </sect3>
 
@@ -858,6 +924,11 @@
             <listitem>
                 <para>
                     Version number XXXX (was XXXX)
+               </para>
+           </listitem>
+            <listitem>
+                <para>
+                    There is now support for annotation pragmas.
                </para>
            </listitem>
        </itemizedlist>

@@ -1081,7 +1081,7 @@ schedulePostRunThread (Capability *cap, StgTSO *t)
 }
 
 /* -----------------------------------------------------------------------------
- * Handle a thread that returned to the scheduler with ThreadHeepOverflow
+ * Handle a thread that returned to the scheduler with ThreadHeapOverflow
  * -------------------------------------------------------------------------- */
 
 static rtsBool
@@ -1437,7 +1437,7 @@ scheduleDoGC (Capability **pcap, Task *task USED_IF_THREADS,
     rtsBool heap_census;
     nat collect_gen;
 #ifdef THREADED_RTS
-    StgWord8 gc_type;
+    nat gc_type;
     nat i, sync;
     StgTSO *tso;
 #endif

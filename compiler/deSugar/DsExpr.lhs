@@ -556,6 +556,7 @@ Here is where we desugar the Template Haskell brackets and escapes
 \begin{code}
 -- Template Haskell stuff
 
+dsExpr (HsRnBracketOut _ _) = panic "dsExpr HsRnBracketOut"
 #ifdef GHCI
 dsExpr (HsBracketOut x ps) = dsBracket x ps
 #else
@@ -837,7 +838,7 @@ warnDiscardedDoBindings rhs rhs_ty
                               -> warnDs (wrongMonadBind rhs elt_ty)
            _ -> return () } }
 
-  | otherwise   -- RHS does have type of form (m ty), which is wierd
+  | otherwise   -- RHS does have type of form (m ty), which is weird
   = return ()   -- but at lesat this warning is irrelevant
 
 unusedMonadBind :: LHsExpr Id -> Type -> SDoc
