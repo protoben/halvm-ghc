@@ -253,12 +253,16 @@ StgStablePtr dequeueSignalHandler(void)
 void allow_signals(int allow)
 {
 #if defined(__x86_64__) && !defined(THREADED_RTS)
-  asm volatile("movl %0,%%fs ; movl %0,%%gs" :: "r" (0));
-  asm volatile("wrmsr" : : "c"(0xc0000100), /* MSR_FS_BASE */
-                           "a"((uintptr_t)&cpu0_pda & 0xFFFFFFFF),
-                           "d"((uintptr_t)&cpu0_pda >> 32));
-  cpu0_pda.irqcount    = -1;
-  cpu0_pda.irqstackptr = runtime_alloc(NULL, IRQ_STACK_SIZE, PROT_READWRITE);
+  static int initialized = 0;
+  if(!initialized) {
+    asm volatile("movl %0,%%fs ; movl %0,%%gs" :: "r" (0));
+    asm volatile("wrmsr" : : "c"(0xc0000100), /* MSR_FS_BASE */
+                             "a"((uintptr_t)&cpu0_pda & 0xFFFFFFFF),
+                             "d"((uintptr_t)&cpu0_pda >> 32));
+    cpu0_pda.irqcount    = -1;
+    cpu0_pda.irqstackptr = runtime_alloc(NULL, IRQ_STACK_SIZE, PROT_READWRITE);
+    initialized = 1;
+  }
 #endif
   __sync_lock_test_and_set(&vcpu_info().evtchn_upcall_mask, !!!allow);
   asm volatile("" : : : "memory");
