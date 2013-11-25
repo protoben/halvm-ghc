@@ -21,9 +21,7 @@ module RnTypes (
         extractRdrKindSigVars, extractDataDefnKindVars, filterInScope
   ) where
 
-#ifdef GHCI
 import {-# SOURCE #-} TcSplice( runQuasiQuoteType )
-#endif /* GHCI */
 import {-# SOURCE #-} RnSplice( rnSpliceType )
 
 import DynFlags
@@ -251,7 +249,7 @@ rnHsTyKi isType doc (HsEqTy ty1 ty2)
        ; (ty2', fvs2) <- rnLHsType doc ty2
        ; return (HsEqTy ty1' ty2', fvs1 `plusFV` fvs2) }
 
-rnHsTyKi isType _ (HsSpliceTy sp _ k)
+rnHsTyKi isType _ (HsSpliceTy sp k)
   = ASSERT( isType )
     rnSpliceType sp k
 
@@ -261,16 +259,12 @@ rnHsTyKi isType doc (HsDocTy ty haddock_doc)
        ; haddock_doc' <- rnLHsDoc haddock_doc
        ; return (HsDocTy ty' haddock_doc', fvs) }
 
-#ifndef GHCI
-rnHsTyKi _ _ ty@(HsQuasiQuoteTy _) = pprPanic "Can't do quasiquotation without GHCi" (ppr ty)
-#else
 rnHsTyKi isType doc (HsQuasiQuoteTy qq)
   = ASSERT( isType )
     do { ty <- runQuasiQuoteType qq
          -- Wrap the result of the quasi-quoter in parens so that we don't
          -- lose the outermost location set by runQuasiQuote (#7918) 
        ; rnHsType doc (HsParTy ty) }
-#endif
 
 rnHsTyKi isType _ (HsCoreTy ty)
   = ASSERT( isType )

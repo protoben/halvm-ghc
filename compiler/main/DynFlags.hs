@@ -623,6 +623,7 @@ data DynFlags = DynFlags {
   mainModIs             :: Module,
   mainFunIs             :: Maybe String,
   ctxtStkDepth          :: Int,         -- ^ Typechecker context stack depth
+  tyFunStkDepth         :: Int,         -- ^ Typechecker type function stack depth
 
   thisPackage           :: PackageId,   -- ^ name of package currently being compiled
 
@@ -1326,6 +1327,7 @@ defaultDynFlags mySettings =
         mainModIs               = mAIN,
         mainFunIs               = Nothing,
         ctxtStkDepth            = mAX_CONTEXT_REDUCTION_DEPTH,
+        tyFunStkDepth           = mAX_TYPE_FUNCTION_REDUCTION_DEPTH,
 
         thisPackage             = mainPackageId,
 
@@ -2317,7 +2319,8 @@ dynamic_flags = [
   , Flag "ddump-rn-trace"          (setDumpFlag Opt_D_dump_rn_trace)
   , Flag "ddump-if-trace"          (setDumpFlag Opt_D_dump_if_trace)
   , Flag "ddump-cs-trace"          (setDumpFlag Opt_D_dump_cs_trace)
-  , Flag "ddump-tc-trace"          (setDumpFlag Opt_D_dump_tc_trace)
+  , Flag "ddump-tc-trace"          (NoArg (do { setDumpFlag' Opt_D_dump_tc_trace
+                                              ; setDumpFlag' Opt_D_dump_cs_trace }))
   , Flag "ddump-vt-trace"          (setDumpFlag Opt_D_dump_vt_trace)
   , Flag "ddump-splices"           (setDumpFlag Opt_D_dump_splices)
   , Flag "ddump-rn-stats"          (setDumpFlag Opt_D_dump_rn_stats)
@@ -2396,6 +2399,7 @@ dynamic_flags = [
   , Flag "fno-liberate-case-threshold" (noArg (\d -> d{ liberateCaseThreshold = Nothing }))
   , Flag "frule-check"                 (sepArg (\s d -> d{ ruleCheck = Just s }))
   , Flag "fcontext-stack"              (intSuffix (\n d -> d{ ctxtStkDepth = n }))
+  , Flag "ftype-function-depth"        (intSuffix (\n d -> d{ tyFunStkDepth = n }))
   , Flag "fstrictness-before"          (intSuffix (\n d -> d{ strictnessBefore = n : strictnessBefore d }))
   , Flag "ffloat-lam-args"             (intSuffix (\n d -> d{ floatLamArgs = Just n }))
   , Flag "ffloat-all-lams"             (noArg (\d -> d{ floatLamArgs = Nothing }))
@@ -3114,10 +3118,18 @@ checkTemplateHaskellOk turn_on
   | otherwise
   = getCurLoc >>= \l -> upd (\d -> d { thOnLoc = l })
 #else
--- In stage 1 we don't know that the RTS has rts_isProfiled,
--- so we simply say "ok".  It doesn't matter because TH isn't
--- available in stage 1 anyway.
-checkTemplateHaskellOk _ = return ()
+-- In stage 1, Template Haskell is simply illegal, except with -M
+-- We don't bleat with -M because there's no problem with TH there,
+-- and in fact GHC's build system does ghc -M of the DPH libraries
+-- with a stage1 compiler
+checkTemplateHaskellOk turn_on
+  | turn_on = do dfs <- liftEwM getCmdLineState
+                 case ghcMode dfs of
+                    MkDepend -> return ()
+                    _        -> addErr msg
+  | otherwise = return ()
+  where
+    msg = "Template Haskell requires GHC with interpreter support\n    Perhaps you are using a stage-1 compiler?"
 #endif
 
 {- **********************************************************************
@@ -3248,7 +3260,6 @@ forceRecompile = do dfs <- liftEwM getCmdLineState
                     when (force_recomp dfs) (setGeneralFlag Opt_ForceRecomp)
         where
           force_recomp dfs = isOneShot (ghcMode dfs)
-
 setVerboseCore2Core :: DynP ()
 setVerboseCore2Core = do setDumpFlag' Opt_D_verbose_core2core
                          upd (\dfs -> dfs { shouldDumpSimplPhase = Nothing })

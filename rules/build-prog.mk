@@ -273,7 +273,8 @@ $1/$2/build/tmp/$$($1_$2_PROG) : $$($1_$2_$$($1_$2_PROGRAM_WAY)_HS_OBJS) $$($1_$
 	$$(call cmd,$1_$2_HC) -o $$@ $$($1_$2_$$($1_$2_PROGRAM_WAY)_ALL_HC_OPTS) $$(LD_OPTS) $$($1_$2_$$($1_$2_PROGRAM_WAY)_GHC_LD_OPTS) $$($1_$2_$$($1_$2_PROGRAM_WAY)_HS_OBJS) $$($1_$2_$$($1_$2_PROGRAM_WAY)_C_OBJS) $$($1_$2_$$($1_$2_PROGRAM_WAY)_S_OBJS) $$($1_$2_OTHER_OBJS) $$(addprefix -l,$$($1_$2_EXTRA_LIBRARIES))
 
 ifeq "$$($1_$2_PROGRAM_WAY)" "dyn"
-    $(call relative-dynlib-references,$1,$2,$3)
+	$(call relative-dynlib-references,$1,$2,$3)
+	$(call relative-dynlib-path,$3)
 endif
 else
 $1/$2/build/tmp/$$($1_$2_PROG) : $$($1_$2_$$($1_$2_PROGRAM_WAY)_HS_OBJS) $$($1_$2_$$($1_$2_PROGRAM_WAY)_C_OBJS) $$($1_$2_$$($1_$2_PROGRAM_WAY)_S_OBJS) $$($1_$2_OTHER_OBJS) | $$$$(dir $$$$@)/.
@@ -295,12 +296,6 @@ $1/$2/build/tmp/$$($1_$2_PROG) : $$(ALL_STAGE1_LIBS) $$(ALL_RTS_LIBS) $$(OTHER_L
 endif
 endif
 endif
-endif
-
-ifneq "$$($1_$2_INSTALL_INPLACE)" "NO"
-$(call all-target,$1_$2,$$($1_$2_INPLACE))
-endif
-$(call clean-target,$1,$2_inplace,$$($1_$2_INPLACE))
 
 # INPLACE_BIN might be empty if we're distcleaning
 ifeq "$(findstring clean,$(MAKECMDGOALS))" ""
@@ -309,6 +304,13 @@ $$($1_$2_INPLACE) : $1/$2/build/tmp/$$($1_$2_PROG_INPLACE) | $$$$(dir $$$$@)/.
 	"$$(CP)" -p $$< $$@
 endif
 endif
+
+endif
+
+ifneq "$$($1_$2_INSTALL_INPLACE)" "NO"
+$(call all-target,$1_$2,$$($1_$2_INPLACE))
+endif
+$(call clean-target,$1,$2_inplace,$$($1_$2_INPLACE))
 
 ifeq "$$($1_$2_INSTALL)" "YES"
 ifeq "$$($1_$2_PROG_NEEDS_C_WRAPPER)" "YES"

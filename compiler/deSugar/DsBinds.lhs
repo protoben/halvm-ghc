@@ -44,7 +44,7 @@ import Unique( Unique )
 import Digraph
 
 
-import TyCon      ( isTupleTyCon, tyConDataCons_maybe, unwrapNewTyCon_maybe )
+import TyCon      ( isTupleTyCon, tyConDataCons_maybe )
 import TcEvidence
 import TcType
 import Type
@@ -53,6 +53,7 @@ import TysWiredIn ( eqBoxDataCon, coercibleTyCon, coercibleDataCon, tupleCon )
 import Id
 import Class
 import DataCon	( dataConWorkId )
+import FamInstEnv ( instNewTyConTF_maybe )
 import Name
 import MkId	( seqId )
 import Var
@@ -797,12 +798,11 @@ dsEvTerm (EvCoercible (EvCoercibleTyCon tyCon evs)) = do
 
 dsEvTerm (EvCoercible (EvCoercibleNewType lor tyCon tys v)) = do
   ntEv <- dsEvTerm v
+  famenv <- dsGetFamInstEnvs
+  let Just (_, ntCo) = instNewTyConTF_maybe famenv tyCon tys
   wrapInEqRCase ntEv $ \co -> do
-          return $ mkCoercible $
-                connect lor co $
-                mkUnbranchedAxInstCo Representational coAxiom tys
-  where Just (_, _, coAxiom) = unwrapNewTyCon_maybe tyCon
-        connect CLeft co2 co1 = mkTransCo co1 co2
+          return $ mkCoercible $ connect lor co ntCo
+  where connect CLeft co2 co1 = mkTransCo co1 co2
         connect CRight co2 co1 = mkTransCo co2 (mkSymCo co1)
 
 wrapInEqRCase :: CoreExpr -> (Coercion -> DsM CoreExpr) -> DsM CoreExpr
@@ -810,14 +810,14 @@ wrapInEqRCase e mkBody = do
   cov <- newSysLocalDs (mkCoercionType Representational ty1 ty2)
   body' <- mkBody (mkCoVarCo cov)
   return $
-        ASSERT (tc == coercibleTyCon)
+        ASSERT(tc == coercibleTyCon)
         mkWildCase
                 e
                 (exprType e)
                 (exprType body')
                 [(DataAlt coercibleDataCon, [cov], body')]
   where
-  Just (tc, [ty1, ty2]) = splitTyConApp_maybe (exprType e)
+  Just (tc, [_k, ty1, ty2]) = splitTyConApp_maybe (exprType e)
 
 wrapInEqRCases :: [EvCoercibleArg CoreExpr] -> ([Coercion] -> DsM CoreExpr) -> DsM CoreExpr
 wrapInEqRCases (EvCoercibleArgN t:es) mkBody =
@@ -844,7 +844,7 @@ dsTcCoercion role co thing_inside
                                            (uniqsFromSupply us)
 
              subst = mkCvSubst emptyInScopeSet [(eqv, mkCoVarCo cov) | (eqv, cov) <- eqvs_covs]
-             result_expr = thing_inside (ds_tc_coercion subst role co)
+             result_expr = thing_inside (ds_tc_coercion subst role co) 
              result_ty   = exprType result_expr
 
        ; return (foldr (wrap_in_case result_ty) result_expr eqvs_covs) }
@@ -875,7 +875,9 @@ ds_tc_coercion subst role tc_co
 
     go r (TcRefl ty)            = Refl r (Coercion.substTy subst ty)
     go r (TcTyConAppCo tc cos)  = mkTyConAppCo r tc (zipWith go (tyConRolesX r tc) cos)
-    go r (TcAppCo co1 co2)      = mkAppCo (go r co1) (go Nominal co2)
+    go r (TcAppCo co1 co2)      = let leftCo    = go r co1
+                                      rightRole = nextRole leftCo in
+                                  mkAppCoFlexible leftCo rightRole (go rightRole co2)
     go r (TcForAllCo tv co)     = mkForAllCo tv' (ds_tc_coercion subst' r co)
                               where
                                 (subst', tv') = Coercion.substTyVarBndr subst tv

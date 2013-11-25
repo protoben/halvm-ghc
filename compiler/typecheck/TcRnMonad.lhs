@@ -49,6 +49,7 @@ import FastString
 import Panic
 import Util
 import Annotations
+import BasicTypes( TopLevelFlag )
 
 import Control.Exception
 import Data.IORef
@@ -163,6 +164,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod do_this
                 tcl_ctxt       = [],
                 tcl_rdr        = emptyLocalRdrEnv,
                 tcl_th_ctxt    = topStage,
+                tcl_th_bndrs   = emptyNameEnv,
                 tcl_arrow_ctxt = NoArrowCtxt,
                 tcl_env        = emptyNameEnv,
                 tcl_bndrs      = [],
@@ -731,6 +733,10 @@ mapAndRecoverM f (x:xs) = do { mb_r <- try_m (f x)
                                           Left _  -> rs
                                           Right r -> r:rs) }
 
+-- | Succeeds if applying the argument to all members of the lists succeeds,
+--   but nevertheless runs it on all arguments, to collect all errors.
+mapAndReportM :: (a -> TcRn b) -> [a] -> TcRn [b]
+mapAndReportM f xs = checkNoErrs (mapAndRecoverM f xs)
 
 -----------------------
 tryTc :: TcRn a -> TcRn (Messages, Maybe a)
@@ -824,6 +830,20 @@ ifErrsM bale_out normal
 failIfErrsM :: TcRn ()
 -- Useful to avoid error cascades
 failIfErrsM = ifErrsM failM (return ())
+
+checkTH :: Outputable a => a -> String -> TcRn ()
+#ifdef GHCI
+checkTH _ _ = return () -- OK
+#else
+checkTH e what = failTH e what  -- Raise an error in a stage-1 compiler
+#endif
+
+failTH :: Outputable a => a -> String -> TcRn x
+failTH e what  -- Raise an error in a stage-1 compiler
+  = failWithTc (vcat [ hang (char 'A' <+> text what
+                             <+> ptext (sLit "requires GHC with interpreter support:"))
+                          2 (ppr e)
+                     , ptext (sLit "Perhaps you are using a stage-1 compiler?") ])
 \end{code}
 
 
@@ -860,7 +880,9 @@ popErrCtxt = updCtxt (\ msgs -> case msgs of { [] -> []; (_ : ms) -> ms })
 getCtLoc :: CtOrigin -> TcM CtLoc
 getCtLoc origin
   = do { env <- getLclEnv 
-       ; return (CtLoc { ctl_origin = origin, ctl_env =  env, ctl_depth = 0 }) }
+       ; return (CtLoc { ctl_origin = origin
+                       , ctl_env = env
+                       , ctl_depth = initialSubGoalDepth }) }
 
 setCtLoc :: CtLoc -> TcM a -> TcM a
 -- Set the SrcSpan and error context from the CtLoc
@@ -1144,20 +1166,23 @@ recordThUse = do { env <- getGblEnv; writeTcRef (tcg_th_used env) True }
 recordThSpliceUse :: TcM ()
 recordThSpliceUse = do { env <- getGblEnv; writeTcRef (tcg_th_splice_used env) True }
 
-keepAliveTc :: Id -> TcM ()     -- Record the name in the keep-alive set
-keepAliveTc id
-  | isLocalId id = do { env <- getGblEnv;
-                      ; updTcRef (tcg_keep env) (`addOneToNameSet` idName id) }
-  | otherwise = return ()
-
-keepAliveSetTc :: NameSet -> TcM ()     -- Record the name in the keep-alive set
-keepAliveSetTc ns = do { env <- getGblEnv;
-                       ; updTcRef (tcg_keep env) (`unionNameSets` ns) }
+keepAlive :: Name -> TcRn ()     -- Record the name in the keep-alive set
+keepAlive name
+  = do { env <- getGblEnv
+       ; traceRn (ptext (sLit "keep alive") <+> ppr name)
+       ; updTcRef (tcg_keep env) (`addOneToNameSet` name) }
 
 getStage :: TcM ThStage
 getStage = do { env <- getLclEnv; return (tcl_th_ctxt env) }
 
-setStage :: ThStage -> TcM a -> TcM a
+getStageAndBindLevel :: Name -> TcRn (Maybe (TopLevelFlag, ThLevel, ThStage))
+getStageAndBindLevel name
+  = do { env <- getLclEnv;
+       ; case lookupNameEnv (tcl_th_bndrs env) name of
+           Nothing                  -> return Nothing
+           Just (top_lvl, bind_lvl) -> return (Just (top_lvl, bind_lvl, tcl_th_ctxt env)) }
+
+setStage :: ThStage -> TcM a -> TcRn a
 setStage s = updLclEnv (\ env -> env { tcl_th_ctxt = s })
 \end{code}
 

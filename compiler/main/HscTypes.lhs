@@ -1103,6 +1103,8 @@ data InteractiveContext
          ic_rn_gbl_env :: GlobalRdrEnv,
              -- ^ The cached 'GlobalRdrEnv', built by
              -- 'InteractiveEval.setContext' and updated regularly
+             -- It contains everything in scope at the command line,
+             -- including everything in ic_tythings and ic_sys_vars
 
          ic_tythings   :: [TyThing],
              -- ^ TyThings defined by the user, in reverse order of
@@ -1110,8 +1112,9 @@ data InteractiveContext
              -- local variables in scope at that point
 
          ic_sys_vars   :: [Id],
-             -- ^ Variables defined automatically by the system (e.g.
-             -- record field selectors).  See Notes [ic_sys_vars]
+             -- ^ Variables defined automatically from
+             -- ic_ty_things (e.g. record field selectors).
+             -- See Notes [ic_sys_vars]
 
          ic_instances  :: ([ClsInst], [FamInst]),
              -- ^ All instances and family instances created during
@@ -1144,7 +1147,7 @@ data InteractiveContext
 Note [ic_sys_vars]
 ~~~~~~~~~~~~~~~~~~
 This list constains any Ids that arise from TyCons, Classes or
-instances defined interactively, but that are not given by
+instances defined interactively, but that are *not* given by
 'implicitTyThings'.  This includes record selectors, default methods,
 and dfuns.
 
@@ -1776,7 +1779,7 @@ type WhetherHasFamInst = Bool
 -- | Did this module originate from a *-boot file?
 type IsBootInterface = Bool
 
--- | Dependency information about modules and packages below this one
+-- | Dependency information about ALL modules and packages below this one
 -- in the import hierarchy.
 --
 -- Invariant: the dependencies of a module @M@ never includes @M@.
@@ -1784,16 +1787,23 @@ type IsBootInterface = Bool
 -- Invariant: none of the lists contain duplicates.
 data Dependencies
   = Deps { dep_mods   :: [(ModuleName, IsBootInterface)]
-                        -- ^ Home-package module dependencies
+                        -- ^ All home-package modules transitively below this one
+                        -- I.e. modules that this one imports, or that are in the
+                        --      dep_mods of those directly-imported modules
+
          , dep_pkgs   :: [(PackageId, Bool)]
-                       -- ^ External package dependencies. The bool indicates
-                        -- if the package is required to be trusted when the
-                        -- module is imported as a safe import (Safe Haskell).
-                        -- See Note [RnNames . Tracking Trust Transitively]
+                        -- ^ All packages transitively below this module
+                        -- I.e. packages to which this module's direct imports belong,
+                        --      or that are in the dep_pkgs of those modules
+                        -- The bool indicates if the package is required to be
+                        -- trusted when the module is imported as a safe import
+                        -- (Safe Haskell). See Note [RnNames . Tracking Trust Transitively]
+
          , dep_orphs  :: [Module]
                         -- ^ Orphan modules (whether home or external pkg),
                         -- *not* including family instance orphans as they
                         -- are anyway included in 'dep_finsts'
+
          , dep_finsts :: [Module]
                         -- ^ Modules that contain family instances (whether the
                         -- instances are from the home or an external package)
@@ -1818,7 +1828,12 @@ instance Binary Dependencies where
 noDependencies :: Dependencies
 noDependencies = Deps [] [] [] []
 
--- | Records modules that we depend on by making a direct import from
+-- | Records modules for which changes may force recompilation of this module
+-- See wiki: http://ghc.haskell.org/trac/ghc/wiki/Commentary/Compiler/RecompilationAvoidance
+--
+-- This differs from Dependencies.  A module X may be in the dep_mods of this
+-- module (via an import chain) but if we don't use anything from X it won't
+-- appear in our Usage
 data Usage
   -- | Module from another package
   = UsagePackageModule {
@@ -1840,8 +1855,8 @@ data Usage
             -- NB: usages are for parent names only, e.g. type constructors
             -- but not the associated data constructors.
         usg_exports  :: Maybe Fingerprint,
-            -- ^ Fingerprint for the export list we used to depend on this module,
-            -- if we depend on the export list
+            -- ^ Fingerprint for the export list of this module,
+            -- if we directly imported it (and hence we depend on its export list)
         usg_safe :: IsSafeImport
             -- ^ Was this module imported as a safe import
     }                                           -- ^ Module from the current package
@@ -2021,9 +2036,9 @@ its binding site, we fix it up.
 -- each original name; i.e. (module-name, occ-name) pair and provides
 -- something of a lookup mechanism for those names.
 data NameCache
- = NameCache {  nsUniqs :: UniqSupply,
+ = NameCache {  nsUniqs :: !UniqSupply,
                 -- ^ Supply of uniques
-                nsNames :: OrigNameCache
+                nsNames :: !OrigNameCache
                 -- ^ Ensures that one original name gets one unique
    }
 

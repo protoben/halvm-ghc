@@ -32,7 +32,8 @@ module HsUtils(
 
   nlHsTyApp, nlHsVar, nlHsLit, nlHsApp, nlHsApps, nlHsIntLit, nlHsVarApps, 
   nlHsDo, nlHsOpApp, nlHsLam, nlHsPar, nlHsIf, nlHsCase, nlList,
-  mkLHsTupleExpr, mkLHsVarTuple, missingTupArg, 
+  mkLHsTupleExpr, mkLHsVarTuple, missingTupArg,
+  toHsType, toHsKind,
 
   -- Bindings
   mkFunBind, mkVarBind, mkHsVarBind, mk_easy_FunBind, mkTopFunBind,
@@ -54,7 +55,8 @@ module HsUtils(
   emptyRecStmt, mkRecStmt, 
 
   -- Template Haskell
-  unqualSplice, mkHsSpliceTy, mkHsSpliceE, mkHsSpliceTE, mkHsQuasiQuote, unqualQuasiQuote,
+  mkHsSpliceTy, mkHsSpliceE, mkHsSpliceTE, mkHsSplice,
+  mkHsQuasiQuote, unqualQuasiQuote,
 
   -- Flags
   noRebindableInfo, 
@@ -73,6 +75,8 @@ module HsUtils(
   lStmtsImplicits, hsValBindsImplicits, lPatImplicits
   ) where
 
+#include "HsVersions.h"
+
 import HsDecls
 import HsBinds
 import HsExpr
@@ -84,6 +88,8 @@ import TcEvidence
 import RdrName
 import Var
 import TypeRep
+import TcType
+import Kind
 import DataCon
 import Name
 import NameSet
@@ -246,17 +252,17 @@ mkRecStmt stmts = emptyRecStmt { recS_stmts = stmts }
 mkHsOpApp :: LHsExpr id -> id -> LHsExpr id -> HsExpr id
 mkHsOpApp e1 op e2 = OpApp e1 (noLoc (HsVar op)) (error "mkOpApp:fixity") e2
 
-mkHsSplice :: Bool -> LHsExpr RdrName -> HsSplice RdrName
-mkHsSplice isTyped e = HsSplice isTyped unqualSplice e
+mkHsSplice :: LHsExpr RdrName -> HsSplice RdrName
+mkHsSplice e = HsSplice unqualSplice e
 
 mkHsSpliceE :: LHsExpr RdrName -> HsExpr RdrName
-mkHsSpliceE e = HsSpliceE (mkHsSplice False e)
+mkHsSpliceE e = HsSpliceE False (mkHsSplice e)
 
 mkHsSpliceTE :: LHsExpr RdrName -> HsExpr RdrName
-mkHsSpliceTE e = HsSpliceE (mkHsSplice True e)
+mkHsSpliceTE e = HsSpliceE True (mkHsSplice e)
 
 mkHsSpliceTy :: LHsExpr RdrName -> HsType RdrName
-mkHsSpliceTy e = HsSpliceTy (mkHsSplice False e) emptyFVs placeHolderKind
+mkHsSpliceTy e = HsSpliceTy (mkHsSplice e) placeHolderKind
 
 unqualSplice :: RdrName
 unqualSplice = mkRdrUnqual (mkVarOccFS (fsLit "splice"))
@@ -380,6 +386,48 @@ nlTuplePat pats box = noLoc (TuplePat pats box placeHolderType)
 
 missingTupArg :: HsTupArg a
 missingTupArg = Missing placeHolderType
+\end{code}
+
+
+%************************************************************************
+%*									*
+        Converting a Type to an HsType RdrName
+%*									*
+%************************************************************************
+
+This is needed to implement GeneralizedNewtypeDeriving.
+
+\begin{code}
+toHsType :: Type -> LHsType RdrName
+toHsType ty
+  | [] <- tvs_only
+  , [] <- theta
+  = to_hs_type tau
+  | otherwise
+  = noLoc $
+    mkExplicitHsForAllTy (map mk_hs_tvb tvs_only)
+                         (noLoc $ map toHsType theta)
+                         (to_hs_type tau)
+
+  where
+    (tvs, theta, tau) = tcSplitSigmaTy ty
+    tvs_only = filter isTypeVar tvs
+
+    to_hs_type (TyVarTy tv) = nlHsTyVar (getRdrName tv)
+    to_hs_type (AppTy t1 t2) = nlHsAppTy (toHsType t1) (toHsType t2)
+    to_hs_type (TyConApp tc args) = nlHsTyConApp (getRdrName tc) (map toHsType args')
+       where args' = filter (not . isKind) args
+    to_hs_type (FunTy arg res) = ASSERT( not (isConstraintKind (typeKind arg)) )
+                                 nlHsFunTy (toHsType arg) (toHsType res)
+    to_hs_type t@(ForAllTy {}) = pprPanic "toHsType" (ppr t)
+    to_hs_type (LitTy (NumTyLit n)) = noLoc $ HsTyLit (HsNumTy n)
+    to_hs_type (LitTy (StrTyLit s)) = noLoc $ HsTyLit (HsStrTy s)
+
+    mk_hs_tvb tv = noLoc $ KindedTyVar (getRdrName tv) (toHsKind (tyVarKind tv))
+
+toHsKind :: Kind -> LHsKind RdrName
+toHsKind = toHsType
+
 \end{code}
 
 \begin{code}

@@ -634,6 +634,9 @@ hscCompileOneShot' hsc_env extCore_filename mod_summary src_changed
                            liftIO $ hscWriteIface dflags iface changed mod_summary
                            return $ HscRecomp cgguts mod_summary
 
+        -- XXX This is always False, because in one-shot mode the
+        -- concept of stability does not exist.  The driver never
+        -- passes SourceUnmodifiedAndStable in here.
         stable = case src_changed of
                      SourceUnmodifiedAndStable -> True
                      _                         -> False
@@ -1350,10 +1353,12 @@ hscStmtWithLocation hsc_env0 stmt source linenumber =
         Nothing -> return Nothing
 
         Just parsed_stmt -> do
-            let icntxt   = hsc_IC hsc_env
-                rdr_env  = ic_rn_gbl_env icntxt
-                type_env = mkTypeEnvWithImplicits (ic_tythings icntxt)
-                src_span = srcLocSpan interactiveSrcLoc
+            let icntxt       = hsc_IC hsc_env
+                rdr_env      = ic_rn_gbl_env icntxt
+                type_env     = mkTypeEnvWithImplicits (ic_tythings icntxt)
+                fam_insts    = snd (ic_instances icntxt)
+                fam_inst_env = extendFamInstEnvList emptyFamInstEnv fam_insts
+                src_span     = srcLocSpan interactiveSrcLoc
 
             -- Rename and typecheck it
             -- Here we lift the stmt into the IO monad, see Note
@@ -1362,7 +1367,7 @@ hscStmtWithLocation hsc_env0 stmt source linenumber =
 
             -- Desugar it
             ds_expr <- ioMsgMaybe $
-                       deSugarExpr hsc_env iNTERACTIVE rdr_env type_env tc_expr
+                       deSugarExpr hsc_env iNTERACTIVE rdr_env type_env fam_inst_env tc_expr
             liftIO (lintInteractiveExpr "desugar expression" hsc_env ds_expr)
             handleWarnings
 

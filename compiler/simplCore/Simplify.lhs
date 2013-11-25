@@ -16,13 +16,13 @@ import SimplUtils
 import FamInstEnv       ( FamInstEnv )
 import Literal          ( litIsLifted ) --, mkMachInt ) -- temporalily commented out. See #8326
 import Id
-import MkId             ( seqId, realWorldPrimId )
+import MkId             ( seqId, voidPrimId )
 import MkCore           ( mkImpossibleExpr, castBottomExpr )
 import IdInfo
 import Name             ( mkSystemVarName, isExternalName )
 import Coercion hiding  ( substCo, substTy, substCoVar, extendTvSubst )
 import OptCoercion      ( optCoercion )
-import FamInstEnv       ( topNormaliseType )
+import FamInstEnv       ( topNormaliseType_maybe )
 import DataCon          ( DataCon, dataConWorkId, dataConRepStrictness
                         , isMarkedStrict ) --, dataConTyCon, dataConTag, fIRST_TAG )
 --import TyCon            ( isEnumerationTyCon ) -- temporalily commented out. See #8326
@@ -35,7 +35,7 @@ import CoreUtils
 import CoreArity
 --import PrimOp           ( tagToEnumKey ) -- temporalily commented out. See #8326
 import Rules            ( lookupRule, getRules )
-import TysPrim          ( realWorldStatePrimTy ) --, intPrimTy ) -- temporalily commented out. See #8326
+import TysPrim          ( voidPrimTy ) --, intPrimTy ) -- temporalily commented out. See #8326
 import BasicTypes       ( TopLevelFlag(..), isTopLevel, RecFlag(..) )
 import MonadUtils       ( foldlM, mapAccumLM, liftIO )
 import Maybes           ( orElse )
@@ -342,16 +342,15 @@ simplLazyBind env top_lvl is_rec bndr bndr1 rhs rhs_se
                 -- See Note [Floating and type abstraction] in SimplUtils
 
         -- Simplify the RHS
-        ; let   body_out_ty :: OutType
-                body_out_ty = substTy body_env (exprType body)
-        ; (body_env1, body1) <- simplExprF body_env body (mkRhsStop body_out_ty)
+        ; let   rhs_cont = mkRhsStop (substTy body_env (exprType body))
+        ; (body_env1, body1) <- simplExprF body_env body rhs_cont
         -- ANF-ise a constructor or PAP rhs
         ; (body_env2, body2) <- prepareRhs top_lvl body_env1 bndr1 body1
 
         ; (env', rhs')
             <-  if not (doFloatFromRhs top_lvl is_rec False body2 body_env2)
                 then                            -- No floating, revert to body1
-                     do { rhs' <- mkLam env tvs' (wrapFloats body_env1 body1)
+                     do { rhs' <- mkLam tvs' (wrapFloats body_env1 body1) rhs_cont
                         ; return (env, rhs') }
 
                 else if null tvs then           -- Simple floating
@@ -361,7 +360,7 @@ simplLazyBind env top_lvl is_rec bndr bndr1 rhs rhs_se
                 else                            -- Do type-abstraction first
                      do { tick LetFloatFromLet
                         ; (poly_binds, body3) <- abstractFloats tvs' body_env2 body2
-                        ; rhs' <- mkLam env tvs' body3
+                        ; rhs' <- mkLam tvs' body3 rhs_cont
                         ; env' <- foldlM (addPolyBind top_lvl) env poly_binds
                         ; return (env', rhs') }
 
@@ -383,7 +382,8 @@ simplNonRecX env bndr new_rhs
                         --               the binding c = (a,b)
   | Coercion co <- new_rhs
   = return (extendCvSubst env bndr co)
-  | otherwise           --               the binding b = (a,b)
+
+  | otherwise
   = do  { (env', bndr') <- simplBinder env bndr
         ; completeNonRecX NotTopLevel env' (isStrictId bndr) bndr bndr' new_rhs }
                 -- simplNonRecX is only used for NotTopLevel things
@@ -656,7 +656,7 @@ completeBind env top_lvl old_bndr new_bndr new_rhs
 
         -- Do eta-expansion on the RHS of the binding
         -- See Note [Eta-expanding at let bindings] in SimplUtils
-      ; (new_arity, final_rhs) <- tryEtaExpand env new_bndr new_rhs
+      ; (new_arity, final_rhs) <- tryEtaExpandRhs env new_bndr new_rhs
 
         -- Simplify the unfolding
       ; new_unfolding <- simplUnfolding env top_lvl old_bndr final_rhs old_unf
@@ -1051,9 +1051,8 @@ simplTick env tickish expr cont
                         _ -> False
 
   push_tick_inside t expr0
-     | not (tickishCanSplit t) = Nothing
-     | otherwise
-       = case expr0 of
+       = ASSERT(tickishScoped t)
+         case expr0 of
            Tick t' expr
               -- scc t (tick t' E)
               --   Pull the tick to the outside
@@ -1070,9 +1069,11 @@ simplTick env tickish expr cont
               | otherwise -> Nothing
 
            Case scrut bndr ty alts
-              -> Just (Case (mkTick t scrut) bndr ty alts')
-             where t_scope = mkNoTick t -- drop the tick on the dup'd ones
+              | not (tickishCanSplit t) -> Nothing
+              | otherwise -> Just (Case (mkTick t scrut) bndr ty alts')
+             where t_scope = mkNoCount t -- drop the tick on the dup'd ones
                    alts'   = [ (c,bs, mkTick t_scope e) | (c,bs,e) <- alts]
+
            _other -> Nothing
     where
 
@@ -1098,7 +1099,7 @@ simplTick env tickish expr cont
 --       ; (env', expr') <- simplExprF (zapFloats env) expr inc
 --       ; let tickish' = simplTickish env tickish
 --       ; let wrap_float (b,rhs) = (zapIdStrictness (setIdArity b 0),
---                                   mkTick (mkNoTick tickish') rhs)
+--                                   mkTick (mkNoCount tickish') rhs)
 --              -- when wrapping a float with mkTick, we better zap the Id's
 --              -- strictness info and arity, because it might be wrong now.
 --       ; let env'' = addFloats env (mapFloats env' wrap_float)
@@ -1306,7 +1307,7 @@ simplLam env bndrs body (TickIt tickish cont)
 simplLam env bndrs body cont
   = do  { (env', bndrs') <- simplLamBndrs env bndrs
         ; body' <- simplExpr env' body
-        ; new_lam <- mkLam env' bndrs' body'
+        ; new_lam <- mkLam bndrs' body' cont
         ; rebuild env' new_lam cont }
 
 ------------------
@@ -1481,8 +1482,9 @@ rebuildCall env info@(ArgInfo { ai_encl = encl_rules, ai_type = fun_ty
         ; rebuildCall env (addArgTo info' arg') cont }
   where
     info' = info { ai_strs = strs, ai_discs = discs }
-    cci | encl_rules || disc > 0 = ArgCtxt encl_rules  -- Be keener here
-        | otherwise              = BoringCtxt          -- Nothing interesting
+    cci | encl_rules = RuleArgCtxt
+        | disc > 0   = DiscArgCtxt  -- Be keener here
+        | otherwise  = BoringCtxt   -- Nothing interesting
 
 rebuildCall env (ArgInfo { ai_fun = fun, ai_args = rev_args, ai_rules = rules }) cont
   | null rules
@@ -2060,7 +2062,7 @@ improveSeq :: (FamInstEnv, FamInstEnv) -> SimplEnv
 -- Note [Improving seq]
 improveSeq fam_envs env scrut case_bndr case_bndr1 [(DEFAULT,_,_)]
   | not (isDeadBinder case_bndr) -- Not a pure seq!  See Note [Improving seq]
-  , Just (co, ty2) <- topNormaliseType fam_envs (idType case_bndr1)
+  , Just (co, ty2) <- topNormaliseType_maybe fam_envs (idType case_bndr1)
   = do { case_bndr2 <- newId (fsLit "nt") ty2
         ; let rhs  = DoneEx (Var case_bndr2 `Cast` mkSymCo co)
               env2 = extendIdSubst env case_bndr rhs
@@ -2471,8 +2473,8 @@ mkDupableAlt env case_bndr (con, bndrs', rhs') = do
         ; (final_bndrs', final_args)    -- Note [Join point abstraction]
                 <- if (any isId used_bndrs')
                    then return (used_bndrs', varsToCoreExprs used_bndrs')
-                    else do { rw_id <- newId (fsLit "w") realWorldStatePrimTy
-                            ; return ([rw_id], [Var realWorldPrimId]) }
+                    else do { rw_id <- newId (fsLit "w") voidPrimTy
+                            ; return ([setOneShotLambda rw_id], [Var voidPrimId]) }
 
         ; join_bndr <- newId (fsLit "$j") (mkPiTypes final_bndrs' rhs_ty')
                 -- Note [Funky mkPiTypes]

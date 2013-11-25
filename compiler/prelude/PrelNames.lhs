@@ -305,6 +305,9 @@ basicKnownKeyNames
         -- The Ordering type
         , orderingTyConName, ltDataConName, eqDataConName, gtDataConName
 
+        -- The SPEC type for SpecConstr
+        , specTyConName
+
         -- The Either type
         , eitherTyConName, leftDataConName, rightDataConName
 
@@ -743,9 +746,12 @@ runMainIOName = varQual gHC_TOP_HANDLER (fsLit "runMainIO") runMainKey
 
 orderingTyConName, ltDataConName, eqDataConName, gtDataConName :: Name
 orderingTyConName = tcQual   gHC_TYPES (fsLit "Ordering") orderingTyConKey
-ltDataConName = conName gHC_TYPES (fsLit "LT") ltDataConKey
-eqDataConName = conName gHC_TYPES (fsLit "EQ") eqDataConKey
-gtDataConName = conName gHC_TYPES (fsLit "GT") gtDataConKey
+ltDataConName     = conName gHC_TYPES (fsLit "LT") ltDataConKey
+eqDataConName     = conName gHC_TYPES (fsLit "EQ") eqDataConKey
+gtDataConName     = conName gHC_TYPES (fsLit "GT") gtDataConKey
+
+specTyConName :: Name
+specTyConName     = tcQual gHC_TYPES (fsLit "SPEC") specTyConKey
 
 eitherTyConName, leftDataConName, rightDataConName :: Name
 eitherTyConName   = tcQual  dATA_EITHER (fsLit "Either") eitherTyConKey
@@ -838,7 +844,6 @@ joinMIdKey          = mkPreludeMiscIdUnique 750
 apAClassOpKey       = mkPreludeMiscIdUnique 751 -- <*>
 pureAClassOpKey     = mkPreludeMiscIdUnique 752
 alternativeClassKey = mkPreludeMiscIdUnique 753
-
 
 
 -- Functions for GHC extensions
@@ -1352,7 +1357,7 @@ statePrimTyConKey, stableNamePrimTyConKey, stableNameTyConKey,
     liftedConKey, unliftedConKey, anyBoxConKey, kindConKey, boxityConKey,
     typeConKey, threadIdPrimTyConKey, bcoPrimTyConKey, ptrTyConKey,
     funPtrTyConKey, tVarPrimTyConKey, eqPrimTyConKey,
-    eqReprPrimTyConKey :: Unique
+    eqReprPrimTyConKey, voidPrimTyConKey :: Unique
 statePrimTyConKey                       = mkPreludeTyConUnique 50
 stableNamePrimTyConKey                  = mkPreludeTyConUnique 51
 stableNameTyConKey                      = mkPreludeTyConUnique 52
@@ -1360,6 +1365,7 @@ eqPrimTyConKey                          = mkPreludeTyConUnique 53
 eqReprPrimTyConKey                      = mkPreludeTyConUnique 54
 mutVarPrimTyConKey                      = mkPreludeTyConUnique 55
 ioTyConKey                              = mkPreludeTyConUnique 56
+voidPrimTyConKey                        = mkPreludeTyConUnique 57
 wordPrimTyConKey                        = mkPreludeTyConUnique 58
 wordTyConKey                            = mkPreludeTyConUnique 59
 word8TyConKey                           = mkPreludeTyConUnique 60
@@ -1489,6 +1495,9 @@ coercibleTyConKey = mkPreludeTyConUnique 175
 proxyPrimTyConKey :: Unique
 proxyPrimTyConKey = mkPreludeTyConUnique 176
 
+specTyConKey :: Unique
+specTyConKey = mkPreludeTyConUnique 177
+
 ---------------- Template Haskell -------------------
 --      USES TyConUniques 200-299
 -----------------------------------------------------
@@ -1568,7 +1577,7 @@ wildCardKey, absentErrorIdKey, augmentIdKey, appendIdKey,
     buildIdKey, errorIdKey, foldrIdKey, recSelErrorIdKey,
     seqIdKey, irrefutPatErrorIdKey, eqStringIdKey,
     noMethodBindingErrorIdKey, nonExhaustiveGuardsErrorIdKey,
-    runtimeErrorIdKey, patErrorIdKey,
+    runtimeErrorIdKey, patErrorIdKey, voidPrimIdKey,
     realWorldPrimIdKey, recConErrorIdKey,
     unpackCStringUtf8IdKey, unpackCStringAppendIdKey,
     unpackCStringFoldrIdKey, unpackCStringIdKey :: Unique
@@ -1593,6 +1602,7 @@ unpackCStringUtf8IdKey        = mkPreludeMiscIdUnique 17
 unpackCStringAppendIdKey      = mkPreludeMiscIdUnique 18
 unpackCStringFoldrIdKey       = mkPreludeMiscIdUnique 19
 unpackCStringIdKey            = mkPreludeMiscIdUnique 20
+voidPrimIdKey                 = mkPreludeMiscIdUnique 21
 
 unsafeCoerceIdKey, concatIdKey, filterIdKey, zipIdKey, bindIOIdKey,
     returnIOIdKey, newStablePtrIdKey,
