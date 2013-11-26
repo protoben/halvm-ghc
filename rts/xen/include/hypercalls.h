@@ -42,7 +42,11 @@ long HYPERCALL_set_segment_base(unsigned int which, unsigned long base);
 #endif
 long HYPERCALL_mmuext_op(struct mmuext_op *op, unsigned int count,
                          unsigned int *pdone, unsigned int foreigndom);
+#ifdef XEN_FLASK_INTERFACE_VERSION
 long HYPERCALL_xsm_op(xen_flask_op_t *op);
+#else
+long HYPERCALL_xsm_op(flask_op_t *op);
+#endif
 long HYPERCALL_nmi_op(int cmd, void *arg);
 long HYPERCALL_sched_op(int cmd, void *arg);
 long HYPERCALL_callback_op(int cmd, void *arg);

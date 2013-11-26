@@ -135,8 +135,8 @@ void unmask_channel(uint32_t chan)
   /* running this clears out any undelivered events before we unmask an */
   /* event. */
   asm volatile("btl %2,%1 ; sbbl %0,%0"
-              : "=r"(was_set)
-              : "m"(shared_info->evtchn_pending), "r"(chan));
+              : "=r"(was_set), "=m"(shared_info->evtchn_pending)
+              : "r"(chan));
   if(was_set) {
     asm volatile("lock btsl %k2, %1 ; sbbl %0, %0"
                 : "=r"(was_set), "=m"(vcpu_info().evtchn_pending_sel)
