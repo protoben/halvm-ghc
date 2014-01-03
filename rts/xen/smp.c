@@ -199,9 +199,9 @@ void init_smp_system(uint32_t ncpus)
     context->ldt_ents = ncpus;
     /* set the callback pointers */
 #ifdef __i386__
-    context->event_callback_cs = KERNEL_CS;
+    context->event_callback_cs = FLAT_KERNEL_CS;
     context->event_callback_eip = (unsigned long)&hypervisor_callback;
-    context->failsafe_callback_cs = KERNEL_CS;
+    context->failsafe_callback_cs = FLAT_KERNEL_CS;
     context->failsafe_callback_eip = (unsigned long)&failsafe_callback;
 #else
     context->event_callback_eip = (unsigned long)&hypervisor_callback;
@@ -460,6 +460,7 @@ void shutdownThread(void)
 
 void __attribute__((noinline,noclone)) saveContextAndGo(vcpu_thread_t *thr)
 {
+#ifdef __x86_64__
   asm volatile ("push %%rbx ;"
                 "push %%rbp ;"
                 "push %%r12 ;"
@@ -469,10 +470,18 @@ void __attribute__((noinline,noclone)) saveContextAndGo(vcpu_thread_t *thr)
                 "movq %%rsp, %0 ;"
                 "jmp runNextTask"
                 : "=m"(thr->savedStack) : : "memory");
+#else
+  asm volatile ("push %%ebx ;"
+                "push %%ebp ;"
+                "mov  %%esp, %0 ;"
+                "jmp runNextTask"
+                : "=m"(thr->savedStack) : : "memory");
+#endif
 }
 
 void __attribute__((noinline)) restoreContext(vcpu_thread_t *thr)
 {
+#ifdef __x86_64__
   asm volatile ("mov %0, %%rsp ; "
                 "pop %%r15 ; "
                 "pop %%r14 ; "
@@ -481,6 +490,12 @@ void __attribute__((noinline)) restoreContext(vcpu_thread_t *thr)
                 "pop %%rbp ;"
                 "pop %%rbx ;"
                 : : "m"(thr->savedStack) : "memory");
+#else
+  asm volatile ("mov %0, %%esp ; "
+                "pop %%ebp ;"
+                "pop %%ebx ;"
+                : : "m"(thr->savedStack) : "memory");
+#endif
 }
 
 void yieldThread(void)

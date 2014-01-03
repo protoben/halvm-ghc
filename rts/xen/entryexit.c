@@ -115,7 +115,7 @@ void runtime_entry(start_info_t *start_info, void *init_sp)
 #ifdef __x86_64__
   asm("mov %0, %%rsp" : : "r"((uintptr_t)runtime_stack + VCPU_STACK_SIZE));
 #else
-  asm("mov %0, %%esp" : : "r"((uintptr_t)runtime_stack + VCPU_STACK_SIZE));
+  asm("mov %0, %%esp" : : "r"((uintptr_t)runtime_stack + VCPU_STACK_SIZE - 8));
 #endif
   init_signals(HYPERVISOR_shared_info);
 #ifdef THREADED_RTS

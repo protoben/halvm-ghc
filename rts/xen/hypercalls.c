@@ -98,7 +98,7 @@ long HYPERCALL_set_callbacks(void *event, void *fail)
 #ifdef __x86_64__
   return hypercall(set_callbacks, event, fail, 0, 0, 0);
 #else
-  return hypercall(set_callbacks, __KERNEL_CS, event, __KERNEL_CS, fail, 0);
+  return hypercall(set_callbacks,FLAT_KERNEL_CS,event,FLAT_KERNEL_CS,fail,0);
 #endif
 }
 

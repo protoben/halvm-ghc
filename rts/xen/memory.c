@@ -181,7 +181,7 @@ void *runtime_alloc(void *start, size_t length_in, int prot)
   cur = dest;
   end = (void*)((uintptr_t)dest + length);
   while( (uintptr_t)cur < (uintptr_t)end ) {
-    pte_t entry = get_free_frame() << PAGE_SHIFT;
+    pte_t entry = ((pte_t)get_free_frame()) << PAGE_SHIFT;
 
     if(!entry) {
       /* ACK! We're out of memory */
@@ -223,7 +223,7 @@ void *map_frames(mfn_t *frames, size_t num_frames)
   assert(dest = find_new_addr(NULL, num_frames * PAGE_SIZE));
   for(i = 0; i < num_frames; i++)
     set_pt_entry((void*)((uintptr_t)dest + (i * PAGE_SIZE)),
-                 (frames[i] << PAGE_SHIFT) | STANDARD_RW_PERMS);
+                 ((pte_t)frames[i] << PAGE_SHIFT) | STANDARD_RW_PERMS);
   halvm_release_lock(&memory_search_lock);
   return dest;
 }
@@ -451,6 +451,11 @@ void setExecutable(void *p, W_ len, rtsBool exec)
       set_pt_entry(p, entry & PG_EXECUTABLE);
     p = (void*)((uintptr_t)p + 4096);
   }
+}
+
+StgWord64 getPhysicalMemorySize(void)
+{
+  return (max_pages * PAGE_SIZE);
 }
 
 void system_wmb()

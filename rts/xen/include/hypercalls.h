@@ -1,16 +1,17 @@
 #ifndef RTS_XEN_HYPERCALLS_H
 #define RTS_XEN_HYPERCALLS_H
 
-#define __XEN__
+#include <assert.h>
 #include <stdint.h>
 #include <sys/types.h>
 #include <xen/xen.h>
-#include <xen/domctl.h>
-#include <xen/sysctl.h>
 #include <xen/platform.h>
 #include <xen/tmem.h>
 #include <xen/event_channel.h>
 #include <xen/xsm/flask_op.h>
+
+typedef struct xen_domctl xen_domctl_t;
+typedef struct xen_sysctl xen_sysctl_t;
 
 long HYPERCALL_set_trap_table(const struct trap_info traps[]);
 long HYPERCALL_mmu_update(const struct mmu_update reqs[],

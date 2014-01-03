@@ -26,8 +26,10 @@ void init_grants(void)
   gnttab_query_size_t  qsize     = { .dom = DOMID_SELF };
   gnttab_setup_table_t stable    = { .dom = DOMID_SELF };
   gnttab_get_status_frames_t gsf = { .dom = DOMID_SELF };
-  int num_stat_frames;
-  mfn_t *frames;
+  uint32_t i, num_stat_frames;
+  xen_pfn_t *table_pfns;
+  uint64_t *stat_pfns;
+  mfn_t *mframes;
 
   /* we really want to use version 2 of the grant table API */
   assert(HYPERCALL_grant_table_op(GNTTABOP_set_version, &svers, 1) >= 0);
@@ -39,12 +41,19 @@ void init_grants(void)
   assert(qsize.status == GNTST_okay);
 
   /* allocate the grant table */
-  frames = alloca(qsize.max_nr_frames * sizeof(mfn_t));
+  table_pfns = alloca(qsize.max_nr_frames * sizeof(xen_pfn_t));
+  memset(table_pfns, 0, qsize.max_nr_frames * sizeof(xen_pfn_t));
   stable.nr_frames = qsize.max_nr_frames;
-  stable.frame_list.p = frames;
-  assert(HYPERCALL_grant_table_op(GNTTABOP_setup_table, &stable, 1) >= 0);
-  assert(stable.status == GNTST_okay);
-  grant_table = map_frames(frames, qsize.max_nr_frames);
+  stable.frame_list.p = table_pfns;
+  assert( HYPERCALL_grant_table_op(GNTTABOP_setup_table, &stable, 1) >= 0);
+  assert( stable.status == GNTST_okay );
+
+  /* map it into our address space */
+  mframes = alloca(qsize.max_nr_frames * sizeof(mfn_t));
+  memset(mframes, 0, qsize.max_nr_frames * sizeof(mfn_t));
+  for(i = 0; i < qsize.max_nr_frames; i++)
+    mframes[i] = table_pfns[i];
+  grant_table = map_frames(mframes, qsize.max_nr_frames);
 
   /* note down the maximum grant reference */
   max_ref = (qsize.max_nr_frames * PAGE_SIZE) / sizeof(grant_entry_v2_t);
@@ -52,12 +61,18 @@ void init_grants(void)
   max_ref = min(max_ref, (qsize.nr_frames * PAGE_SIZE) / sizeof(uint16_t));
 
   /* allocate the status table */
-  memset(frames, 0, qsize.max_nr_frames * sizeof(mfn_t));
+  stat_pfns = alloca(qsize.max_nr_frames * sizeof(uint64_t));
+  memset(stat_pfns, 0, qsize.max_nr_frames * sizeof(uint64_t));
   gsf.nr_frames = num_stat_frames;
-  gsf.frame_list.p = frames;
+  gsf.frame_list.p = stat_pfns;
   assert(HYPERCALL_grant_table_op(GNTTABOP_get_status_frames, &gsf, 1) >= 0);
   assert(gsf.status == GNTST_okay);
-  status_table = map_frames(frames, num_stat_frames);
+
+  /* map it into our address space */
+  memset(mframes, 0, qsize.max_nr_frames * sizeof(mfn_t));
+  for(i = 0; i < qsize.max_nr_frames; i++)
+    mframes[i] = stat_pfns[i];
+  status_table = map_frames(mframes, num_stat_frames);
 }
 
 long alloc_grant(domid_t dom, void *p, uint16_t len, int ro, grant_ref_t *pref)
@@ -118,8 +133,8 @@ long map_grants(domid_t dom, int readonly, grant_ref_t *refs, size_t count,
                 void **outptr, uint32_t *outhndls, uint64_t *outpaddrs)
 {
   gnttab_map_grant_ref_t *args;
+  uintptr_t addr;
   uint16_t flags;
-  uint64_t addr;
   size_t i;
   long res;
 
@@ -135,7 +150,7 @@ long map_grants(domid_t dom, int readonly, grant_ref_t *refs, size_t count,
   if(!args)
     return -ENOMEM;
 
-  addr = (uint64_t)claim_shared_space(count * 4096);
+  addr = (uintptr_t)claim_shared_space(count * 4096);
 
   flags = GNTMAP_host_map | GNTMAP_application_map;
   if(readonly)
@@ -144,7 +159,7 @@ long map_grants(domid_t dom, int readonly, grant_ref_t *refs, size_t count,
     flags |= GNTMAP_device_map;
 
   for(i = 0; i < count; i++) {
-    args[i].host_addr = (uintptr_t)addr + (i * PAGE_SIZE);
+    args[i].host_addr = addr + (i * PAGE_SIZE);
     args[i].flags     = flags;
     args[i].ref       = refs[i];
     args[i].dom       = dom;

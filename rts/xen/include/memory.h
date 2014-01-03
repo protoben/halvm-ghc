@@ -16,14 +16,7 @@
 
 
 #ifdef CONFIG_X86_32
-typedef uint32_t mfn_t;
-typedef uint32_t pfn_t;
-typedef uint32_t maddr_t;
-#define PFN_SET_BIT               (1 << 31)
-#define CPU_LOCAL_MEM_START       0x4000
-#define CPU_LOCAL_MEM_END         (1024 * 4096)
-#define IN_HYPERVISOR_SPACE(x)    ((uintptr_t)(x) >= HYPERVISOR_VIRT_START)
-#define MEMORY_TYPES_DECLARED
+#error "Pure 32-bit mode is no longer supported!"
 #endif
 
 #ifdef CONFIG_X86_PAE
