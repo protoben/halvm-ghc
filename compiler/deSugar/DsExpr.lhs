@@ -32,6 +32,7 @@ import HsSyn
 -- NB: The desugarer, which straddles the source and Core worlds, sometimes
 --     needs to see source types
 import TcType
+import Coercion ( Role(..) )
 import TcEvidence
 import TcRnMonad
 import Type
@@ -46,6 +47,7 @@ import Id
 import Module
 import VarSet
 import VarEnv
+import ConLike
 import DataCon
 import TysWiredIn
 import BasicTypes
@@ -97,7 +99,7 @@ ds_val_bind :: (RecFlag, LHsBinds Id) -> CoreExpr -> DsM CoreExpr
 -- a tuple and doing selections.
 -- Silently ignore INLINE and SPECIALISE pragmas...
 ds_val_bind (NonRecursive, hsbinds) body
-  | [L loc bind] <- bagToList hsbinds,
+  | [(_, L loc bind)] <- bagToList hsbinds,
         -- Non-recursive, non-overloaded bindings only come in ones
         -- ToDo: in some bizarre case it's conceivable that there
         --       could be dict binds in the 'binds'.  (See the notes
@@ -131,7 +133,7 @@ dsStrictBind (AbsBinds { abs_tvs = [], abs_ev_vars = []
                , abs_binds = binds }) body
   = do { let body1 = foldr bind_export body exports
              bind_export export b = bindNonRec (abe_poly export) (Var (abe_mono export)) b
-       ; body2 <- foldlBagM (\body bind -> dsStrictBind (unLoc bind) body) 
+       ; body2 <- foldlBagM (\body (_, bind) -> dsStrictBind (unLoc bind) body)
                             body1 binds 
        ; ds_binds <- dsTcEvBinds ev_binds
        ; return (mkCoreLets ds_binds body2) }
@@ -162,7 +164,7 @@ dsStrictBind bind body = pprPanic "dsLet: unlifted" (ppr bind $$ ppr body)
 ----------------------
 strictMatchOnly :: HsBind Id -> Bool
 strictMatchOnly (AbsBinds { abs_binds = binds })
-  = anyBag (strictMatchOnly . unLoc) binds
+  = anyBag (strictMatchOnly . unLoc . snd) binds
 strictMatchOnly (PatBind { pat_lhs = lpat, pat_rhs_ty = ty })
   =  isUnLiftedType ty 
   || isBangLPat lpat   
@@ -533,21 +535,23 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
 
                         -- Tediously wrap the application in a cast
                         -- Note [Update for GADTs]
-                 wrap_co = mkTcTyConAppCo tycon
+                 wrap_co = mkTcTyConAppCo Nominal tycon
                                 [ lookup tv ty | (tv,ty) <- univ_tvs `zip` out_inst_tys ]
                  lookup univ_tv ty = case lookupVarEnv wrap_subst univ_tv of
                                         Just co' -> co'
-                                        Nothing  -> mkTcReflCo ty
+                                        Nothing  -> mkTcReflCo Nominal ty
                  wrap_subst = mkVarEnv [ (tv, mkTcSymCo (mkTcCoVarCo eq_var))
                                        | ((tv,_),eq_var) <- eq_spec `zip` eqs_vars ]
 
-                 pat = noLoc $ ConPatOut { pat_con = noLoc con, pat_tvs = ex_tvs
+                 pat = noLoc $ ConPatOut { pat_con = noLoc (RealDataCon con)
+                                         , pat_tvs = ex_tvs
                                          , pat_dicts = eqs_vars ++ theta_vars
                                          , pat_binds = emptyTcEvBinds
                                          , pat_args = PrefixCon $ map nlVarPat arg_ids
-                                         , pat_ty = in_ty }
+                                         , pat_ty = in_ty
+                                         , pat_wrap = idHsWrapper }
            ; let wrapped_rhs | null eq_spec = rhs
-                             | otherwise    = mkLHsWrap (WpCast wrap_co) rhs
+                             | otherwise    = mkLHsWrap (mkWpCast (mkTcSubCo wrap_co)) rhs
            ; return (mkSimpleMatch [pat] wrapped_rhs) }
 
 \end{code}

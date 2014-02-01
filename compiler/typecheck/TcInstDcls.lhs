@@ -37,8 +37,6 @@ import TcDeriv
 import TcEnv
 import TcHsType
 import TcUnify
-import Unify      ( tcMatchTy )
-import TcTyDecls  ( emptyRoleAnnots )
 import MkCore     ( nO_METHOD_BINDING_ERROR_ID )
 import Type
 import TcEvidence
@@ -667,7 +665,7 @@ tcDataFamInstDecl mb_clsinfo
 
          -- Kind check type patterns
        ; tcFamTyPats (unLoc fam_tc_name) (tyConKind fam_tc) pats
-                     (kcDataDefn (unLoc fam_tc_name) defn) $ 
+                     (kcDataDefn defn) $ 
            \tvs' pats' res_kind -> do
 
        { -- Check that left-hand side contains no type family applications
@@ -689,7 +687,7 @@ tcDataFamInstDecl mb_clsinfo
        ; let orig_res_ty = mkTyConApp fam_tc pats'
 
        ; (rep_tc, fam_inst) <- fixM $ \ ~(rec_rep_tc, _) ->
-           do { data_cons <- tcConDecls new_or_data (unLoc fam_tc_name) rec_rep_tc
+           do { data_cons <- tcConDecls new_or_data rec_rep_tc
                                        (tvs', orig_res_ty) cons
               ; tc_rhs <- case new_or_data of
                      DataType -> return (mkDataTyConRhs data_cons)
@@ -714,8 +712,7 @@ tcDataFamInstDecl mb_clsinfo
               ; return (rep_tc, fam_inst) }
 
          -- Remember to check validity; no recursion to worry about here
-       ; checkNoErrs $ mapM_ (check_valid_data_con fam_tc rep_tc pats') (tyConDataCons rep_tc)
-       ; checkValidTyCon rep_tc emptyRoleAnnots
+       ; checkValidTyCon rep_tc
        ; return fam_inst } }
   where
     -- See Note [Eta reduction for data family axioms]
@@ -728,23 +725,6 @@ tcDataFamInstDecl mb_clsinfo
       = go tvs pats
     go tvs pats = (reverse tvs, reverse pats)
 
-    -- This checks for validity of GADT-like return types. The check for normal
-    -- (i.e., not data instance) datatypes is done in tcConRes. But, this check
-    -- just checks the *head* of the return type, because that is all that is
-    -- necessary there. Here, we check to make sure that the whole return type
-    -- is an instance of the header, even when the header contains some patterns.
-    -- It is quite inconvenient to do this elsewhere. See also Note
-    -- [Checking GADT return types] in TcTyClsDecls and Trac #8368.
-    check_valid_data_con fam_tc rep_tc pats datacon
-      = setSrcSpan (srcLocSpan (getSrcLoc datacon)) $
-        addErrCtxt (dataConCtxt datacon) $
-        let tmpl_vars = mkVarSet $ tyConTyVars rep_tc
-            tmpl_ty   = mkTyConApp fam_tc pats
-            res_ty    = dataConOrigResTy datacon
-            dc_name   = dataConName datacon in
-        checkTc (isJust (tcMatchTy tmpl_vars tmpl_ty res_ty))
-                (badDataConTyCon dc_name (ppr tmpl_ty) (ppr res_ty))
-      
 \end{code}
 
 Note [Eta reduction for data family axioms]
@@ -907,9 +887,9 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
                                   , abs_ev_vars = dfun_ev_vars
                                   , abs_exports = [export]
                                   , abs_ev_binds = sc_binds
-                                  , abs_binds = unitBag dict_bind }
+                                  , abs_binds = unitBag (Generated, dict_bind) }
 
-       ; return (unitBag (L loc main_bind) `unionBags`
+       ; return (unitBag (Generated, L loc main_bind) `unionBags`
                  listToBag meth_binds)
        }
  where
@@ -1188,7 +1168,7 @@ tcInstanceMethods :: DFunId -> Class -> [TcTyVar]
                   -> ([Located TcSpecPrag], PragFun)
                   -> [(Id, DefMeth)]
                   -> InstBindings Name
-                  -> TcM ([Id], [LHsBind Id])
+                  -> TcM ([Id], [(Origin, LHsBind Id)])
         -- The returned inst_meth_ids all have types starting
         --      forall tvs. theta => ...
 tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
@@ -1203,7 +1183,7 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
        ; mapAndUnzipM (tc_item hs_sig_fn) op_items }
   where
     ----------------------
-    tc_item :: HsSigFun -> (Id, DefMeth) -> TcM (Id, LHsBind Id)
+    tc_item :: HsSigFun -> (Id, DefMeth) -> TcM (Id, (Origin, LHsBind Id))
     tc_item sig_fn (sel_id, dm_info)
       = case findMethodBind (idName sel_id) binds of
             Just (user_bind, bndr_loc) 
@@ -1212,10 +1192,10 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
                            ; tc_default sig_fn sel_id dm_info }
 
     ----------------------
-    tc_body :: HsSigFun -> Id -> Bool -> LHsBind Name
-            -> SrcSpan -> TcM (TcId, LHsBind Id)
+    tc_body :: HsSigFun -> Id -> Bool -> (Origin, LHsBind Name)
+            -> SrcSpan -> TcM (TcId, (Origin, LHsBind Id))
     tc_body sig_fn sel_id generated_code rn_bind bndr_loc
-      = add_meth_ctxt sel_id generated_code rn_bind $
+      = add_meth_ctxt sel_id generated_code (snd rn_bind) $
         do { traceTc "tc_item" (ppr sel_id <+> ppr (idType sel_id))
            ; (meth_id, local_meth_sig) <- setSrcSpan bndr_loc $
                                           mkMethIds sig_fn clas tyvars dfun_ev_vars
@@ -1231,20 +1211,21 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
            ; return (meth_id1, bind) }
 
     ----------------------
-    tc_default :: HsSigFun -> Id -> DefMeth -> TcM (TcId, LHsBind Id)
+    tc_default :: HsSigFun -> Id -> DefMeth -> TcM (TcId, (Origin, LHsBind Id))
 
     tc_default sig_fn sel_id (GenDefMeth dm_name)
       = do { meth_bind <- mkGenericDefMethBind clas inst_tys sel_id dm_name
            ; tc_body sig_fn sel_id False {- Not generated code? -} 
-                     meth_bind inst_loc }
+                     (Generated, meth_bind) inst_loc }
 
     tc_default sig_fn sel_id NoDefMeth     -- No default method at all
       = do { traceTc "tc_def: warn" (ppr sel_id)
            ; (meth_id, _) <- mkMethIds sig_fn clas tyvars dfun_ev_vars
                                        inst_tys sel_id
            ; dflags <- getDynFlags
-           ; return (meth_id, mkVarBind meth_id $
-                              mkLHsWrap lam_wrapper (error_rhs dflags)) }
+           ; return (meth_id,
+                     (Generated, mkVarBind meth_id $
+                                 mkLHsWrap lam_wrapper (error_rhs dflags))) }
       where
         error_rhs dflags = L inst_loc $ HsApp error_fun (error_msg dflags)
         error_fun    = L inst_loc $ wrapId (WpTyApp meth_tau) nO_METHOD_BINDING_ERROR_ID
@@ -1286,13 +1267,13 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
                  bind = AbsBinds { abs_tvs = tyvars, abs_ev_vars = dfun_ev_vars
                                  , abs_exports = [export]
                                  , abs_ev_binds = EvBinds (unitBag self_ev_bind)
-                                 , abs_binds    = unitBag meth_bind }
+                                 , abs_binds    = unitBag (Generated, meth_bind) }
              -- Default methods in an instance declaration can't have their own
              -- INLINE or SPECIALISE pragmas. It'd be possible to allow them, but
              -- currently they are rejected with
              --           "INLINE pragma lacks an accompanying binding"
 
-           ; return (meth_id1, L inst_loc bind) }
+           ; return (meth_id1, (Generated, L inst_loc bind)) }
 
     ----------------------
     mk_meth_spec_prags :: Id -> [LTcSpecPrag] -> TcSpecPrags
@@ -1333,7 +1314,6 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
       where
       methodExists meth = isJust (findMethodBind meth binds)
 
-------------------
 mkGenericDefMethBind :: Class -> [Type] -> Id -> Name -> TcM (LHsBind Name)
 mkGenericDefMethBind clas inst_tys sel_id dm_name
   = 	-- A generic default method

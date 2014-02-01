@@ -12,7 +12,7 @@ TcSplice: Template Haskell splices
 module TcSplice(
      -- These functions are defined in stage1 and stage2
      -- The raise civilised errors in stage1
-     tcSpliceExpr, tcSpliceDecls, tcTypedBracket, tcUntypedBracket,
+     tcSpliceExpr, tcTypedBracket, tcUntypedBracket,
      runQuasiQuoteExpr, runQuasiQuotePat,
      runQuasiQuoteDecl, runQuasiQuoteType,
      runAnnotation,
@@ -70,6 +70,7 @@ import Class
 import Inst
 import TyCon
 import CoAxiom
+import ConLike
 import DataCon
 import TcEvidence( TcEvBinds(..) )
 import Id
@@ -116,8 +117,7 @@ import GHC.Exts         ( unsafeCoerce# )
 \begin{code}
 tcTypedBracket   :: HsBracket Name -> TcRhoType -> TcM (HsExpr TcId)
 tcUntypedBracket :: HsBracket Name -> [PendingRnSplice] -> TcRhoType -> TcM (HsExpr TcId)
-tcSpliceDecls    :: HsSplice Name -> TcM [LHsDecl RdrName]
-tcSpliceExpr     :: Bool -> HsSplice Name -> TcRhoType -> TcM (HsExpr TcId)
+tcSpliceExpr     :: HsSplice Name  -> TcRhoType -> TcM (HsExpr TcId)
         -- None of these functions add constraints to the LIE
 
 runQuasiQuoteExpr :: HsQuasiQuote RdrName -> RnM (LHsExpr RdrName)
@@ -130,8 +130,7 @@ runAnnotation     :: CoreAnnTarget -> LHsExpr Name -> TcM Annotation
 #ifndef GHCI
 tcTypedBracket   x _   = failTH x "Template Haskell bracket"
 tcUntypedBracket x _ _ = failTH x "Template Haskell bracket"
-tcSpliceExpr  _ e _ = failTH e "Template Haskell splice"
-tcSpliceDecls x     = failTH x "Template Haskell declaration splice"
+tcSpliceExpr  e _      = failTH e "Template Haskell splice"
 
 runQuasiQuoteExpr q = failTH q "quasiquote"
 runQuasiQuotePat  q = failTH q "pattern quasiquote"
@@ -417,9 +416,8 @@ tcTExpTy tau = do
 %************************************************************************
 
 \begin{code}
-tcSpliceExpr is_typed splice@(HsSplice name expr) res_ty
-  = ASSERT2( is_typed, ppr splice ) 
-    addErrCtxt (spliceCtxtDoc splice) $
+tcSpliceExpr splice@(HsSplice name expr) res_ty
+  = addErrCtxt (spliceCtxtDoc splice) $
     setSrcSpan (getLoc expr)    $ do
     { stage <- getStage
     ; case stage of
@@ -449,35 +447,25 @@ tcNestedSplice _ _ splice_name _ _
 
 tcTopSplice :: LHsExpr Name -> TcRhoType -> TcM (HsExpr Id)
 tcTopSplice expr res_ty
-  = do { any_ty <- newFlexiTyVarTy openTypeKind
-       ; meta_exp_ty <- tcTExpTy any_ty
-
-        -- Typecheck the expression
+  = do { -- Typecheck the expression,
+         -- making sure it has type Q (T res_ty)
+         meta_exp_ty <- tcTExpTy res_ty
        ; zonked_q_expr <- tcTopSpliceExpr True $
                           tcMonoExpr expr meta_exp_ty
 
-        -- Run the expression
+         -- Run the expression
        ; expr2 <- runMetaE zonked_q_expr
        ; showSplice "expression" expr (ppr expr2)
 
+         -- Rename and typecheck the spliced-in expression,
+         -- making sure it has type res_ty
+         -- These steps should never fail; this is a *typed* splice
        ; addErrCtxt (spliceResultDoc expr) $ do
-       { (exp3, _fvs) <- checkNoErrs $ rnLExpr expr2
-                         -- checkNoErrs: see Note [Renamer errors]
+       { (exp3, _fvs) <- rnLExpr expr2
        ; exp4 <- tcMonoExpr exp3 res_ty
        ; return (unLoc exp4) } }
 \end{code}
 
-
-%************************************************************************
-%*                                                                      *
-\subsection{Splicing a pattern}
-%*                                                                      *
-%************************************************************************
-
-\begin{code}
-tcSpliceDecls splice
-  = pprPanic "tcSpliceDecls: encountered a typed type splice" (ppr splice)
-\end{code}
 
 %************************************************************************
 %*                                                                      *
@@ -494,7 +482,7 @@ quotationCtxtDoc br_body
 spliceCtxtDoc :: HsSplice Name -> SDoc
 spliceCtxtDoc splice
   = hang (ptext (sLit "In the Template Haskell splice"))
-         2 (ppr splice)
+         2 (pprTypedSplice splice)
 
 spliceResultDoc :: LHsExpr Name -> SDoc
 spliceResultDoc expr
@@ -1123,15 +1111,18 @@ tcLookupTh name
   = do  { (gbl_env, lcl_env) <- getEnvs
         ; case lookupNameEnv (tcl_env lcl_env) name of {
                 Just thing -> return thing;
-                Nothing    -> do
-        { if nameIsLocalOrFrom (tcg_mod gbl_env) name
-          then  -- It's defined in this module
-              case lookupNameEnv (tcg_type_env gbl_env) name of
-                Just thing -> return (AGlobal thing)
-                Nothing    -> failWithTc (notInEnv name)
+                Nothing    ->
 
-          else do               -- It's imported
-        { mb_thing <- tcLookupImported_maybe name
+          case lookupNameEnv (tcg_type_env gbl_env) name of {
+                Just thing -> return (AGlobal thing);
+                Nothing    ->
+
+          if nameIsLocalOrFrom (tcg_mod gbl_env) name
+          then  -- It's defined in this module
+                failWithTc (notInEnv name)
+
+          else
+     do { mb_thing <- tcLookupImported_maybe name
         ; case mb_thing of
             Succeeded thing -> return (AGlobal thing)
             Failed msg      -> failWithTc msg
@@ -1175,7 +1166,7 @@ reifyThing (AGlobal (AnId id))
     }
 
 reifyThing (AGlobal (ATyCon tc))   = reifyTyCon tc
-reifyThing (AGlobal (ADataCon dc))
+reifyThing (AGlobal (AConLike (RealDataCon dc)))
   = do  { let name = dataConName dc
         ; ty <- reifyType (idType (dataConWrapId dc))
         ; fix <- reifyFixity name

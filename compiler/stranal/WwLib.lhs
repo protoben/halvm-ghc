@@ -11,8 +11,8 @@ module WwLib ( mkWwBodies, mkWWstr, mkWorkerArgs, deepSplitProductType_maybe ) w
 import CoreSyn
 import CoreUtils        ( exprType, mkCast )
 import Id               ( Id, idType, mkSysLocal, idDemandInfo, setIdDemandInfo,
-                          isOneShotLambda, setOneShotLambda, setIdUnfolding,
-                          setIdInfo
+                          setIdUnfolding,
+                          setIdInfo, idOneShotInfo, setIdOneShotInfo
                         )
 import IdInfo           ( vanillaIdInfo )
 import DataCon
@@ -23,7 +23,8 @@ import TysPrim          ( voidPrimTy )
 import TysWiredIn       ( tupleCon )
 import Type
 import Coercion hiding  ( substTy, substTyVarBndr )
-import BasicTypes       ( TupleSort(..) )
+import FamInstEnv
+import BasicTypes       ( TupleSort(..), OneShotInfo(..), worstOneShot )
 import Literal          ( absentLiteralOf )
 import TyCon
 import UniqSupply
@@ -105,13 +106,14 @@ the unusable strictness-info into the interfaces.
 
 \begin{code}
 mkWwBodies :: DynFlags
-           -> Type                              -- Type of original function
-           -> [Demand]                          -- Strictness of original function
-           -> DmdResult                         -- Info about function result
-           -> [Bool]                            -- One-shot-ness of the function
-           -> UniqSM ([Demand],                 -- Demands for worker (value) args
-                      Id -> CoreExpr,           -- Wrapper body, lacking only the worker Id
-                      CoreExpr -> CoreExpr)     -- Worker body, lacking the original function rhs
+           -> FamInstEnvs
+           -> Type                                  -- Type of original function
+           -> [Demand]                              -- Strictness of original function
+           -> DmdResult                             -- Info about function result
+           -> [OneShotInfo]                         -- One-shot-ness of the function, value args only
+           -> UniqSM (Maybe ([Demand],              -- Demands for worker (value) args
+                             Id -> CoreExpr,        -- Wrapper body, lacking only the worker Id
+                             CoreExpr -> CoreExpr)) -- Worker body, lacking the original function rhs
 
 -- wrap_fn_args E       = \x y -> E
 -- work_fn_args E       = E x y
@@ -124,19 +126,24 @@ mkWwBodies :: DynFlags
 --                        let x = (a,b) in
 --                        E
 
-mkWwBodies dflags fun_ty demands res_info one_shots
-  = do  { let arg_info = demands `zip` (one_shots ++ repeat False)
-              all_one_shots = all snd arg_info
+mkWwBodies dflags fam_envs fun_ty demands res_info one_shots
+  = do  { let arg_info = demands `zip` (one_shots ++ repeat NoOneShotInfo)
+              all_one_shots = foldr (worstOneShot . snd) OneShotLam arg_info
         ; (wrap_args, wrap_fn_args, work_fn_args, res_ty) <- mkWWargs emptyTvSubst fun_ty arg_info
-        ; (work_args, wrap_fn_str,  work_fn_str) <- mkWWstr dflags wrap_args
+        ; (useful1, work_args, wrap_fn_str, work_fn_str) <- mkWWstr dflags fam_envs wrap_args
 
         -- Do CPR w/w.  See Note [Always do CPR w/w]
-        ; (wrap_fn_cpr, work_fn_cpr,  cpr_res_ty) <- mkWWcpr res_ty res_info
+        ; (useful2, wrap_fn_cpr, work_fn_cpr,  cpr_res_ty) <- mkWWcpr fam_envs res_ty res_info
 
         ; let (work_lam_args, work_call_args) = mkWorkerArgs dflags work_args all_one_shots cpr_res_ty
-        ; return ([idDemandInfo v | v <- work_call_args, isId v],
-                  wrap_fn_args . wrap_fn_cpr . wrap_fn_str . applyToVars work_call_args . Var,
-                  mkLams work_lam_args. work_fn_str . work_fn_cpr . work_fn_args) }
+              worker_args_dmds = [idDemandInfo v | v <- work_call_args, isId v]
+              wrapper_body = wrap_fn_args . wrap_fn_cpr . wrap_fn_str . applyToVars work_call_args . Var
+              worker_body = mkLams work_lam_args. work_fn_str . work_fn_cpr . work_fn_args
+
+        ; if useful1 && not (only_one_void_argument) || useful2
+          then return (Just (worker_args_dmds, wrapper_body, worker_body))
+          else return Nothing
+        }
         -- We use an INLINE unconditionally, even if the wrapper turns out to be
         -- something trivial like
         --      fw = ...
@@ -144,6 +151,16 @@ mkWwBodies dflags fun_ty demands res_info one_shots
         -- The point is to propagate the coerce to f's call sites, so even though
         -- f's RHS is now trivial (size 1) we still want the __inline__ to prevent
         -- fw from being inlined into f's RHS
+  where
+    -- Note [Do not split void functions]
+    only_one_void_argument
+      | [d] <- demands
+      , Just (arg_ty1, _) <- splitFunTy_maybe fun_ty
+      , isAbsDmd d && isVoidTy arg_ty1
+      = True
+      | otherwise
+      = False
+
 \end{code}
 
 Note [Always do CPR w/w]
@@ -178,7 +195,7 @@ We use the state-token type which generates no code.
 
 \begin{code}
 mkWorkerArgs :: DynFlags -> [Var]
-             -> Bool    -- Whether all arguments are one-shot
+             -> OneShotInfo  -- Whether all arguments are one-shot
              -> Type    -- Type of body
              -> ([Var], -- Lambda bound args
                  [Var]) -- Args at call site
@@ -194,14 +211,11 @@ mkWorkerArgs dflags args all_one_shot res_ty
            -- see Note [Protecting the last value argument]
 
       -- see Note [All One-Shot Arguments of a Worker]
-      newArg = if all_one_shot
-               then setOneShotLambda voidArgId
-               else voidArgId
+      newArg = setIdOneShotInfo voidArgId all_one_shot
 \end{code}
 
 Note [Protecting the last value argument]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 If the user writes (\_ -> E), they might be intentionally disallowing
 the sharing of E. Since absence analysis and worker-wrapper are keen
 to remove such unused arguments, we add in a void argument to prevent
@@ -215,21 +229,27 @@ so f can't be inlined *under a lambda*.
 
 Note [All One-Shot Arguments of a Worker]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Sometimes, derived joint-points are just lambda-lifted thunks, whose
+Sometimes, derived join-points are just lambda-lifted thunks, whose
 only argument is of the unit type and is never used. This might
 interfere with the absence analysis, basing on which results these
 never-used arguments are eliminated in the worker. The additional
 argument `all_one_shot` of `mkWorkerArgs` is to prevent this.
 
-An example for this phenomenon is a `treejoin` program from the
-`nofib` suite, which features the following joint points:
+Example.  Suppose we have
+   foo = \p(one-shot) q(one-shot). y + 3
+Then we drop the unused args to give
+   foo   = \pq. $wfoo void#
+   $wfoo = \void(one-shot). y + 3
 
-$j_s1l1 =
-  \ _ ->
-     case GHC.Prim.<=# 56320 y_aOy of _ {
-        GHC.Types.False -> $j_s1kP GHC.Prim.realWorld#;
-        GHC.Types.True ->  ... }
+But suppse foo didn't have all one-shot args:
+   foo = \p(not-one-shot) q(one-shot). expensive y + 3
+Then we drop the unused args to give
+   foo   = \pq. $wfoo void#
+   $wfoo = \void(not-one-shot). y + 3
+
+If we made the void-arg one-shot we might inline an expensive
+computation for y, which would be terrible!
+
 
 %************************************************************************
 %*                                                                      *
@@ -271,8 +291,8 @@ the \x to get what we want.
 mkWWargs :: TvSubst             -- Freshening substitution to apply to the type
                                 --   See Note [Freshen type variables]
          -> Type                -- The type of the function
-         -> [(Demand,Bool)]     -- Demands and one-shot info for value arguments
-         -> UniqSM  ([Var],             -- Wrapper args
+         -> [(Demand,OneShotInfo)]     -- Demands and one-shot info for value arguments
+         -> UniqSM  ([Var],            -- Wrapper args
                      CoreExpr -> CoreExpr,      -- Wrapper fn
                      CoreExpr -> CoreExpr,      -- Worker fn
                      Type)                      -- Type of wrapper body
@@ -327,12 +347,11 @@ mkWWargs subst fun_ty arg_info
 applyToVars :: [Var] -> CoreExpr -> CoreExpr
 applyToVars vars fn = mkVarApps fn vars
 
-mk_wrap_arg :: Unique -> Type -> Demand -> Bool -> Id
+mk_wrap_arg :: Unique -> Type -> Demand -> OneShotInfo -> Id
 mk_wrap_arg uniq ty dmd one_shot
-  = set_one_shot one_shot (setIdDemandInfo (mkSysLocal (fsLit "w") uniq ty) dmd)
-  where
-    set_one_shot True  id = setOneShotLambda id
-    set_one_shot False id = id
+  = mkSysLocal (fsLit "w") uniq ty
+       `setIdDemandInfo` dmd
+       `setIdOneShotInfo` one_shot
 \end{code}
 
 Note [Freshen type variables]
@@ -354,9 +373,11 @@ That's why we carry the TvSubst through mkWWargs
 
 \begin{code}
 mkWWstr :: DynFlags
+        -> FamInstEnvs
         -> [Var]                                -- Wrapper args; have their demand info on them
                                                 --  *Includes type variables*
-        -> UniqSM ([Var],                       -- Worker args
+        -> UniqSM (Bool,                        -- Is this useful
+                   [Var],                       -- Worker args
                    CoreExpr -> CoreExpr,        -- Wrapper body, lacking the worker call
                                                 -- and without its lambdas
                                                 -- This fn adds the unboxing
@@ -364,13 +385,13 @@ mkWWstr :: DynFlags
                    CoreExpr -> CoreExpr)        -- Worker body, lacking the original body of the function,
                                                 -- and lacking its lambdas.
                                                 -- This fn does the reboxing
-mkWWstr _ []
-  = return ([], nop_fn, nop_fn)
+mkWWstr _ _ []
+  = return (False, [], nop_fn, nop_fn)
 
-mkWWstr dflags (arg : args) = do
-    (args1, wrap_fn1, work_fn1) <- mkWWstr_one dflags arg
-    (args2, wrap_fn2, work_fn2) <- mkWWstr dflags args
-    return (args1 ++ args2, wrap_fn1 . wrap_fn2, work_fn1 . work_fn2)
+mkWWstr dflags fam_envs (arg : args) = do
+    (useful1, args1, wrap_fn1, work_fn1) <- mkWWstr_one dflags fam_envs arg
+    (useful2, args2, wrap_fn2, work_fn2) <- mkWWstr dflags fam_envs args
+    return (useful1 || useful2, args1 ++ args2, wrap_fn1 . wrap_fn2, work_fn1 . work_fn2)
 
 \end{code}
 
@@ -403,29 +424,32 @@ as-yet-un-filled-in pkgState files.
 
 \begin{code}
 ----------------------
--- mkWWstr_one wrap_arg = (work_args, wrap_fn, work_fn)
+-- mkWWstr_one wrap_arg = (useful, work_args, wrap_fn, work_fn)
 --   *  wrap_fn assumes wrap_arg is in scope,
 --        brings into scope work_args (via cases)
 --   * work_fn assumes work_args are in scope, a
 --        brings into scope wrap_arg (via lets)
-mkWWstr_one :: DynFlags -> Var -> UniqSM ([Var], CoreExpr -> CoreExpr, CoreExpr -> CoreExpr)
-mkWWstr_one dflags arg
+mkWWstr_one :: DynFlags -> FamInstEnvs -> Var
+    -> UniqSM (Bool, [Var], CoreExpr -> CoreExpr, CoreExpr -> CoreExpr)
+mkWWstr_one dflags fam_envs arg
   | isTyVar arg
-  = return ([arg],  nop_fn, nop_fn)
+  = return (False, [arg],  nop_fn, nop_fn)
 
+  -- See Note [Worker-wrapper for bottoming functions]
   | isAbsDmd dmd
   , Just work_fn <- mk_absent_let dflags arg
      -- Absent case.  We can't always handle absence for arbitrary
      -- unlifted types, so we need to choose just the cases we can
      --- (that's what mk_absent_let does)
-  = return ([], nop_fn, work_fn)
+  = return (True, [], nop_fn, work_fn)
 
+  -- See Note [Worthy functions for Worker-Wrapper split]
   | isSeqDmd dmd  -- `seq` demand; evaluate in wrapper in the hope
                   -- of dropping seqs in the worker
   = let arg_w_unf = arg `setIdUnfolding` evaldUnfolding
           -- Tell the worker arg that it's sure to be evaluated
           -- so that internal seqs can be dropped
-    in return ([arg_w_unf], mk_seq_case arg, nop_fn)
+    in return (True, [arg_w_unf], mk_seq_case arg, nop_fn)
                 -- Pass the arg, anyway, even if it is in theory discarded
                 -- Consider
                 --      f x y = x `seq` y
@@ -443,9 +467,9 @@ mkWWstr_one dflags arg
   , Just cs <- splitProdDmd_maybe dmd
       -- See Note [Unpacking arguments with product and polymorphic demands]
   , Just (data_con, inst_tys, inst_con_arg_tys, co)
-             <- deepSplitProductType_maybe (idType arg)
+             <- deepSplitProductType_maybe fam_envs (idType arg)
   , cs `equalLength` inst_con_arg_tys
-      -- See Note [mkWWstr and unsafeCore]
+      -- See Note [mkWWstr and unsafeCoerce]
   =  do { (uniq1:uniqs) <- getUniquesM
         ; let   unpk_args      = zipWith mk_ww_local uniqs inst_con_arg_tys
                 unpk_args_w_ds = zipWithEqual "mkWWstr" set_worker_arg_info unpk_args cs
@@ -453,22 +477,22 @@ mkWWstr_one dflags arg
                                               data_con unpk_args
                 rebox_fn       = Let (NonRec arg con_app)
                 con_app        = mkConApp2 data_con inst_tys unpk_args `mkCast` mkSymCo co
-         ; (worker_args, wrap_fn, work_fn) <- mkWWstr dflags unpk_args_w_ds
-         ; return (worker_args, unbox_fn . wrap_fn, work_fn . rebox_fn) }
+         ; (_, worker_args, wrap_fn, work_fn) <- mkWWstr dflags fam_envs unpk_args_w_ds
+         ; return (True, worker_args, unbox_fn . wrap_fn, work_fn . rebox_fn) }
                            -- Don't pass the arg, rebox instead
 
   | otherwise   -- Other cases
-  = return ([arg], nop_fn, nop_fn)
+  = return (False, [arg], nop_fn, nop_fn)
 
   where
     dmd = idDemandInfo arg
+    one_shot = idOneShotInfo arg
         -- If the wrapper argument is a one-shot lambda, then
         -- so should (all) the corresponding worker arguments be
         -- This bites when we do w/w on a case join point
-    set_worker_arg_info worker_arg demand = set_one_shot (setIdDemandInfo worker_arg demand)
-
-    set_one_shot | isOneShotLambda arg = setOneShotLambda
-                 | otherwise           = \x -> x
+    set_worker_arg_info worker_arg demand 
+      = worker_arg `setIdDemandInfo`  demand
+                   `setIdOneShotInfo` one_shot
 
 ----------------------
 nop_fn :: CoreExpr -> CoreExpr
@@ -483,29 +507,31 @@ If so, the worker/wrapper split doesn't work right and we get a Core Lint
 bug.  The fix here is simply to decline to do w/w if that happens.
 
 \begin{code}
-deepSplitProductType_maybe :: Type -> Maybe (DataCon, [Type], [Type], Coercion)
+deepSplitProductType_maybe :: FamInstEnvs -> Type -> Maybe (DataCon, [Type], [Type], Coercion)
 -- If    deepSplitProductType_maybe ty = Just (dc, tys, arg_tys, co)
 -- then  dc @ tys (args::arg_tys) :: rep_ty
 --       co :: ty ~ rep_ty
-deepSplitProductType_maybe ty
-  | let (co, ty1) = topNormaliseNewType_maybe ty `orElse` (mkReflCo Representational ty, ty)
+deepSplitProductType_maybe fam_envs ty
+  | let (co, ty1) = topNormaliseType_maybe fam_envs ty
+                    `orElse` (mkReflCo Representational ty, ty)
   , Just (tc, tc_args) <- splitTyConApp_maybe ty1
   , Just con <- isDataProductTyCon_maybe tc
   = Just (con, tc_args, dataConInstArgTys con tc_args, co)
-deepSplitProductType_maybe _ = Nothing
+deepSplitProductType_maybe _ _ = Nothing
 
-deepSplitCprType_maybe :: ConTag -> Type -> Maybe (DataCon, [Type], [Type], Coercion)
+deepSplitCprType_maybe :: FamInstEnvs -> ConTag -> Type -> Maybe (DataCon, [Type], [Type], Coercion)
 -- If    deepSplitCprType_maybe n ty = Just (dc, tys, arg_tys, co)
 -- then  dc @ tys (args::arg_tys) :: rep_ty
 --       co :: ty ~ rep_ty
-deepSplitCprType_maybe con_tag ty
-  | let (co, ty1) = topNormaliseNewType_maybe ty `orElse` (mkReflCo Representational ty, ty)
+deepSplitCprType_maybe fam_envs con_tag ty
+  | let (co, ty1) = topNormaliseType_maybe fam_envs ty
+                    `orElse` (mkReflCo Representational ty, ty)
   , Just (tc, tc_args) <- splitTyConApp_maybe ty1
   , isDataTyCon tc
   , let cons = tyConDataCons tc
         con = ASSERT( cons `lengthAtLeast` con_tag ) cons !! (con_tag - fIRST_TAG)
   = Just (con, tc_args, dataConInstArgTys con tc_args, co)
-deepSplitCprType_maybe _ _ = Nothing
+deepSplitCprType_maybe _ _ _ = Nothing
 \end{code}
 
 
@@ -526,23 +552,26 @@ left-to-right traversal of the result structure.
 
 
 \begin{code}
-mkWWcpr :: Type                              -- function body type
+mkWWcpr :: FamInstEnvs
+        -> Type                              -- function body type
         -> DmdResult                         -- CPR analysis results
-        -> UniqSM (CoreExpr -> CoreExpr,             -- New wrapper
-                   CoreExpr -> CoreExpr,             -- New worker
-                   Type)                        -- Type of worker's body
+        -> UniqSM (Bool,                     -- Is w/w'ing useful?
+                   CoreExpr -> CoreExpr,     -- New wrapper
+                   CoreExpr -> CoreExpr,     -- New worker
+                   Type)                     -- Type of worker's body
 
-mkWWcpr body_ty res
+mkWWcpr fam_envs body_ty res
   = case returnsCPR_maybe res of
-       Nothing      -> return (id, id, body_ty)  -- No CPR info
-       Just con_tag | Just stuff <- deepSplitCprType_maybe con_tag body_ty
+       Nothing      -> return (False, id, id, body_ty)  -- No CPR info
+       Just con_tag | Just stuff <- deepSplitCprType_maybe fam_envs con_tag body_ty
                     -> mkWWcpr_help stuff
                     |  otherwise
+                       -- See Note [non-algebraic or open body type warning]
                     -> WARN( True, text "mkWWcpr: non-algebraic or open body type" <+> ppr body_ty )
-                       return (id, id, body_ty)
+                       return (False, id, id, body_ty)
 
 mkWWcpr_help :: (DataCon, [Type], [Type], Coercion)
-             -> UniqSM (CoreExpr -> CoreExpr, CoreExpr -> CoreExpr, Type)
+             -> UniqSM (Bool, CoreExpr -> CoreExpr, CoreExpr -> CoreExpr, Type)
 
 mkWWcpr_help (data_con, inst_tys, arg_tys, co)
   | [arg_ty1] <- arg_tys
@@ -555,7 +584,8 @@ mkWWcpr_help (data_con, inst_tys, arg_tys, co)
        ; let arg       = mk_ww_local arg_uniq  arg_ty1
              con_app   = mkConApp2 data_con inst_tys [arg] `mkCast` mkSymCo co
 
-       ; return ( \ wkr_call -> Case wkr_call arg (exprType con_app) [(DEFAULT, [], con_app)]
+       ; return ( True
+                , \ wkr_call -> Case wkr_call arg (exprType con_app) [(DEFAULT, [], con_app)]
                 , \ body     -> mkUnpackCase body co work_uniq data_con [arg] (Var arg)
                 , arg_ty1 ) }
 
@@ -569,7 +599,8 @@ mkWWcpr_help (data_con, inst_tys, arg_tys, co)
              ubx_tup_app  = mkConApp2 ubx_tup_con arg_tys args
              con_app      = mkConApp2 data_con inst_tys args `mkCast` mkSymCo co
 
-       ; return ( \ wkr_call -> Case wkr_call wrap_wild (exprType con_app)  [(DataAlt ubx_tup_con, args, con_app)]
+       ; return (True
+                , \ wkr_call -> Case wkr_call wrap_wild (exprType con_app)  [(DataAlt ubx_tup_con, args, con_app)]
                 , \ body     -> mkUnpackCase body co work_uniq data_con args ubx_tup_app
                 , ubx_tup_ty ) }
 
@@ -587,6 +618,25 @@ mkUnpackCase scrut co uniq boxing_con unpk_args body
     casted_scrut = scrut `mkCast` co
     bndr = mk_ww_local uniq (exprType casted_scrut)
 \end{code}
+
+Note [non-algebraic or open body type warning]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+There are a few cases where the W/W transformation is told that something
+returns a constructor, but the type at hand doesn't really match this. One
+real-world example involves unsafeCoerce:
+  foo = IO a
+  foo = unsafeCoere c_exit
+  foreign import ccall "c_exit" c_exit :: IO ()
+Here CPR will tell you that `foo` returns a () constructor for sure, but trying
+to create a worker/wrapper for type `a` obviously fails.
+(This was a real example until ee8e792  in libraries/base.)
+
+It does not seem feasible to avoid all such cases already in the analyser (and
+after all, the analysis is not really wrong), so we simply do nothing here in
+mkWWcpr. But we still want to emit warning with -DDEBUG, to hopefully catch
+other cases where something went avoidably wrong.
+
 
 Note [Profiling and unpacking]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

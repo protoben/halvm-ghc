@@ -47,6 +47,7 @@ import Coercion
 import CoAxiom
 import VarSet
 import VarEnv
+import Module( isInteractiveModule )
 import Name
 import UniqFM
 import Outputable
@@ -177,17 +178,30 @@ pprFamInst famInst
 
 pprFamInstHdr :: FamInst -> SDoc
 pprFamInstHdr fi@(FamInst {fi_flavor = flavor})
-  = pprTyConSort <+> pp_instance <+> pprHead
+  = pprTyConSort <+> pp_instance <+> pp_head
   where
-    (fam_tc, tys) = famInstSplitLHS fi
-
     -- For *associated* types, say "type T Int = blah"
     -- For *top level* type instances, say "type instance T Int = blah"
     pp_instance
       | isTyConAssoc fam_tc = empty
       | otherwise           = ptext (sLit "instance")
 
-    pprHead = pprTypeApp fam_tc tys
+    (fam_tc, etad_lhs_tys) = famInstSplitLHS fi
+    vanilla_pp_head = pprTypeApp fam_tc etad_lhs_tys
+
+    pp_head | DataFamilyInst rep_tc <- flavor
+            , isAlgTyCon rep_tc
+            , let extra_tvs = dropList etad_lhs_tys (tyConTyVars rep_tc)
+            , not (null extra_tvs)
+            = getPprStyle $ \ sty ->
+              if debugStyle sty
+              then vanilla_pp_head   -- With -dppr-debug just show it as-is
+              else pprTypeApp fam_tc (etad_lhs_tys ++ mkTyVarTys extra_tvs)
+                     -- Without -dppr-debug, eta-expand
+                     -- See Trac #8674
+            | otherwise
+            = vanilla_pp_head
+
     pprTyConSort = case flavor of
                      SynFamilyInst        -> ptext (sLit "type")
                      DataFamilyInst tycon
@@ -198,7 +212,6 @@ pprFamInstHdr fi@(FamInst {fi_flavor = flavor})
 
 pprFamInsts :: [FamInst] -> SDoc
 pprFamInsts finsts = vcat (map pprFamInst finsts)
-
 \end{code}
 
 Note [Lazy axiom match]
@@ -353,6 +366,7 @@ extendFamInstEnv inst_env ins_item@(FamInst {fi_fam = cls_nm})
     add (FamIE items) _ = FamIE (ins_item:items)
 
 deleteFromFamInstEnv :: FamInstEnv -> FamInst -> FamInstEnv
+-- Used only for overriding in GHCi
 deleteFromFamInstEnv inst_env fam_inst@(FamInst {fi_fam = fam_nm})
  = adjustUFM adjust inst_env fam_nm
  where
@@ -361,13 +375,14 @@ deleteFromFamInstEnv inst_env fam_inst@(FamInst {fi_fam = fam_nm})
      = FamIE (filterOut (identicalFamInst fam_inst) items)
 
 identicalFamInst :: FamInst -> FamInst -> Bool
--- Same LHS, *and* the instance is defined in the same module
+-- Same LHS, *and* both instances are on the interactive command line
 -- Used for overriding in GHCi
 identicalFamInst (FamInst { fi_axiom = ax1 }) (FamInst { fi_axiom = ax2 })
-  =  nameModule (coAxiomName ax1) == nameModule (coAxiomName ax2)
-     && coAxiomTyCon ax1 == coAxiomTyCon ax2
-     && brListLength brs1 == brListLength brs2
-     && and (brListZipWith identical_ax_branch brs1 brs2)
+  =  isInteractiveModule (nameModule (coAxiomName ax1))
+  && isInteractiveModule (nameModule (coAxiomName ax2))
+  && coAxiomTyCon ax1 == coAxiomTyCon ax2
+  && brListLength brs1 == brListLength brs2
+  && and (brListZipWith identical_ax_branch brs1 brs2)
   where brs1 = coAxiomBranches ax1
         brs2 = coAxiomBranches ax2
         identical_ax_branch br1 br2

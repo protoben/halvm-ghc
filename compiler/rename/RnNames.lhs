@@ -9,6 +9,7 @@ module RnNames (
         rnExports, extendGlobalRdrEnvRn,
         gresFromAvails,
         reportUnusedNames,
+        checkConName
     ) where
 
 #include "HsVersions.h"
@@ -347,7 +348,7 @@ created by its bindings.
 
 Note [Top-level Names in Template Haskell decl quotes]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-See also: Note [Interactively-bound Ids in GHCi] in TcRnDriver
+See also: Note [Interactively-bound Ids in GHCi] in HscTypes
 
 Consider a Template Haskell declaration quotation like this:
       module M where
@@ -411,44 +412,41 @@ extendGlobalRdrEnvRn avails new_fixities
               inBracket = isBrackStage stage
               lcl_env_TH = lcl_env { tcl_rdr = delLocalRdrEnvList (tcl_rdr lcl_env) new_occs }
 
-              rdr_env_GHCi = delListFromOccEnv rdr_env new_occs
-                     -- This seems a bit brutal.
-                     -- Mightn't we lose some qualified bindings that we want?
-                     -- e.g.   ghci> import Prelude as Q
-                     --        ghci> data Int = Mk Q.Int
-                     -- This fails because we expunge the binding for Prelude.Q
+              lcl_env2 | inBracket = lcl_env_TH
+                       | otherwise = lcl_env
 
-              (rdr_env2, lcl_env2) | inBracket = (rdr_env,      lcl_env_TH)
-                                   | isGHCi    = (rdr_env_GHCi, lcl_env)
-                                   | otherwise = (rdr_env,      lcl_env)
+              rdr_env2  = extendGlobalRdrEnv (isGHCi && not inBracket) rdr_env avails
+                 -- Shadowing only applies for GHCi decls outside brackets
+                 -- e.g. (Trac #4127a)
+                 --   ghci> runQ [d| class C a where f :: a
+                 --                  f = True
+                 --                  instance C Int where f = 2 |]
+                 --   We don't want the f=True to shadow the f class-op
 
-              rdr_env3 = foldl extendGlobalRdrEnv rdr_env2 new_gres
               lcl_env3 = lcl_env2 { tcl_th_bndrs = extendNameEnvList th_bndrs
                                                        [ (n, (TopLevel, th_lvl))
                                                        | n <- new_names ] }
-              fix_env' = foldl extend_fix_env fix_env new_gres
-              dups = findLocalDupsRdrEnv rdr_env3 new_names
+              fix_env' = foldl extend_fix_env fix_env new_names
+              dups = findLocalDupsRdrEnv rdr_env2 new_names
 
-              gbl_env' = gbl_env { tcg_rdr_env = rdr_env3, tcg_fix_env = fix_env' }
+              gbl_env' = gbl_env { tcg_rdr_env = rdr_env2, tcg_fix_env = fix_env' }
 
-        ; traceRn (text "extendGlobalRdrEnvRn dups" <+> (ppr dups))
+        ; traceRn (text "extendGlobalRdrEnvRn 1" <+> (ppr avails $$ (ppr dups)))
         ; mapM_ (addDupDeclErr . map gre_name) dups
 
-        ; traceRn (text "extendGlobalRdrEnvRn" <+> (ppr new_fixities $$ ppr fix_env $$ ppr fix_env'))
+        ; traceRn (text "extendGlobalRdrEnvRn 2" <+> (pprGlobalRdrEnv True rdr_env2))
         ; return (gbl_env', lcl_env3) }
   where
-    new_gres = gresFromAvails LocalDef avails
-    new_names = map gre_name new_gres
+    new_names = concatMap availNames avails
     new_occs  = map nameOccName new_names
 
     -- If there is a fixity decl for the gre, add it to the fixity env
-    extend_fix_env fix_env gre
+    extend_fix_env fix_env name
       | Just (L _ fi) <- lookupFsEnv new_fixities (occNameFS occ)
       = extendNameEnv fix_env name (FixItem occ fi)
       | otherwise
       = fix_env
       where
-        name = gre_name gre
         occ  = nameOccName name
 \end{code}
 
@@ -476,6 +474,7 @@ getLocalNonValBinders fixity_env
                 hs_fords  = foreign_decls })
   = do  { -- Process all type/class decls *except* family instances
         ; tc_avails <- mapM new_tc (tyClGroupConcat tycl_decls)
+        ; traceRn (text "getLocalNonValBinders 1" <+> ppr tc_avails)
         ; envs <- extendGlobalRdrEnvRn tc_avails fixity_env
         ; setEnvs envs $ do {
             -- Bring these things into scope first
@@ -496,23 +495,28 @@ getLocalNonValBinders fixity_env
         ; let avails    = nti_avails ++ val_avails
               new_bndrs = availsToNameSet avails `unionNameSets`
                           availsToNameSet tc_avails
+        ; traceRn (text "getLocalNonValBinders 2" <+> ppr avails)
         ; envs <- extendGlobalRdrEnvRn avails fixity_env
         ; return (envs, new_bndrs) } }
   where
     for_hs_bndrs :: [Located RdrName]
-    for_hs_bndrs = [nm | L _ (ForeignImport nm _ _ _) <- foreign_decls]
+    for_hs_bndrs = [ L decl_loc (unLoc nm)
+                   | L decl_loc (ForeignImport nm _ _ _) <- foreign_decls]
 
     -- In a hs-boot file, the value binders come from the
     --  *signatures*, and there should be no foreign binders
-    hs_boot_sig_bndrs = [n | L _ (TypeSig ns _) <- val_sigs, n <- ns]
+    hs_boot_sig_bndrs = [ L decl_loc (unLoc n)
+                        | L decl_loc (TypeSig ns _) <- val_sigs, n <- ns]
     ValBindsIn _ val_sigs = val_binds
 
+      -- the SrcSpan attached to the input should be the span of the
+      -- declaration, not just the name
     new_simple :: Located RdrName -> RnM AvailInfo
     new_simple rdr_name = do{ nm <- newTopSrcBinder rdr_name
                             ; return (Avail nm) }
 
     new_tc tc_decl              -- NOT for type/data instances
-        = do { let bndrs = hsTyClDeclBinders (unLoc tc_decl)
+        = do { let bndrs = hsLTyClDeclBinders tc_decl
              ; names@(main_name : _) <- mapM newTopSrcBinder bndrs
              ; return (AvailTC main_name names) }
 
@@ -1686,4 +1690,21 @@ moduleWarn mod (DeprecatedTxt txt)
 packageImportErr :: SDoc
 packageImportErr
   = ptext (sLit "Package-qualified imports are not enabled; use PackageImports")
+
+-- This data decl will parse OK
+--      data T = a Int
+-- treating "a" as the constructor.
+-- It is really hard to make the parser spot this malformation.
+-- So the renamer has to check that the constructor is legal
+--
+-- We can get an operator as the constructor, even in the prefix form:
+--      data T = :% Int Int
+-- from interface files, which always print in prefix form
+
+checkConName :: RdrName -> TcRn ()
+checkConName name = checkErr (isRdrDataCon name) (badDataCon name)
+
+badDataCon :: RdrName -> SDoc
+badDataCon name
+   = hsep [ptext (sLit "Illegal data constructor name"), quotes (ppr name)]
 \end{code}

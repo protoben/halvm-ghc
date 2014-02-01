@@ -49,7 +49,7 @@ import FastString
 import Panic
 import Util
 import Annotations
-import BasicTypes( TopLevelFlag )
+import BasicTypes( TopLevelFlag, Origin )
 
 import Control.Exception
 import Data.IORef
@@ -150,6 +150,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod do_this
                 tcg_rules          = [],
                 tcg_fords          = [],
                 tcg_vects          = [],
+                tcg_patsyns        = [],
                 tcg_dfun_n         = dfun_n_var,
                 tcg_keep           = keep_var,
                 tcg_doc_hdr        = Nothing,
@@ -199,17 +200,21 @@ initTc hsc_env hsc_src keep_rn_syntax mod do_this
         return (msgs, final_res)
     }
 
-initTcPrintErrors       -- Used from the interactive loop only
-       :: HscEnv
-       -> Module
-       -> TcM r
-       -> IO (Messages, Maybe r)
 
-initTcPrintErrors env mod todo = initTc env HsSrcFile False mod todo
+initTcInteractive :: HscEnv -> TcM a -> IO (Messages, Maybe a)
+-- Initialise the type checker monad for use in GHCi
+initTcInteractive hsc_env thing_inside
+  = initTc hsc_env HsSrcFile False
+           (icInteractiveModule (hsc_IC hsc_env))
+           thing_inside
 
 initTcForLookup :: HscEnv -> TcM a -> IO a
-initTcForLookup hsc_env tcm
-    = do (msgs, m) <- initTc hsc_env HsSrcFile False iNTERACTIVE tcm
+-- The thing_inside is just going to look up something
+-- in the environment, so we don't need much setup
+initTcForLookup hsc_env thing_inside
+    = do (msgs, m) <- initTc hsc_env HsSrcFile False
+                             (icInteractiveModule (hsc_IC hsc_env))  -- Irrelevant really
+                             thing_inside
          case m of
              Nothing -> throwIO $ mkSrcErr $ snd msgs
              Just x -> return x
@@ -518,7 +523,8 @@ setModule :: Module -> TcRn a -> TcRn a
 setModule mod thing_inside = updGblEnv (\env -> env { tcg_mod = mod }) thing_inside
 
 getIsGHCi :: TcRn Bool
-getIsGHCi = do { mod <- getModule; return (mod == iNTERACTIVE) }
+getIsGHCi = do { mod <- getModule
+               ; return (isInteractiveModule mod) }
 
 getGHCiMonad :: TcRn Name
 getGHCiMonad = do { hsc <- getTopEnv; return (ic_monad $ hsc_IC hsc) }
@@ -581,6 +587,11 @@ addLocM fn (L loc a) = setSrcSpan loc $ fn a
 
 wrapLocM :: (a -> TcM b) -> Located a -> TcM (Located b)
 wrapLocM fn (L loc a) = setSrcSpan loc $ do b <- fn a; return (L loc b)
+
+wrapOriginLocM :: (a -> TcM r) -> (Origin, Located a) -> TcM (Origin, Located r)
+wrapOriginLocM fn (origin, lbind)
+  = do  { lbind' <- wrapLocM fn lbind
+        ; return (origin, lbind') }
 
 wrapLocFstM :: (a -> TcM (b,c)) -> Located a -> TcM (Located b, c)
 wrapLocFstM fn (L loc a) =
@@ -1314,7 +1325,8 @@ forkM_maybe doc thing_inside
  --     does not get updated atomically (e.g. in newUnique and newUniqueSupply).
  = do { child_us <- newUniqueSupply
       ; child_env_us <- newMutVar child_us
-      ; unsafeInterleaveM $ updEnv (\env -> env { env_us = child_env_us }) $
+        -- see Note [Masking exceptions in forkM_maybe]
+      ; unsafeInterleaveM $ uninterruptibleMaskM_ $ updEnv (\env -> env { env_us = child_env_us }) $
         do { traceIf (text "Starting fork {" <+> doc)
            ; mb_res <- tryM $
                        updLclEnv (\env -> env { if_loc = if_loc env $$ doc }) $
@@ -1345,3 +1357,19 @@ forkM doc thing_inside
                                    -- pprPanic "forkM" doc
                         Just r  -> r) }
 \end{code}
+
+Note [Masking exceptions in forkM_maybe]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When using GHC-as-API it must be possible to interrupt snippets of code
+executed using runStmt (#1381). Since commit 02c4ab04 this is almost possible
+by throwing an asynchronous interrupt to the GHC thread. However, there is a
+subtle problem: runStmt first typechecks the code before running it, and the
+exception might interrupt the type checker rather than the code. Moreover, the
+typechecker might be inside an unsafeInterleaveIO (through forkM_maybe), and
+more importantly might be inside an exception handler inside that
+unsafeInterleaveIO. If that is the case, the exception handler will rethrow the
+asynchronous exception as a synchronous exception, and the exception will end
+up as the value of the unsafeInterleaveIO thunk (see #8006 for a detailed
+discussion).  We don't currently know a general solution to this problem, but
+we can use uninterruptibleMask_ to avoid the situation. 

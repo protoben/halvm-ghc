@@ -17,9 +17,11 @@ import MkIface
 import Id
 import Name
 import Type
+import FamInstEnv
 import InstEnv
 import Class
 import Avail
+import PatSyn
 import CoreSyn
 import CoreSubst
 import PprCore
@@ -28,10 +30,8 @@ import DsExpr
 import DsBinds
 import DsForeign
 import Module
-import RdrName
 import NameSet
 import NameEnv
-import FamInstEnv       ( FamInstEnv )
 import Rules
 import BasicTypes       ( Activation(.. ) )
 import CoreMonad        ( endPass, CoreToDo(..) )
@@ -46,6 +46,8 @@ import OrdList
 import Data.List
 import Data.IORef
 import Control.Monad( when )
+import Data.Maybe ( mapMaybe )
+import UniqFM
 \end{code}
 
 %************************************************************************
@@ -81,6 +83,7 @@ deSugar hsc_env
                             tcg_fords        = fords,
                             tcg_rules        = rules,
                             tcg_vects        = vects,
+                            tcg_patsyns      = patsyns,
                             tcg_tcs          = tcs,
                             tcg_insts        = insts,
                             tcg_fam_insts    = fam_insts,
@@ -116,21 +119,27 @@ deSugar hsc_env
                           ; let hpc_init
                                   | gopt Opt_Hpc dflags = hpcInitCode mod ds_hpc_info
                                   | otherwise = empty
+                          ; let patsyn_defs = [(patSynId ps, ps) | ps <- patsyns]
                           ; return ( ds_ev_binds
                                    , foreign_prs `appOL` core_prs `appOL` spec_prs
                                    , spec_rules ++ ds_rules, ds_vects
-                                   , ds_fords `appendStubC` hpc_init ) }
+                                   , ds_fords `appendStubC` hpc_init
+                                   , patsyn_defs) }
 
         ; case mb_res of {
            Nothing -> return (msgs, Nothing) ;
-           Just (ds_ev_binds, all_prs, all_rules, vects0, ds_fords) ->
+           Just (ds_ev_binds, all_prs, all_rules, vects0, ds_fords, patsyn_defs) -> do
 
      do {       -- Add export flags to bindings
           keep_alive <- readIORef keep_var
         ; let (rules_for_locals, rules_for_imps)
                    = partition isLocalRule all_rules
+              final_patsyns = addExportFlagsAndRules target export_set keep_alive [] patsyn_defs
+              exp_patsyn_wrappers = mapMaybe (patSynWrapper . snd) final_patsyns
+              exp_patsyn_matchers = map (patSynMatcher . snd) final_patsyns
+              keep_alive' = addListToUFM keep_alive (map (\x -> (x, getName x)) (exp_patsyn_wrappers ++ exp_patsyn_matchers))
               final_prs = addExportFlagsAndRules target
-                              export_set keep_alive rules_for_locals (fromOL all_prs)
+                              export_set keep_alive' rules_for_locals (fromOL all_prs)
 
               final_pgm = combineEvBinds ds_ev_binds final_prs
         -- Notice that we put the whole lot in a big Rec, even the foreign binds
@@ -174,6 +183,7 @@ deSugar hsc_env
                 mg_fam_insts    = fam_insts,
                 mg_inst_env     = inst_env,
                 mg_fam_inst_env = fam_inst_env,
+                mg_patsyns      = map snd . filter (isExportedId . fst) $ final_patsyns,
                 mg_rules        = ds_rules_for_imps,
                 mg_binds        = ds_binds,
                 mg_foreign      = ds_fords,
@@ -218,29 +228,29 @@ and Rec the rest.
 
 
 \begin{code}
-deSugarExpr :: HscEnv
-            -> Module -> GlobalRdrEnv -> TypeEnv -> FamInstEnv
-            -> LHsExpr Id
-            -> IO (Messages, Maybe CoreExpr)
--- Prints its own errors; returns Nothing if error occurred
+deSugarExpr :: HscEnv -> LHsExpr Id -> IO (Messages, Maybe CoreExpr)
 
-deSugarExpr hsc_env this_mod rdr_env type_env fam_inst_env tc_expr
-  = do { let dflags = hsc_dflags hsc_env
+deSugarExpr hsc_env tc_expr
+  = do { let dflags       = hsc_dflags hsc_env
+             icntxt       = hsc_IC hsc_env
+             rdr_env      = ic_rn_gbl_env icntxt
+             type_env     = mkTypeEnvWithImplicits (ic_tythings icntxt)
+             fam_insts    = snd (ic_instances icntxt)
+             fam_inst_env = extendFamInstEnvList emptyFamInstEnv fam_insts
+             -- This stuff is a half baked version of TcRnDriver.setInteractiveContext
+
        ; showPass dflags "Desugar"
 
          -- Do desugaring
-       ; (msgs, mb_core_expr) <- initDs hsc_env this_mod rdr_env
+       ; (msgs, mb_core_expr) <- initDs hsc_env (icInteractiveModule icntxt) rdr_env
                                         type_env fam_inst_env $
                                  dsLExpr tc_expr
 
-       ; case mb_core_expr of {
-            Nothing   -> return (msgs, Nothing) ;
-            Just expr ->
- 
-         -- Dump output
-    do { dumpIfSet_dyn dflags Opt_D_dump_ds "Desugared" (pprCoreExpr expr)
+       ; case mb_core_expr of
+            Nothing   -> return ()
+            Just expr -> dumpIfSet_dyn dflags Opt_D_dump_ds "Desugared" (pprCoreExpr expr)
 
-       ; return (msgs, Just expr) } } }
+       ; return (msgs, mb_core_expr) }
 \end{code}
 
 %************************************************************************

@@ -38,7 +38,7 @@ module Coercion (
         splitAppCo_maybe,
         splitForAllCo_maybe,
         nthRole, tyConRolesX,
-        tvUsedAtNominalRole, nextRole,
+        nextRole,
 
         -- ** Coercion variables
         mkCoVar, isCoVar, isCoVarType, coVarName, setCoVarName, setCoVarUnique,
@@ -1021,7 +1021,7 @@ mkSubCo (Refl Nominal ty) = Refl Representational ty
 mkSubCo (TyConAppCo Nominal tc cos)
   = TyConAppCo Representational tc (applyRoles tc cos)
 mkSubCo (UnivCo Nominal ty1 ty2) = UnivCo Representational ty1 ty2
-mkSubCo co = ASSERT2( coercionRole co == Nominal, ppr co )
+mkSubCo co = ASSERT2( coercionRole co == Nominal, ppr co <+> ppr (coercionRole co) )
              SubCo co
 
 
@@ -1103,21 +1103,6 @@ ltRole Representational _       = False
 ltRole Nominal          Nominal = False
 ltRole Nominal          _       = True
 
--- Is the given tyvar used in a nominal position anywhere?
--- This is used in the GeneralizedNewtypeDeriving check.
-tvUsedAtNominalRole :: TyVar -> Type -> Bool
-tvUsedAtNominalRole tv = go Representational
-  where go r (TyVarTy tv')
-          | tv == tv' = (r == Nominal)
-          | otherwise = False
-        go r (AppTy t1 t2)      = go r t1 || go Nominal t2
-        go r (TyConApp tc args) = or $ zipWith go (tyConRolesX r tc) args
-        go r (FunTy t1 t2)      = go r t1 || go r t2
-        go r (ForAllTy qtv ty)
-          | tv == qtv  = False -- shadowed
-          | otherwise  = go r ty
-        go _ (LitTy _) = False
-
 -- if we wish to apply `co` to some other coercion, what would be its best
 -- role?
 nextRole :: Coercion -> Role
@@ -1175,11 +1160,12 @@ mkCoCast c g
 %************************************************************************
 
 \begin{code}
-instNewTyCon_maybe :: TyCon -> [Type] -> Maybe (Type, Coercion)
--- ^ If @co :: T ts ~ rep_ty@ then:
+-- | If @co :: T ts ~ rep_ty@ then:
 --
 -- > instNewTyCon_maybe T ts = Just (rep_ty, co)
+--
 -- Checks for a newtype, and for being saturated
+instNewTyCon_maybe :: TyCon -> [Type] -> Maybe (Type, Coercion)
 instNewTyCon_maybe tc tys
   | Just (tvs, ty, co_tc) <- unwrapNewTyCon_maybe tc  -- Check for newtype
   , tys `lengthIs` tyConArity tc                      -- Check saturated
@@ -1199,6 +1185,12 @@ topNormaliseNewType_maybe :: Type -> Maybe (Coercion, Type)
 --
 -- The function returns @Nothing@ for non-@newtypes@,
 -- or unsaturated applications
+--
+-- This function does *not* look through type families, because it has no access to
+-- the type family environment. If you do have that at hand, consider to use
+-- topNormaliseType_maybe, which should be a drop-in replacement for
+-- topNormaliseNewType_maybe
+--
 topNormaliseNewType_maybe ty
   = go initRecTc Nothing ty
   where

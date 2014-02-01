@@ -849,7 +849,7 @@ kindErrorMsg ty1 ty2
 --------------------
 misMatchMsg :: Maybe SwapFlag -> TcType -> TcType -> SDoc	   -- Types are already tidy
 -- If oriented then ty1 is actual, ty2 is expected
-misMatchMsg oriented ty1 ty2  
+misMatchMsg oriented ty1 ty2
   | Just IsSwapped <- oriented
   = misMatchMsg (Just NotSwapped) ty2 ty1
   | Just NotSwapped <- oriented
@@ -858,8 +858,9 @@ misMatchMsg oriented ty1 ty2
         , sameOccExtra ty2 ty1 ]
   | otherwise
   = sep [ ptext (sLit "Couldn't match") <+> what <+> quotes (ppr ty1)
-        , nest 14 $ ptext (sLit "with") <+> quotes (ppr ty2) ]
-  where 
+        , nest 14 $ ptext (sLit "with") <+> quotes (ppr ty2)
+        , sameOccExtra ty1 ty2 ]
+  where
     what | isKind ty1 = ptext (sLit "kind")
          | otherwise  = ptext (sLit "type")
 
@@ -876,6 +877,7 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp }
 mkExpectedActualMsg _ _ _ = panic "mkExprectedAcutalMsg"
 
 sameOccExtra :: TcType -> TcType -> SDoc
+-- See Note [Disambiguating (X ~ X) errors]
 sameOccExtra ty1 ty2
   | Just (tc1, _) <- tcSplitTyConApp_maybe ty1
   , Just (tc2, _) <- tcSplitTyConApp_maybe ty2
@@ -890,6 +892,10 @@ sameOccExtra ty1 ty2
   = empty
   where
     ppr_from same_pkg nm
+      | isGoodSrcSpan loc
+      = hang (quotes (ppr nm) <+> ptext (sLit "is defined at"))
+           2 (ppr loc)
+      | otherwise  -- Imported things have an UnhelpfulSrcSpan
       = hang (quotes (ppr nm))
            2 (sep [ ptext (sLit "is defined in") <+> quotes (ppr (moduleName mod))
                   , ppUnless (same_pkg || pkg == mainPackageId) $
@@ -897,7 +903,12 @@ sameOccExtra ty1 ty2
        where
          pkg = modulePackageId mod
          mod = nameModule nm
+         loc = nameSrcSpan nm
 \end{code}
+
+Note [Disambiguating (X ~ X) errors]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+See Trac #8278
 
 Note [Reporting occurs-check errors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1002,8 +1013,7 @@ mk_dict_err ctxt (ct, (matches, unifiers, safe_haskell))
     all_tyvars  = all isTyVarTy tys
 
     cannot_resolve_msg safe_mod rdr_env has_ambig_tvs binds_msg ambig_msg
-      = vcat [ addArising orig (no_inst_herald <+> pprParendType pred $$
-                                coercible_msg safe_mod rdr_env)
+      = vcat [ addArising orig (no_inst_msg $$ coercible_explanation safe_mod rdr_env)
              , vcat (pp_givens givens)
              , ppWhen (has_ambig_tvs && not (null unifiers && null givens))
                (vcat [ ambig_msg, binds_msg, potential_msg ])
@@ -1039,13 +1049,21 @@ mk_dict_err ctxt (ct, (matches, unifiers, safe_haskell))
                          SigSkol (InfSigCtxt {}) _ -> Nothing
                          origin                    -> Just origin
 
-    no_inst_herald
-      | null givens && null matches = ptext (sLit "No instance for")
-      | otherwise                   = ptext (sLit "Could not deduce")
+    no_inst_msg
+      | clas == coercibleClass
+      = let (ty1, ty2) = getEqPredTys pred
+        in ptext (sLit "Could not coerce from") <+> quotes (ppr ty1) <+>
+           ptext (sLit "to") <+> quotes (ppr ty2)
+      | null givens && null matches
+      = ptext (sLit "No instance for")  <+> pprParendType pred
+      | otherwise
+      = ptext (sLit "Could not deduce") <+> pprParendType pred
 
     drv_fixes = case orig of
-                   DerivOrigin -> [drv_fix]
-                   _           -> []
+                   DerivOrigin      -> [drv_fix]
+                   DerivOriginDC {} -> [drv_fix]
+                   DerivOriginCoerce {} -> [drv_fix]
+                   _                -> []
 
     drv_fix = hang (ptext (sLit "use a standalone 'deriving instance' declaration,"))
                  2 (ptext (sLit "so you can specify the instance context yourself"))
@@ -1120,7 +1138,7 @@ mk_dict_err ctxt (ct, (matches, unifiers, safe_haskell))
     -- This function tries to reconstruct why a "Coercible ty1 ty2" constraint
     -- is left over. Therefore its logic has to stay in sync with
     -- getCoericbleInst in TcInteract. See Note [Coercible Instances]
-    coercible_msg safe_mod rdr_env
+    coercible_explanation safe_mod rdr_env
       | clas /= coercibleClass = empty
       | Just (tc1,tyArgs1) <- splitTyConApp_maybe ty1,
         Just (tc2,tyArgs2) <- splitTyConApp_maybe ty2,
@@ -1162,7 +1180,7 @@ mk_dict_err ctxt (ct, (matches, unifiers, safe_haskell))
                         ptext $ sLit "and", quotes (ppr ty2),
                         ptext $ sLit "are different types." ]
       where
-        (clas, ~[_k, ty1,ty2]) = getClassPredTys (ctPred ct)
+        (ty1, ty2) = getEqPredTys pred
 
     dataConMissing rdr_env tc =
         all (null . lookupGRE_Name rdr_env) (map dataConName (tyConDataCons tc))

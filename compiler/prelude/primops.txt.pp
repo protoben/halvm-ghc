@@ -61,7 +61,7 @@ defaults
    can_fail         = False   -- See Note Note [PrimOp can_fail and has_side_effects] in PrimOp
    commutable       = False
    code_size        = { primOpCodeSizeDefault }
-   strictness       = { \ arity -> mkStrictSig (mkTopDmdType (replicate arity topDmd) topRes) }
+   strictness       = { \ arity -> mkClosedStrictSig (replicate arity topDmd) topRes }
    fixity           = Nothing
    llvm_only        = False
    vector           = []
@@ -1618,15 +1618,15 @@ primop  CatchOp "catch#" GenPrimOp
    with
 	-- Catch is actually strict in its first argument
 	-- but we don't want to tell the strictness
-	-- analyser about that!
-        -- might use caught action multiply
+	-- analyser about that, so that exceptions stay inside it.
+   strictness  = { \ _arity -> mkClosedStrictSig [apply1Dmd,apply2Dmd,topDmd] topRes }
    out_of_line = True
    has_side_effects = True
 
 primop  RaiseOp "raise#" GenPrimOp
    a -> b
    with
-   strictness  = { \ _arity -> mkStrictSig (mkTopDmdType [topDmd] botRes) }
+   strictness  = { \ _arity -> mkClosedStrictSig [topDmd] botRes }
       -- NB: result is bottom
    out_of_line = True
 
@@ -1643,7 +1643,7 @@ primop  RaiseOp "raise#" GenPrimOp
 primop  RaiseIOOp "raiseIO#" GenPrimOp
    a -> State# RealWorld -> (# State# RealWorld, b #)
    with
-   strictness  = { \ _arity -> mkStrictSig (mkTopDmdType [topDmd, topDmd] botRes) }
+   strictness  = { \ _arity -> mkClosedStrictSig [topDmd, topDmd] botRes }
    out_of_line = True
    has_side_effects = True
 
@@ -1651,6 +1651,7 @@ primop  MaskAsyncExceptionsOp "maskAsyncExceptions#" GenPrimOp
         (State# RealWorld -> (# State# RealWorld, a #))
      -> (State# RealWorld -> (# State# RealWorld, a #))
    with
+   strictness  = { \ _arity -> mkClosedStrictSig [apply1Dmd,topDmd] topRes }
    out_of_line = True
    has_side_effects = True
 
@@ -1658,6 +1659,7 @@ primop  MaskUninterruptibleOp "maskUninterruptible#" GenPrimOp
         (State# RealWorld -> (# State# RealWorld, a #))
      -> (State# RealWorld -> (# State# RealWorld, a #))
    with
+   strictness  = { \ _arity -> mkClosedStrictSig [apply1Dmd,topDmd] topRes }
    out_of_line = True
    has_side_effects = True
 
@@ -1665,6 +1667,7 @@ primop  UnmaskAsyncExceptionsOp "unmaskAsyncExceptions#" GenPrimOp
         (State# RealWorld -> (# State# RealWorld, a #))
      -> (State# RealWorld -> (# State# RealWorld, a #))
    with
+   strictness  = { \ _arity -> mkClosedStrictSig [apply1Dmd,topDmd] topRes }
    out_of_line = True
    has_side_effects = True
 
@@ -1684,6 +1687,7 @@ primop	AtomicallyOp "atomically#" GenPrimOp
       (State# RealWorld -> (# State# RealWorld, a #) )
    -> State# RealWorld -> (# State# RealWorld, a #)
    with
+   strictness  = { \ _arity -> mkClosedStrictSig [apply1Dmd,topDmd] topRes }
    out_of_line = True
    has_side_effects = True
 
@@ -1700,7 +1704,7 @@ primop	AtomicallyOp "atomically#" GenPrimOp
 primop  RetryOp "retry#" GenPrimOp
    State# RealWorld -> (# State# RealWorld, a #)
    with
-   strictness  = { \ _arity -> mkStrictSig (mkTopDmdType [topDmd] botRes) }
+   strictness  = { \ _arity -> mkClosedStrictSig [topDmd] botRes }
    out_of_line = True
    has_side_effects = True
 
@@ -1709,6 +1713,7 @@ primop  CatchRetryOp "catchRetry#" GenPrimOp
    -> (State# RealWorld -> (# State# RealWorld, a #) )
    -> (State# RealWorld -> (# State# RealWorld, a #) )
    with
+   strictness  = { \ _arity -> mkClosedStrictSig [apply1Dmd,apply1Dmd,topDmd] topRes }
    out_of_line = True
    has_side_effects = True
 
@@ -1717,6 +1722,7 @@ primop  CatchSTMOp "catchSTM#" GenPrimOp
    -> (b -> State# RealWorld -> (# State# RealWorld, a #) )
    -> (State# RealWorld -> (# State# RealWorld, a #) )
    with
+   strictness  = { \ _arity -> mkClosedStrictSig [apply1Dmd,apply2Dmd,topDmd] topRes }
    out_of_line = True
    has_side_effects = True
 
@@ -2159,7 +2165,7 @@ section "Tag to enum stuff"
 primop  DataToTagOp "dataToTag#" GenPrimOp
    a -> Int#
    with
-   strictness  = { \ _arity -> mkStrictSig (mkTopDmdType [evalDmd] topRes) }
+   strictness  = { \ _arity -> mkClosedStrictSig [evalDmd] topRes }
 
 	-- dataToTag# must have an evaluated argument
 
@@ -2221,6 +2227,18 @@ primop  GetCurrentCCSOp "getCurrentCCS#" GenPrimOp
 section "Etc"
 	{Miscellaneous built-ins}
 ------------------------------------------------------------------------
+
+primtype Proxy# a
+   { The type constructor {\tt Proxy#} is used to bear witness to some
+   type variable. It's used when you want to pass around proxy values
+   for doing things like modelling type applications. A {\tt Proxy#}
+   is not only unboxed, it also has a polymorphic kind, and has no
+   runtime representation, being totally free. }
+
+pseudoop "proxy#"
+   Proxy# a
+   { Witness for an unboxed {\tt Proxy#} value, which has no runtime
+   representation. }
 
 pseudoop   "seq"
    a -> b -> b
@@ -2372,7 +2390,7 @@ primclass Coercible a b
 
      In SafeHaskell code, this instance is only usable if the constructors of
      every type constructor used in the definition of {\tt D} (including
-     those of {\tt D} itself) is in scope.
+     those of {\tt D} itself) are in scope.
 
      The third kind of instance exists for every {\tt newtype NT = MkNT T} and
      comes in two variants, namely

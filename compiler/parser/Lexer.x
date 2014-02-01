@@ -59,7 +59,9 @@ module Lexer (
    typeLiteralsEnabled,
    explicitForallEnabled,
    inRulePrag,
-   explicitNamespacesEnabled, sccProfilingOn, hpcEnabled,
+   explicitNamespacesEnabled,
+   patternSynonymsEnabled,
+   sccProfilingOn, hpcEnabled,
    addWarning,
    lexTokenStream
   ) where
@@ -489,6 +491,7 @@ data Token
   | ITgroup
   | ITby
   | ITusing
+  | ITpattern
 
   -- Pragmas
   | ITinline_prag InlineSpec RuleMatchInfo
@@ -667,6 +670,7 @@ reservedWordsFM = listToUFM $
              -- See Note [Lexing type pseudo-keywords]
          ( "family",         ITfamily,        0 ),
          ( "role",           ITrole,          0 ),
+         ( "pattern",        ITpattern,       bit patternSynonymsBit),
          ( "group",          ITgroup,         bit transformComprehensionsBit),
          ( "by",             ITby,            bit transformComprehensionsBit),
          ( "using",          ITusing,         bit transformComprehensionsBit),
@@ -1872,7 +1876,8 @@ explicitForallBit = 7 -- the 'forall' keyword and '.' symbol
 bangPatBit :: Int
 bangPatBit = 8  -- Tells the parser to understand bang-patterns
                 -- (doesn't affect the lexer)
--- Bit #9 is available!
+patternSynonymsBit :: Int
+patternSynonymsBit = 9 -- pattern synonyms
 haddockBit :: Int
 haddockBit = 10 -- Lex and parse Haddock comments
 magicHashBit :: Int
@@ -1917,7 +1922,6 @@ lambdaCaseBit :: Int
 lambdaCaseBit = 30
 negativeLiteralsBit :: Int
 negativeLiteralsBit = 31
--- need another bit? See bit 9 above.
 
 
 always :: Int -> Bool
@@ -1973,6 +1977,8 @@ lambdaCaseEnabled :: Int -> Bool
 lambdaCaseEnabled flags = testBit flags lambdaCaseBit
 negativeLiteralsEnabled :: Int -> Bool
 negativeLiteralsEnabled flags = testBit flags negativeLiteralsBit
+patternSynonymsEnabled :: Int -> Bool
+patternSynonymsEnabled flags = testBit flags patternSynonymsBit
 
 -- PState for parsing options pragmas
 --
@@ -2036,6 +2042,7 @@ mkPState flags buf loc =
                .|. explicitNamespacesBit       `setBitIf` xopt Opt_ExplicitNamespaces flags
                .|. lambdaCaseBit               `setBitIf` xopt Opt_LambdaCase               flags
                .|. negativeLiteralsBit         `setBitIf` xopt Opt_NegativeLiterals         flags
+               .|. patternSynonymsBit          `setBitIf` xopt Opt_PatternSynonyms          flags
       --
       setBitIf :: Int -> Bool -> Int
       b `setBitIf` cond | cond      = bit b
@@ -2058,11 +2065,11 @@ setContext :: [LayoutContext] -> P ()
 setContext ctx = P $ \s -> POk s{context=ctx} ()
 
 popContext :: P ()
-popContext = P $ \ s@(PState{ buffer = buf, context = ctx,
+popContext = P $ \ s@(PState{ buffer = buf, dflags = flags, context = ctx,
                               last_len = len, last_loc = last_loc }) ->
   case ctx of
         (_:tl) -> POk s{ context = tl } ()
-        []     -> PFailed (RealSrcSpan last_loc) (srcParseErr buf len)
+        []     -> PFailed (RealSrcSpan last_loc) (srcParseErr flags buf len)
 
 -- Push a new layout context at the indentation of the last token read.
 -- This is only used at the outer level of a module when the 'module'
@@ -2084,24 +2091,26 @@ getOffside = P $ \s@PState{last_loc=loc, context=stk} ->
 -- Construct a parse error
 
 srcParseErr
-  :: StringBuffer       -- current buffer (placed just after the last token)
+  :: DynFlags
+  -> StringBuffer       -- current buffer (placed just after the last token)
   -> Int                -- length of the previous token
   -> MsgDoc
-srcParseErr buf len
-  = hcat [ if null token
-             then ptext (sLit "parse error (possibly incorrect indentation or mismatched brackets)")
-             else hcat [ptext (sLit "parse error on input "),
-                        char '`', text token, char '\'']
-    ]
+srcParseErr dflags buf len
+  = if null token
+         then ptext (sLit "parse error (possibly incorrect indentation or mismatched brackets)")
+         else ptext (sLit "parse error on input") <+> quotes (text token)
+              $$ ppWhen (not th_enabled && token == "$") -- #7396
+                        (text "Perhaps you intended to use TemplateHaskell")
   where token = lexemeToString (offsetBytes (-len) buf) len
+        th_enabled = xopt Opt_TemplateHaskell dflags
 
 -- Report a parse failure, giving the span of the previous token as
 -- the location of the error.  This is the entry point for errors
 -- detected during parsing.
 srcParseFail :: P a
-srcParseFail = P $ \PState{ buffer = buf, last_len = len,
+srcParseFail = P $ \PState{ buffer = buf, dflags = flags, last_len = len,
                             last_loc = last_loc } ->
-    PFailed (RealSrcSpan last_loc) (srcParseErr buf len)
+    PFailed (RealSrcSpan last_loc) (srcParseErr flags buf len)
 
 -- A lexical error is reported at a particular position in the source file,
 -- not over a token range.

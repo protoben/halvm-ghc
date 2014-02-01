@@ -64,7 +64,7 @@ import RdrName          ( RdrName, isRdrTyVar, isRdrTc, mkUnqual, rdrNameOcc,
 import OccName          ( tcClsName, isVarNameSpace )
 import Name             ( Name )
 import BasicTypes       ( maxPrecedence, Activation(..), RuleMatchInfo,
-                          InlinePragma(..), InlineSpec(..) )
+                          InlinePragma(..), InlineSpec(..), Origin(..) )
 import TcEvidence       ( idHsWrapper )
 import Lexer
 import TysWiredIn       ( unitTyCon, unitDataCon )
@@ -75,7 +75,7 @@ import PrelNames        ( forall_tv_RDR )
 import DynFlags
 import SrcLoc
 import OrdList          ( OrdList, fromOL )
-import Bag              ( Bag, emptyBag, consBag )
+import Bag              ( emptyBag, consBag )
 import Outputable
 import FastString
 import Maybes
@@ -127,7 +127,7 @@ mkClassDecl loc (L _ (mcxt, tycl_hdr)) fds where_cls
        ; (cls, tparams) <- checkTyClHdr tycl_hdr
        ; tyvars <- checkTyVars (ptext (sLit "class")) whereDots
                                cls tparams      -- Only type vars allowed
-       ; return (L loc (ClassDecl { tcdCtxt = cxt, tcdLName = reLocate loc cls, tcdTyVars = tyvars,
+       ; return (L loc (ClassDecl { tcdCtxt = cxt, tcdLName = cls, tcdTyVars = tyvars,
                                     tcdFDs = unLoc fds, tcdSigs = sigs, tcdMeths = binds,
                                     tcdATs = ats, tcdATDefs = at_defs, tcdDocs  = docs,
                                     tcdFVs = placeHolderNames })) }
@@ -144,7 +144,7 @@ mkTyData loc new_or_data cType (L _ (mcxt, tycl_hdr)) ksig data_cons maybe_deriv
   = do { (tc, tparams) <- checkTyClHdr tycl_hdr
        ; tyvars <- checkTyVars (ppr new_or_data) equalsDots tc tparams
        ; defn <- mkDataDefn new_or_data cType mcxt ksig data_cons maybe_deriv
-       ; return (L loc (DataDecl { tcdLName = reLocate loc tc, tcdTyVars = tyvars,
+       ; return (L loc (DataDecl { tcdLName = tc, tcdTyVars = tyvars,
                                    tcdDataDefn = defn,
                                    tcdFVs = placeHolderNames })) }
 
@@ -159,7 +159,7 @@ mkDataDefn new_or_data cType mcxt ksig data_cons maybe_deriv
   = do { checkDatatypeContext mcxt
        ; let cxt = fromMaybe (noLoc []) mcxt
        ; return (HsDataDefn { dd_ND = new_or_data, dd_cType = cType
-                            , dd_ctxt = cxt
+                            , dd_ctxt = cxt 
                             , dd_cons = data_cons
                             , dd_kindSig = ksig
                             , dd_derivs = maybe_deriv }) }
@@ -171,7 +171,7 @@ mkTySynonym :: SrcSpan
 mkTySynonym loc lhs rhs
   = do { (tc, tparams) <- checkTyClHdr lhs
        ; tyvars <- checkTyVars (ptext (sLit "type")) equalsDots tc tparams
-       ; return (L loc (SynDecl { tcdLName = reLocate loc tc, tcdTyVars = tyvars
+       ; return (L loc (SynDecl { tcdLName = tc, tcdTyVars = tyvars
                                 , tcdRhs = rhs, tcdFVs = placeHolderNames })) }
 
 mkTyFamInstEqn :: LHsType RdrName
@@ -213,20 +213,13 @@ mkFamDecl :: SrcSpan
 mkFamDecl loc info lhs ksig
   = do { (tc, tparams) <- checkTyClHdr lhs
        ; tyvars <- checkTyVars (ppr info) equals_or_where tc tparams
-       ; return (L loc (FamDecl (FamilyDecl { fdInfo = info, fdLName = reLocate loc tc
+       ; return (L loc (FamDecl (FamilyDecl { fdInfo = info, fdLName = tc
                                             , fdTyVars = tyvars, fdKindSig = ksig }))) }
   where
     equals_or_where = case info of
                         DataFamily          -> empty
                         OpenTypeFamily      -> empty
                         ClosedTypeFamily {} -> whereDots
-
-reLocate :: SrcSpan -> Located a -> Located a
--- For the main binder of a declaration, we make its SrcSpan to
--- cover the whole declaration, rather than just the syntactic occurrence
--- of the binder. This makes error messages refer to the declaration as
--- a whole, rather than just the binding site
-reLocate loc (L _ x) = L loc x
 
 mkSpliceDecl :: LHsExpr RdrName -> HsDecl RdrName
 -- If the user wrote
@@ -312,7 +305,7 @@ cvBindGroup binding
             ValBindsIn mbs sigs
 
 cvBindsAndSigs :: OrdList (LHsDecl RdrName)
-  -> (Bag ( LHsBind RdrName), [LSig RdrName], [LFamilyDecl RdrName]
+  -> (LHsBinds RdrName, [LSig RdrName], [LFamilyDecl RdrName]
           , [LTyFamInstDecl RdrName], [LDataFamInstDecl RdrName], [LDocDecl])
 -- Input decls contain just value bindings and signatures
 -- and in case of class or instance declarations also
@@ -322,7 +315,7 @@ cvBindsAndSigs  fb = go (fromOL fb)
     go []                  = (emptyBag, [], [], [], [], [])
     go (L l (SigD s) : ds) = (bs, L l s : ss, ts, tfis, dfis, docs)
                            where (bs, ss, ts, tfis, dfis, docs) = go ds
-    go (L l (ValD b) : ds) = (b' `consBag` bs, ss, ts, tfis, dfis, docs)
+    go (L l (ValD b) : ds) = ((FromSource, b') `consBag` bs, ss, ts, tfis, dfis, docs)
                            where (b', ds')    = getMonoBind (L l b) ds
                                  (bs, ss, ts, tfis, dfis, docs) = go ds'
     go (L l (TyClD (FamDecl t)) : ds) = (bs, ss, L l t : ts, tfis, dfis, docs)

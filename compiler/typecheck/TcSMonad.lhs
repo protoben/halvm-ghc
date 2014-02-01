@@ -30,7 +30,7 @@ module TcSMonad (
     wrapErrTcS, wrapWarnTcS,
 
     -- Getting and setting the flattening cache
-    addSolvedDict, addSolvedFunEq, getFlattenSkols,
+    addSolvedDict, addSolvedFunEq, getGivenInfo,
 
     -- Marking stuff as used
     addUsedRdrNamesTcS,
@@ -41,10 +41,13 @@ module TcSMonad (
     XEvTerm(..),
     MaybeNew (..), isFresh, freshGoal, freshGoals, getEvTerm, getEvTerms,
 
-    xCtFlavor,        -- Transform a CtEvidence during a step
-    rewriteCtFlavor,  -- Specialized version of xCtFlavor for coercions
-    newWantedEvVar, newWantedEvVarNC, newWantedEvVarNonrec, instDFunConstraints,
-    newDerived,
+    xCtEvidence,        -- Transform a CtEvidence during a step
+    rewriteEvidence,    -- Specialized version of xCtEvidence for coercions
+    rewriteEqEvidence,  -- Yet more specialised, for equality coercions
+    maybeSym,
+
+    newWantedEvVar, newWantedEvVarNC, newWantedEvVarNonrec, newDerived,
+    instDFunConstraints,
 
        -- Creation of evidence variables
     setWantedTyBind, reportUnifications,
@@ -65,11 +68,10 @@ module TcSMonad (
     getInertUnsolved, checkAllSolved,
     prepareInertsForImplications,
     addInertCan, insertInertItemTcS,
-    CCanMap(..), CtTypeMap, CtPredMap, EqualCtList,
-    PredMap, FamHeadMap,
-    lookupFamHead, lookupSolvedDict,
+    EqualCtList,
+    lookupSolvedDict, extendFlatCache,
 
-    findTyEqs,
+    findFunEq, findTyEqs,
     findDict, findDictsByClass, addDict, addDictsByClass, delDict, partitionDicts,
     findFunEqsByTyCon, findFunEqs, addFunEq, replaceFunEqs, partitionFunEqs,
 
@@ -122,19 +124,21 @@ import VarEnv
 import Outputable
 import Bag
 import MonadUtils
+import UniqSupply
 
 import FastString
 import Util
 import Id
 import TcRnTypes
 
+import BasicTypes
 import Unique
 import UniqFM
 import Maybes ( orElse, catMaybes, firstJust )
 import Pair ( pSnd )
 
 import TrieMap
-import Control.Monad( ap, when, zipWithM )
+import Control.Monad( ap, when )
 import Data.IORef
 import Data.List( partition )
 
@@ -292,44 +296,6 @@ instance Outputable WorkList where
                 , text "WorkList (funeqs)= " <+> ppr (wl_funeqs wl)
                 , text "WorkList (rest)  = " <+> ppr (wl_rest wl)
                 ]
-
-
--- Canonical constraint maps
-data CCanMap a
-  = CCanMap { cts_given   :: UniqFM Cts   -- All Given
-            , cts_derived :: UniqFM Cts   -- All Derived
-            , cts_wanted  :: UniqFM Cts } -- All Wanted
-
-instance Outputable (CCanMap a) where
-  ppr (CCanMap given derived wanted) = ptext (sLit "CCanMap") <+> (ppr given) <+> (ppr derived) <+> (ppr wanted)
-
--- Maps from PredTypes to Constraints
-type CtTypeMap    = TypeMap    Ct
-type CtPredMap    = PredMap    Ct
-
-newtype PredMap    a = PredMap    { unPredMap    :: TypeMap a } -- Indexed by TcPredType
-newtype FamHeadMap a = FamHeadMap (TypeMap a) -- Indexed by family head
-
-instance Outputable a => Outputable (PredMap a) where
-   ppr (PredMap m) = ppr (foldTM (:) m [])
-
-instance Outputable a => Outputable (FamHeadMap a) where
-   ppr (FamHeadMap m) = ppr (foldTM (:) m [])
-
-sizePredMap :: PredMap a -> Int
-sizePredMap (PredMap m) = foldTypeMap (\_ x -> x+1) 0 m
-
-emptyFamHeadMap :: FamHeadMap a
-emptyFamHeadMap = FamHeadMap emptyTM
-
-sizeFamHeadMap :: FamHeadMap a -> Int
-sizeFamHeadMap (FamHeadMap m) = foldTypeMap (\_ x -> x+1) 0 m
-
-lookupFamHead :: FamHeadMap a -> TcType -> Maybe a
-lookupFamHead (FamHeadMap m) key = lookupTM key m
-
-insertFamHead :: FamHeadMap a -> TcType -> a -> FamHeadMap a
-insertFamHead (FamHeadMap m) key value = FamHeadMap (insertTM key value m)
 \end{code}
 
 %************************************************************************
@@ -453,6 +419,13 @@ data InertCans
 
        , inert_insols :: Cts
               -- Frozen errors (as non-canonicals)
+
+       , inert_no_eqs :: !Bool    
+              -- Set to False when adding a new equality
+              -- (eq/funeq) or potential equality (irred)
+              -- whose evidence is not a constant
+              -- See Note [When does an implication have given equalities?]
+              -- in TcSimplify
        }
 
 type EqualCtList = [Ct]
@@ -473,7 +446,7 @@ data InertSet
               -- Canonical Given, Wanted, Derived (no Solved)
               -- Sometimes called "the inert set"
 
-       , inert_flat_cache :: FamHeadMap (CtEvidence, TcType)
+       , inert_flat_cache :: FunEqMap (CtEvidence, TcType)
               -- See Note [Type family equations]
               -- Just a hash-cons cache for use when flattening only
               -- These include entirely un-processed goals, so don't use
@@ -485,14 +458,14 @@ data InertSet
        , inert_fsks :: [TcTyVar]  -- Rigid flatten-skolems (arising from givens)
                                   -- allocated in this local scope
 
-       , inert_solved_funeqs :: FamHeadMap (CtEvidence, TcType)
+       , inert_solved_funeqs :: FunEqMap (CtEvidence, TcType)
               -- See Note [Type family equations]
               -- Of form co :: F xis ~ xi
               -- Always the result of using a top-level family axiom F xis ~ tau
               -- No Deriveds
               -- Not necessarily fully rewritten (by type substitutions)
 
-       , inert_solved_dicts   :: PredMap CtEvidence
+       , inert_solved_dicts   :: DictMap CtEvidence
               -- Of form ev :: C t1 .. tn
               -- Always the result of using a top-level instance declaration
               -- See Note [Solved constraints]
@@ -508,6 +481,7 @@ instance Outputable InertCans where
                    <+> vcat (map ppr (varEnvElts (inert_eqs ics)))
                  , ptext (sLit "Type-function equalities:")
                    <+> vcat (map ppr (funEqsToList (inert_funeqs ics)))
+                 , ptext (sLit "No-eqs:") <+> ppr (inert_no_eqs ics)
                  , ptext (sLit "Dictionaries:")
                    <+> vcat (map ppr (Bag.bagToList $ dictsToBag (inert_dicts ics)))
                  , ptext (sLit "Irreds:")
@@ -518,43 +492,60 @@ instance Outputable InertCans where
 
 instance Outputable InertSet where
   ppr is = vcat [ ppr $ inert_cans is
-                , text "Solved dicts"  <+> int (sizePredMap (inert_solved_dicts is))
-                , text "Solved funeqs" <+> int (sizeFamHeadMap (inert_solved_funeqs is))]
+                , text "Solved dicts"  <+> int (sizeDictMap (inert_solved_dicts is))
+                , text "Solved funeqs" <+> int (sizeFunEqMap (inert_solved_funeqs is))]
 
 emptyInert :: InertSet
 emptyInert
-  = IS { inert_cans = IC { inert_eqs    = emptyVarEnv
-                         , inert_dicts  = emptyDicts
-                         , inert_funeqs = emptyFunEqs
-                         , inert_irreds = emptyCts
-                         , inert_insols = emptyCts }
+  = IS { inert_cans = IC { inert_eqs     = emptyVarEnv
+                         , inert_dicts   = emptyDicts
+                         , inert_funeqs  = emptyFunEqs
+                         , inert_irreds  = emptyCts
+                         , inert_insols  = emptyCts
+                         , inert_no_eqs  = True
+                         }
        , inert_fsks          = []
-       , inert_flat_cache    = emptyFamHeadMap
-       , inert_solved_dicts  = PredMap emptyTM
-       , inert_solved_funeqs = emptyFamHeadMap }
-
+       , inert_flat_cache    = emptyFunEqs
+       , inert_solved_funeqs = emptyFunEqs
+       , inert_solved_dicts  = emptyDictMap }
 
 ---------------
 addInertCan :: InertCans -> Ct -> InertCans
 -- Precondition: item /is/ canonical
-addInertCan ics item@(CTyEqCan {})
+addInertCan ics item@(CTyEqCan { cc_ev = ev })
   = ics { inert_eqs = extendVarEnv_C (\eqs _ -> item : eqs)
                               (inert_eqs ics)
-                              (cc_tyvar item) [item] }
+                              (cc_tyvar item) [item]
+        , inert_no_eqs = isFlatSkolEv ev && inert_no_eqs ics }
+
+addInertCan ics item@(CFunEqCan { cc_fun = tc, cc_tyargs = tys, cc_ev = ev })
+  = ics { inert_funeqs = addFunEq (inert_funeqs ics) tc tys item
+        , inert_no_eqs = isFlatSkolEv ev && inert_no_eqs ics }
 
 addInertCan ics item@(CIrredEvCan {})
-  = ics { inert_irreds = inert_irreds ics `Bag.snocBag` item }
+  = ics { inert_irreds = inert_irreds ics `Bag.snocBag` item
+        , inert_no_eqs = False }
+       -- The 'False' is because the irreducible constraint might later instantiate
+       -- to an equality.
+       -- But since we try to simplify first, if there's a constraint function FC with
+       --    type instance FC Int = Show
+       -- we'll reduce a constraint (FC Int a) to Show a, and never add an inert irreducible
 
 addInertCan ics item@(CDictCan { cc_class = cls, cc_tyargs = tys })
   = ics { inert_dicts = addDict (inert_dicts ics) cls tys item }
-
-addInertCan ics item@(CFunEqCan { cc_fun = tc, cc_tyargs = tys })
-  = ics { inert_funeqs = addFunEq (inert_funeqs ics) tc tys item }
 
 addInertCan _ item
   = pprPanic "upd_inert set: can't happen! Inserting " $
     ppr item   -- Can't be CNonCanonical, CHoleCan,
                -- because they only land in inert_insols
+
+isFlatSkolEv :: CtEvidence -> Bool
+-- True if (a) it's a Given and (b) it is evidence for
+-- (or derived from) a flatten-skolem equality.
+-- See Note [When does an implication have given equalities?] in TcSimplify
+isFlatSkolEv ev = case ctLocOrigin (ctev_loc ev) of
+                    FlatSkolOrigin -> True
+                    _              -> False
 
 --------------
 insertInertItemTcS :: Ct -> TcS ()
@@ -567,50 +558,47 @@ insertInertItemTcS item
 
        ; traceTcS "insertInertItemTcS }" $ empty }
 
-addSolvedDict :: CtEvidence -> TcS ()
+addSolvedDict :: CtEvidence -> Class -> [Type] -> TcS ()
 -- Add a new item in the solved set of the monad
-addSolvedDict item
+addSolvedDict item cls tys
   | isIPPred (ctEvPred item)    -- Never cache "solved" implicit parameters (not sure why!)
   = return ()
   | otherwise
   = do { traceTcS "updSolvedSetTcs:" $ ppr item
-       ; updInertTcS upd_solved_dicts }
-  where
-    upd_solved_dicts is
-      = is { inert_solved_dicts = PredMap $ insertTM pred item $
-                                  unPredMap $ inert_solved_dicts is }
-    pred = ctEvPred item
+       ; updInertTcS $ \ ics ->
+             ics { inert_solved_dicts = addDict (inert_solved_dicts ics) cls tys item } }
 
-addSolvedFunEq :: TcType -> CtEvidence -> TcType -> TcS ()
-addSolvedFunEq fam_ty ev rhs_ty
+addSolvedFunEq :: TyCon -> [TcType] -> CtEvidence -> TcType -> TcS ()
+addSolvedFunEq fam_tc tys ev rhs_ty
   = updInertTcS $ \ inert ->
-    inert { inert_solved_funeqs = insertFamHead (inert_solved_funeqs inert)
-                                                fam_ty (ev, rhs_ty) }
+    inert { inert_solved_funeqs = insertFunEq (inert_solved_funeqs inert)
+                                              fam_tc tys (ev, rhs_ty) }
 
 updInertTcS :: (InertSet -> InertSet) -> TcS ()
 -- Modify the inert set with the supplied function
 updInertTcS upd
   = do { is_var <- getTcSInertsRef
-       ; curr_inert <- wrapTcS (TcM.readTcRef is_var)
-       ; let new_inert = upd curr_inert
-       ; wrapTcS (TcM.writeTcRef is_var new_inert) }
+       ; wrapTcS (do { curr_inert <- TcM.readTcRef is_var
+                     ; TcM.writeTcRef is_var (upd curr_inert) }) }
 
 prepareInertsForImplications :: InertSet -> InertSet
 -- See Note [Preparing inert set for implications]
 prepareInertsForImplications is
-  = is { inert_cans   = getGivens (inert_cans is)
-       , inert_fsks   = []
-       , inert_flat_cache = emptyFamHeadMap }
+  = is { inert_cans    = getGivens (inert_cans is)
+       , inert_fsks    = []
+       , inert_flat_cache = emptyFunEqs }
   where
     getGivens (IC { inert_eqs    = eqs
                   , inert_irreds = irreds
                   , inert_funeqs = funeqs
                   , inert_dicts  = dicts })
-      = IC { inert_eqs    = filterVarEnv is_given_eq eqs
-           , inert_funeqs = foldFunEqs given_from_wanted funeqs emptyFunEqs
-           , inert_irreds = Bag.filterBag isGivenCt irreds
-           , inert_dicts  = filterDicts isGivenCt dicts
-           , inert_insols = emptyCts }
+      = IC { inert_eqs     = filterVarEnv is_given_eq eqs
+           , inert_funeqs  = foldFunEqs given_from_wanted funeqs emptyFunEqs
+           , inert_irreds  = Bag.filterBag isGivenCt irreds
+           , inert_dicts   = filterDicts isGivenCt dicts
+           , inert_insols  = emptyCts
+           , inert_no_eqs  = True  -- Ready for each implication
+           }
 
     is_given_eq :: [Ct] -> Bool
     is_given_eq (ct:rest) | isGivenCt ct = ASSERT( null rest ) True
@@ -735,11 +723,10 @@ lookupFlatEqn fam_tc tys
   = do { IS { inert_solved_funeqs = solved_funeqs
             , inert_flat_cache = flat_cache
             , inert_cans = IC { inert_funeqs = inert_funeqs } } <- getTcSInerts
-       ; return (lookupFamHead solved_funeqs fam_ty  `firstJust`
+       ; return (findFunEq solved_funeqs fam_tc tys  `firstJust`
                  lookup_inerts inert_funeqs          `firstJust`
-                 lookupFamHead flat_cache fam_ty) }
+                 findFunEq flat_cache fam_tc tys) }
   where
-    fam_ty = mkTyConApp fam_tc tys
     lookup_inerts inert_funeqs
       | (ct:_) <- findFunEqs inert_funeqs fam_tc tys
       = Just (ctEvidence ct, cc_rhs ct)
@@ -747,36 +734,31 @@ lookupFlatEqn fam_tc tys
       = Nothing
 
 lookupInInerts :: TcPredType -> TcS (Maybe CtEvidence)
--- Is this exact predicate type cached in the solved or canonicals of the InertSet
+-- Is this exact predicate type cached in the solved or canonicals of the InertSet?
 lookupInInerts pty
-  = do { inerts <- getTcSInerts
-       ; case lookupSolvedDict inerts pty of
-           Just ctev -> return (Just ctev)
-           Nothing   -> return (lookupInInertCans inerts pty) }
+  = do { IS { inert_solved_dicts = solved_dicts
+            , inert_cans         = inert_cans }
+            <- getTcSInerts
+       ; return $ case (classifyPredType pty) of
+           ClassPred cls tys
+              | Just ctev <- findDict solved_dicts cls tys
+                    -- I'm not sure why we check for solved dicts,
+                    -- but not for solved funeqs
+              -> Just ctev
+              | Just ct <- findDict (inert_dicts inert_cans) cls tys
+              -> Just (ctEvidence ct)
 
-lookupSolvedDict :: InertSet -> TcPredType -> Maybe CtEvidence
--- Returns just if exactly this predicate type exists in the solved.
-lookupSolvedDict (IS { inert_solved_dicts = solved }) pty
-  = lookupTM pty (unPredMap solved)
+           EqPred ty1 _ty2
+             | Just tv <- getTyVar_maybe ty1      -- Tyvar equation
+             -> foldr exact_match Nothing (findTyEqs (inert_eqs inert_cans) tv)
 
-lookupInInertCans :: InertSet -> TcPredType -> Maybe CtEvidence
--- Returns Just if exactly this pred type exists in the inert canonicals
-lookupInInertCans (IS { inert_cans = ics }) pty
-  = case (classifyPredType pty) of
-      ClassPred cls tys
-         | Just ct <- findDict (inert_dicts ics) cls tys
-         -> Just (ctEvidence ct)
+             | Just (tc, tys) <- splitTyConApp_maybe ty1  -- Family equation
+             -> foldr exact_match Nothing (findFunEqs (inert_funeqs inert_cans) tc tys)
 
-      EqPred ty1 _ty2
-         | Just tv <- getTyVar_maybe ty1      -- Tyvar equation
-         -> foldr exact_match Nothing (findTyEqs (inert_eqs ics) tv)
+           IrredPred {} -> foldrBag exact_match Nothing (inert_irreds inert_cans)
 
-         | Just (tc, tys) <- splitTyConApp_maybe ty1  -- Family equation
-         -> foldr exact_match Nothing (findFunEqs (inert_funeqs ics) tc tys)
-
-      IrredPred {} -> foldrBag exact_match Nothing (inert_irreds ics)
-
-      _other -> Nothing -- NB: No caching for IPs or holes
+           _other -> Nothing -- NB: No caching for IPs or holes
+      }
   where
     exact_match :: Ct -> Maybe CtEvidence -> Maybe CtEvidence
     exact_match ct deflt | let ctev = ctEvidence ct
@@ -784,6 +766,11 @@ lookupInInertCans (IS { inert_cans = ics }) pty
                          = Just ctev
                          | otherwise
                          = deflt
+
+lookupSolvedDict :: InertSet -> Class -> [Type] -> Maybe CtEvidence
+-- Returns just if exactly this predicate type exists in the solved.
+lookupSolvedDict (IS { inert_solved_dicts = solved }) cls tys
+  = findDict solved cls tys
 \end{code}
 
 
@@ -808,7 +795,9 @@ findTyEqs m tv = lookupVarEnv m tv `orElse` []
 %************************************************************************
 
 \begin{code}
-type TcAppMap a = UniqFM (ListMap TypeMap a)   -- Indexed by tycon then the arg types
+type TcAppMap a = UniqFM (ListMap TypeMap a)
+    -- Indexed by tycon then the arg types
+    -- Used for types and classes; hence UniqFM
 
 emptyTcAppMap :: TcAppMap a
 emptyTcAppMap = emptyUFM
@@ -820,8 +809,8 @@ findTcApp m u tys = do { tys_map <- lookupUFM m u
 delTcApp :: TcAppMap a -> Unique -> [Type] -> TcAppMap a
 delTcApp m cls tys = adjustUFM (deleteTM tys) m cls
 
-addTcApp :: TcAppMap a -> Unique -> [Type] -> a -> TcAppMap a
-addTcApp m cls tys ct = alterUFM alter_tm m cls
+insertTcApp :: TcAppMap a -> Unique -> [Type] -> a -> TcAppMap a
+insertTcApp m cls tys ct = alterUFM alter_tm m cls
   where
     alter_tm mb_tm = Just (insertTM tys ct (mb_tm `orElse` emptyTM))
 
@@ -833,6 +822,12 @@ foldTcAppMap k m z = foldUFM (foldTM k) z m
 
 -------------------------
 type DictMap a = TcAppMap a
+
+emptyDictMap :: DictMap a
+emptyDictMap = emptyTcAppMap
+
+sizeDictMap :: DictMap a -> Int
+sizeDictMap m = foldDicts (\ _ x -> x+1) m 0
 
 findDict :: DictMap a -> Class -> [Type] -> Maybe a
 findDict m cls tys = findTcApp m (getUnique cls) tys
@@ -846,7 +841,7 @@ delDict :: DictMap a -> Class -> [Type] -> DictMap a
 delDict m cls tys = delTcApp m (getUnique cls) tys
 
 addDict :: DictMap a -> Class -> [Type] -> a -> DictMap a
-addDict m cls tys item = addTcApp m (getUnique cls) tys item
+addDict m cls tys item = insertTcApp m (getUnique cls) tys item
 
 addDictsByClass :: DictMap Ct -> Class -> Bag Ct -> DictMap Ct
 addDictsByClass m cls items
@@ -883,10 +878,16 @@ emptyDicts :: DictMap a
 emptyDicts = emptyTcAppMap
 
 ------------------------
-type FunEqMap a = TcAppMap a
+type FunEqMap a = TcAppMap a  -- A map whose key is a (TyCon, [Type]) pair
 
 emptyFunEqs :: TcAppMap a
 emptyFunEqs = emptyTcAppMap
+
+sizeFunEqMap :: FunEqMap a -> Int
+sizeFunEqMap m = foldFunEqs (\ _ x -> x+1) m 0
+
+findFunEq :: FunEqMap a -> TyCon -> [Type] -> Maybe a
+findFunEq m tc tys = findTcApp m (getUnique tc) tys
 
 findFunEqs :: FunEqMap [a] -> TyCon -> [Type] -> [a]
 findFunEqs m tc tys = findTcApp m (getUnique tc) tys `orElse` []
@@ -906,6 +907,9 @@ findFunEqsByTyCon m tc
 foldFunEqs :: (a -> b -> b) -> FunEqMap a -> b -> b
 foldFunEqs = foldTcAppMap
 
+insertFunEq :: FunEqMap a -> TyCon -> [Type] -> a -> FunEqMap a
+insertFunEq m tc tys val = insertTcApp m (getUnique tc) tys val
+
 addFunEq :: FunEqMap EqualCtList -> TyCon -> [Type] -> Ct -> FunEqMap EqualCtList
 addFunEq m tc tys item
   = alterUFM alter_tm m (getUnique tc)
@@ -915,7 +919,7 @@ addFunEq m tc tys item
     alter_cts (Just funeqs) = Just (item : funeqs)
 
 replaceFunEqs :: FunEqMap EqualCtList -> TyCon -> [Type] -> Ct -> FunEqMap EqualCtList
-replaceFunEqs m tc tys ct = addTcApp m (getUnique tc) tys [ct]
+replaceFunEqs m tc tys ct = insertTcApp m (getUnique tc) tys [ct]
 
 partitionFunEqs :: (Ct -> Bool) -> FunEqMap EqualCtList -> (Bag Ct, FunEqMap EqualCtList)
 partitionFunEqs f m = foldTcAppMap k m (emptyBag, emptyFunEqs)
@@ -926,7 +930,7 @@ partitionFunEqs f m = foldTcAppMap k m (emptyBag, emptyFunEqs)
             _  -> yeses `unionBags` listToBag eqs_out
         , case eqs_in of
             CFunEqCan { cc_fun = tc, cc_tyargs = tys } : _
-                -> addTcApp noes (getUnique tc) tys eqs_in
+                -> insertTcApp noes (getUnique tc) tys eqs_in
             _  -> noes )
       where
         (eqs_out, eqs_in) = partition f cts
@@ -991,6 +995,9 @@ instance Monad TcS where
   return x  = TcS (\_ -> return x)
   fail err  = TcS (\_ -> fail err)
   m >>= k   = TcS (\ebs -> unTcS m ebs >>= \r -> unTcS (k r) ebs)
+
+instance MonadUnique TcS where
+   getUniqueSupplyM = wrapTcS getUniqueSupplyM
 
 -- Basic functionality
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1245,8 +1252,19 @@ getTcEvBinds = TcS (return . tcs_ev_binds)
 getUntouchables :: TcS Untouchables
 getUntouchables = wrapTcS TcM.getUntouchables
 
-getFlattenSkols :: TcS [TcTyVar]
-getFlattenSkols = do { is <- getTcSInerts; return (inert_fsks is) }
+getGivenInfo :: TcS a -> TcS (Bool, [TcTyVar], a)
+-- Run thing_inside, returning info on
+--  a) whether we got any new equalities
+--  b) which new (given) flatten skolems were generated
+getGivenInfo thing_inside
+  = do { updInertTcS reset_vars
+       ; res <- thing_inside
+       ; is  <- getTcSInerts
+       ; return (inert_no_eqs (inert_cans is), inert_fsks is, res) }
+  where
+    reset_vars :: InertSet -> InertSet
+    reset_vars is = is { inert_cans = (inert_cans is) { inert_no_eqs = True }
+                       , inert_fsks = [] }
 
 getTcSTyBinds :: TcS (IORef (Bool, TyVarEnv (TcTyVar, TcType)))
 getTcSTyBinds = TcS (return . tcs_ty_binds)
@@ -1421,34 +1439,28 @@ newFlattenSkolem ev fam_ty
        ; traceTcS "New Flatten Skolem Born" $
          ppr tv <+> text "[:= " <+> ppr fam_ty <+> text "]"
 
+       ; updInertTcS $ \ is -> is { inert_fsks = tv : inert_fsks is }
+
        ; let rhs_ty = mkTyVarTy tv
              ctev = CtGiven { ctev_pred = mkTcEqPred fam_ty rhs_ty
-                            , ctev_evtm = EvCoercion (mkTcReflCo fam_ty)
-                            , ctev_loc =  ctev_loc ev }
-       ; dflags <- getDynFlags
-       ; updInertTcS $ \ is@(IS { inert_fsks = fsks }) ->
-            extendFlatCache dflags fam_ty ctev rhs_ty
-            is { inert_fsks       = tv : fsks }
-
+                            , ctev_evtm = EvCoercion (mkTcNomReflCo fam_ty)
+                            , ctev_loc =  (ctev_loc ev) { ctl_origin = FlatSkolOrigin } }
        ; return (ctev, rhs_ty) }
 
   | otherwise  -- Wanted or Derived: make new unification variable
   = do { rhs_ty <- newFlexiTcSTy (typeKind fam_ty)
        ; ctev <- newWantedEvVarNC (ctev_loc ev) (mkTcEqPred fam_ty rhs_ty)
-                                   -- NC (no-cache) version because we've already
-                                   -- looked in the solved goals an inerts (lookupFlatEqn)
-       ; dflags <- getDynFlags
-       ; updInertTcS $ extendFlatCache dflags fam_ty ctev rhs_ty
+                          -- NC (no-cache) version because we've already
+                          -- looked in the solved goals and inerts (lookupFlatEqn)
        ; return (ctev, rhs_ty) }
 
-extendFlatCache :: DynFlags -> TcType -> CtEvidence -> TcType
-                -> InertSet -> InertSet
-extendFlatCache dflags
-  | not (gopt Opt_FlatCache dflags)
-  = \ _ _ _ is -> is
-  | otherwise
-  = \ fam_ty ctev rhs_ty is@(IS { inert_flat_cache = fc }) ->
-      is { inert_flat_cache = insertFamHead fc fam_ty (ctev,rhs_ty) }
+
+extendFlatCache :: TyCon -> [Type] -> CtEvidence -> TcType -> TcS ()
+extendFlatCache tc xi_args ev rhs_xi
+  = do { dflags <- getDynFlags
+       ; when (gopt Opt_FlatCache dflags) $
+         updInertTcS $ \ is@(IS { inert_flat_cache = fc }) ->
+            is { inert_flat_cache = insertFunEq fc tc xi_args (ev, rhs_xi) } }
 
 -- Instantiations
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1500,12 +1512,11 @@ instFlexiTcSHelperTcS n k = wrapTcS (instFlexiTcSHelper n k)
 -- Creating and setting evidence variables and CtFlavors
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-data XEvTerm =
-  XEvTerm { ev_comp   :: [EvTerm] -> EvTerm
-                         -- How to compose evidence
-          , ev_decomp :: EvTerm -> [EvTerm]
-                         -- How to decompose evidence
-          }
+data XEvTerm
+  = XEvTerm { ev_preds  :: [PredType]           -- New predicate types
+            , ev_comp   :: [EvTerm] -> EvTerm   -- How to compose evidence
+            , ev_decomp :: EvTerm -> [EvTerm]   -- How to decompose evidence
+            }
 
 data MaybeNew = Fresh CtEvidence | Cached EvTerm
 
@@ -1534,11 +1545,11 @@ setEvBind the_ev tm
        ; tc_evbinds <- getTcEvBinds
        ; wrapTcS $ TcM.addTcEvBind tc_evbinds the_ev tm }
 
-newGivenEvVar :: CtLoc -> TcPredType -> EvTerm -> TcS CtEvidence
+newGivenEvVar :: CtLoc -> (TcPredType, EvTerm) -> TcS CtEvidence
 -- Make a new variable of the given PredType,
 -- immediately bind it to the given term
 -- and return its CtEvidence
-newGivenEvVar loc pred rhs
+newGivenEvVar loc (pred, rhs)
   = do { new_ev <- wrapTcS $ TcM.newEvVar pred
        ; setEvBind new_ev rhs
        ; return (CtGiven { ctev_pred = pred, ctev_evtm = EvId new_ev, ctev_loc = loc }) }
@@ -1549,7 +1560,7 @@ newWantedEvVarNC loc pty
   = do { new_ev <- wrapTcS $ TcM.newEvVar pty
        ; return (CtWanted { ctev_pred = pty, ctev_evar = new_ev, ctev_loc = loc })}
 
--- | Variant of newGivenEvVar that has a lower bound on the depth of the result
+-- | Variant of newWantedEvVar that has a lower bound on the depth of the result
 --   (see Note [Preventing recursive dictionaries])
 newWantedEvVarNonrec :: CtLoc -> TcPredType -> TcS MaybeNew
 newWantedEvVarNonrec loc pty
@@ -1608,8 +1619,8 @@ Note: The [CtEvidence] returned is a subset of the subgoal-preds passed in
 
 Example
     ev : Tree a b ~ Tree c d
-    xCtFlavor ev [a~c, b~d] (XEvTerm { ev_comp = \[c1 c2]. <Tree> c1 c2
-                                     , ev_decomp = \c. [nth 1 c, nth 2 c] })
+    xCtEvidence ev [a~c, b~d] (XEvTerm { ev_comp = \[c1 c2]. <Tree> c1 c2
+                                       , ev_decomp = \c. [nth 1 c, nth 2 c] })
               (\fresh-goals.  stuff)
 
 Note [Bind new Givens immediately]
@@ -1625,44 +1636,79 @@ But that superclass selector can't (yet) appear in a coercion
 
 See Note [Coercion evidence terms] in TcEvidence.
 
+Note [Do not create Given kind equalities]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We do not want to create a Given like
+
+     kv ~ k            -- kv is a skolem kind variable
+                       -- Reason we don't yet support non-Refl kind equalities
+
+or   t1::k1 ~ t2::k2   -- k1 and k2 are un-equal kinds
+                       -- Reason: (~) is kind-uniform at the moment, and
+                       -- k1/k2 may be distinct kind skolems
+
+This showed up in Trac #8566, where we had a data type
+   data I (u :: U *) (r :: [*]) :: * where
+        A :: I (AA t as) r                  -- Existential k
+so A has type
+   A :: forall (u:U *) (r:[*])                  Universal
+        (k:BOX) (t:k) (as:[U *]).        Existential
+        (u ~ AA * k t as) => I u r
+
+There is no direct kind equality, but in a pattern match where 'u' is
+instantiated to, say, (AA * kk t1 as1), we'd decompose to get
+   k ~ kk, t ~ t1, as ~ as1
+This is bad.  We "fix" this by simply ignoring
+  *     the Given kind equality
+  * AND the Given type equality (t:k1) ~ (t1:kk)
+
+But the Right Thing is to add kind equalities!
 
 \begin{code}
-xCtFlavor :: CtEvidence            -- Original flavor
-          -> [TcPredType]          -- New predicate types
-          -> XEvTerm               -- Instructions about how to manipulate evidence
-          -> TcS [CtEvidence]
+xCtEvidence :: CtEvidence            -- Original flavor
+            -> XEvTerm               -- Instructions about how to manipulate evidence
+            -> TcS [CtEvidence]
 
-xCtFlavor (CtGiven { ctev_evtm = tm, ctev_loc = loc }) ptys xev
-  = ASSERT( equalLength ptys (ev_decomp xev tm) )
-    zipWithM (newGivenEvVar loc) ptys (ev_decomp xev tm)
-    -- See Note [Bind new Givens immediately]
+xCtEvidence (CtGiven { ctev_evtm = tm, ctev_loc = loc })
+            (XEvTerm { ev_preds = ptys, ev_decomp = decomp_fn })
+  = ASSERT( equalLength ptys (decomp_fn tm) )
+    mapM (newGivenEvVar loc)     -- See Note [Bind new Givens immediately]
+         (filterOut bad_given_pred (ptys `zip` decomp_fn tm))
+  where
+    -- See Note [Do not create Given kind equalities]
+    bad_given_pred (pred_ty, _)
+      | EqPred t1 t2 <- classifyPredType pred_ty
+      = isKind t1 || not (typeKind t1 `tcEqKind` typeKind t2)
+      | otherwise
+      = False
 
-xCtFlavor (CtWanted { ctev_evar = evar, ctev_loc = loc }) ptys xev
+xCtEvidence (CtWanted { ctev_evar = evar, ctev_loc = loc })
+            (XEvTerm { ev_preds = ptys, ev_comp = comp_fn })
   = do { new_evars <- mapM (newWantedEvVar loc) ptys
-       ; setEvBind evar (ev_comp xev (getEvTerms new_evars))
+       ; setEvBind evar (comp_fn (getEvTerms new_evars))
        ; return (freshGoals new_evars) }
 
-xCtFlavor (CtDerived { ctev_loc = loc }) ptys _xev
+xCtEvidence (CtDerived { ctev_loc = loc })
+            (XEvTerm { ev_preds = ptys })
   = do { ders <- mapM (newDerived loc) ptys
        ; return (catMaybes ders) }
 
 -----------------------------
-rewriteCtFlavor :: CtEvidence
+rewriteEvidence :: CtEvidence   -- old evidence
                 -> TcPredType   -- new predicate
-                -> TcCoercion   -- new ~ old
+                -> TcCoercion   -- Of type :: new predicate ~ <type of old evidence>
                 -> TcS (Maybe CtEvidence)
--- Returns Just new_fl iff either (i)  'co' is reflexivity
+-- Returns Just new_ev iff either (i)  'co' is reflexivity
 --                             or (ii) 'co' is not reflexivity, and 'new_pred' not cached
--- In either case, there is nothing new to do with new_fl
+-- In either case, there is nothing new to do with new_ev
 {-
-     rewriteCtFlavor old_fl new_pred co
+     rewriteEvidence old_ev new_pred co
 Main purpose: create new evidence for new_pred;
               unless new_pred is cached already
-* Returns a new_fl : new_pred, with same wanted/given/derived flag as old_fl
-* If old_fl was wanted, create a binding for old_fl, in terms of new_fl
-* If old_fl was given, AND not cached, create a binding for new_fl, in terms of old_fl
-* Returns Nothing if new_fl is already cached
-
+* Returns a new_ev : new_pred, with same wanted/given/derived flag as old_ev
+* If old_ev was wanted, create a binding for old_ev, in terms of new_ev
+* If old_ev was given, AND not cached, create a binding for new_ev, in terms of old_ev
+* Returns Nothing if new_ev is already cached
 
         Old evidence    New predicate is               Return new evidence
         flavour                                        of same flavor
@@ -1675,17 +1721,17 @@ Main purpose: create new evidence for new_pred;
 -}
 
 
-rewriteCtFlavor (CtDerived { ctev_loc = loc }) new_pred _co
+rewriteEvidence (CtDerived { ctev_loc = loc }) new_pred _co
   = -- If derived, don't even look at the coercion.
     -- This is very important, DO NOT re-order the equations for
-    -- rewriteCtFlavor to put the isTcReflCo test first!
+    -- rewriteEvidence to put the isTcReflCo test first!
     -- Why?  Because for *Derived* constraints, c, the coercion, which
     -- was produced by flattening, may contain suspended calls to
     -- (ctEvTerm c), which fails for Derived constraints.
     -- (Getting this wrong caused Trac #7384.)
     newDerived loc new_pred
 
-rewriteCtFlavor old_ev new_pred co
+rewriteEvidence old_ev new_pred co
   | isTcReflCo co -- If just reflexivity then you may re-use the same variable
   = return (Just (if ctEvPred old_ev `tcEqType` new_pred
                   then old_ev
@@ -1696,18 +1742,79 @@ rewriteCtFlavor old_ev new_pred co
        -- However, if they *do* look the same, we'd prefer to stick with old_pred
        -- then retain the old type, so that error messages come out mentioning synonyms
 
-rewriteCtFlavor (CtGiven { ctev_evtm = old_tm , ctev_loc = loc }) new_pred co
-  = do { new_ev <- newGivenEvVar loc new_pred new_tm  -- See Note [Bind new Givens immediately]
+rewriteEvidence (CtGiven { ctev_evtm = old_tm , ctev_loc = loc }) new_pred co
+  = do { new_ev <- newGivenEvVar loc (new_pred, new_tm)  -- See Note [Bind new Givens immediately]
        ; return (Just new_ev) }
   where
-    new_tm = mkEvCast old_tm (mkTcSymCo co)  -- mkEvCast optimises ReflCo
+    new_tm = mkEvCast old_tm (mkTcSubCo (mkTcSymCo co))  -- mkEvCast optimises ReflCo
 
-rewriteCtFlavor (CtWanted { ctev_evar = evar, ctev_loc = loc }) new_pred co
+rewriteEvidence (CtWanted { ctev_evar = evar, ctev_loc = loc }) new_pred co
   = do { new_evar <- newWantedEvVar loc new_pred
-       ; setEvBind evar (mkEvCast (getEvTerm new_evar) co)
-       ; case new_evar of
-            Fresh ctev -> return (Just ctev)
-            _          -> return Nothing }
+       ; MASSERT( tcCoercionRole co == Nominal )
+       ; setEvBind evar (mkEvCast (getEvTerm new_evar) (mkTcSubCo co))
+       ; return (freshGoal new_evar) }
+
+
+rewriteEqEvidence :: CtEvidence         -- Old evidence :: olhs ~ orhs (not swapped)
+                                        --              or orhs ~ olhs (swapped)
+                  -> SwapFlag
+                  -> TcType -> TcType   -- New predicate  nlhs ~ nrhs
+                                        -- Should be zonked, because we use typeKind on nlhs/nrhs
+                  -> TcCoercion         -- lhs_co, of type :: nlhs ~ olhs
+                  -> TcCoercion         -- rhs_co, of type :: nrhs ~ orhs
+                  -> TcS (Maybe CtEvidence)  -- Of type nlhs ~ nrhs
+-- For (rewriteEqEvidence (Given g olhs orhs) False nlhs nrhs lhs_co rhs_co)
+-- we generate
+-- If not swapped
+--      g1 : nlhs ~ nrhs = lhs_co ; g ; sym rhs_co
+-- If 'swapped'
+--      g1 : nlhs ~ nrhs = lhs_co ; Sym g ; sym rhs_co
+--
+-- For (Wanted w) we do the dual thing.
+-- New  w1 : nlhs ~ nrhs
+-- If not swapped
+--      w : olhs ~ orhs = sym lhs_co ; w1 ; rhs_co
+-- If swapped
+--      w : orhs ~ olhs = sym rhs_co ; sym w1 ; lhs_co
+--
+-- It's all a form of rewwriteEvidence, specialised for equalities
+rewriteEqEvidence old_ev swapped nlhs nrhs lhs_co rhs_co
+  | CtDerived { ctev_loc = loc } <- old_ev
+  = newDerived loc (mkEqPred nlhs nrhs)
+
+  | NotSwapped <- swapped
+  , isTcReflCo lhs_co
+  , isTcReflCo rhs_co
+  , let new_pred = mkTcEqPred nlhs nrhs
+  = return (Just (if ctEvPred old_ev `tcEqType` new_pred
+                  then old_ev
+                  else old_ev { ctev_pred = new_pred }))
+
+  | CtGiven { ctev_evtm = old_tm , ctev_loc = loc } <- old_ev
+  = do { let new_tm = EvCoercion (lhs_co 
+                                  `mkTcTransCo` maybeSym swapped (evTermCoercion old_tm)
+                                  `mkTcTransCo` mkTcSymCo rhs_co)
+       ; new_ev <- newGivenEvVar loc (new_pred, new_tm)  -- See Note [Bind new Givens immediately]
+       ; return (Just new_ev) }
+
+  | CtWanted { ctev_evar = evar, ctev_loc = loc } <- old_ev
+  = do { new_evar <- newWantedEvVar loc new_pred
+       ; let co = maybeSym swapped $
+                  mkTcSymCo lhs_co
+                  `mkTcTransCo` evTermCoercion (getEvTerm new_evar)
+                  `mkTcTransCo` rhs_co
+       ; setEvBind evar (EvCoercion co)
+       ; traceTcS "rewriteEqEvidence" (vcat [ppr old_ev, ppr nlhs, ppr nrhs, ppr co])
+       ; return (freshGoal new_evar) }
+
+  | otherwise
+  = panic "rewriteEvidence"
+  where
+    new_pred = mkEqPred nlhs nrhs
+
+maybeSym :: SwapFlag -> TcCoercion -> TcCoercion 
+maybeSym IsSwapped  co = mkTcSymCo co
+maybeSym NotSwapped co = co
 
 
 matchOpenFam :: TyCon -> [Type] -> TcS (Maybe FamInstMatch)
@@ -1722,13 +1829,13 @@ matchFam tycon args
            Nothing -> return Nothing
            Just (FamInstMatch { fim_instance = famInst
                               , fim_tys      = inst_tys })
-             -> let co = mkTcUnbranchedAxInstCo (famInstAxiom famInst) inst_tys
+             -> let co = mkTcUnbranchedAxInstCo Nominal (famInstAxiom famInst) inst_tys
                     ty = pSnd $ tcCoercionKind co
                 in return $ Just (co, ty) }
 
   | Just ax <- isClosedSynFamilyTyCon_maybe tycon
   , Just (ind, inst_tys) <- chooseBranch ax args
-  = let co = mkTcAxInstCo ax ind inst_tys
+  = let co = mkTcAxInstCo Nominal ax ind inst_tys
         ty = pSnd (tcCoercionKind co)
     in return $ Just (co, ty)
 
@@ -1745,19 +1852,23 @@ matchFam tycon args
 -- Deferring forall equalities as implications
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-deferTcSForAllEq :: (CtLoc,EvVar)  -- Original wanted equality flavor
+deferTcSForAllEq :: Role -- Nominal or Representational
+                 -> CtLoc  -- Original wanted equality flavor
                  -> ([TyVar],TcType)   -- ForAll tvs1 body1
                  -> ([TyVar],TcType)   -- ForAll tvs2 body2
-                 -> TcS ()
+                 -> TcS EvTerm
 -- Some of this functionality is repeated from TcUnify,
 -- consider having a single place where we create fresh implications.
-deferTcSForAllEq (loc,orig_ev) (tvs1,body1) (tvs2,body2)
+deferTcSForAllEq role loc (tvs1,body1) (tvs2,body2)
  = do { (subst1, skol_tvs) <- wrapTcS $ TcM.tcInstSkolTyVars tvs1
       ; let tys  = mkTyVarTys skol_tvs
             phi1 = Type.substTy subst1 body1
             phi2 = Type.substTy (zipTopTvSubst tvs2 tys) body2
             skol_info = UnifyForAllSkol skol_tvs phi1
-        ; mev <- newWantedEvVar loc (mkTcEqPred phi1 phi2)
+        ; mev <- newWantedEvVar loc $ case role of
+                Nominal ->          mkTcEqPred      phi1 phi2
+                Representational -> mkCoerciblePred phi1 phi2
+                Phantom ->          panic "deferTcSForAllEq Phantom"
         ; coe_inside <- case mev of
             Cached ev_tm -> return (evTermCoercion ev_tm)
             Fresh ctev   -> do { ev_binds_var <- wrapTcS $ TcM.newTcEvBinds
@@ -1772,6 +1883,7 @@ deferTcSForAllEq (loc,orig_ev) (tvs1,body1) (tvs2,body2)
                                      imp = Implic { ic_untch  = new_untch
                                                   , ic_skols  = skol_tvs
                                                   , ic_fsks   = []
+                                                  , ic_no_eqs = True
                                                   , ic_given  = []
                                                   , ic_wanted = wc
                                                   , ic_insol  = False
@@ -1781,8 +1893,7 @@ deferTcSForAllEq (loc,orig_ev) (tvs1,body1) (tvs2,body2)
                                ; updTcSImplics (consBag imp)
                                ; return (TcLetCo ev_binds new_co) }
 
-        ; setEvBind orig_ev $
-          EvCoercion (foldr mkTcForAllCo coe_inside skol_tvs)
+        ; return $ EvCoercion (foldr mkTcForAllCo coe_inside skol_tvs)
         }
 \end{code}
 

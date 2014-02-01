@@ -43,7 +43,7 @@ module TcRnTypes(
 
         -- Canonical constraints
         Xi, Ct(..), Cts, emptyCts, andCts, andManyCts, dropDerivedWC,
-        singleCt, listToCts, ctsElts, extendCts, extendCtsList, 
+        singleCt, listToCts, ctsElts, extendCts, extendCtsList,
         isEmptyCts, isCTyEqCan, isCFunEqCan,
         isCDictCan_Maybe, isCFunEqCan_maybe,
         isCIrredEvCan, isCNonCanonical, isWantedCt, isDerivedCt,
@@ -90,7 +90,9 @@ import TcEvidence
 import Type
 import Class    ( Class )
 import TyCon    ( TyCon )
-import DataCon  ( DataCon, dataConUserType )
+import ConLike  ( ConLike(..) )
+import DataCon  ( DataCon, dataConUserType, dataConOrigArgTys )
+import PatSyn   ( PatSyn, patSynId )
 import TcType
 import Annotations
 import InstEnv
@@ -143,14 +145,14 @@ type TcId        = Id
 type TcIdSet     = IdSet
 
 
-type TcRnIf a b c = IOEnv (Env a b) c
-type IfM lcl a  = TcRnIf IfGblEnv lcl a         -- Iface stuff
+type TcRnIf a b = IOEnv (Env a b)
+type IfM lcl  = TcRnIf IfGblEnv lcl         -- Iface stuff
 
-type IfG a  = IfM () a                          -- Top level
-type IfL a  = IfM IfLclEnv a                    -- Nested
-type TcRn a = TcRnIf TcGblEnv TcLclEnv a
-type RnM  a = TcRn a            -- Historical
-type TcM  a = TcRn a            -- Historical
+type IfG  = IfM ()                          -- Top level
+type IfL  = IfM IfLclEnv                    -- Nested
+type TcRn = TcRnIf TcGblEnv TcLclEnv
+type RnM  = TcRn            -- Historical
+type TcM  = TcRn            -- Historical
 \end{code}
 
 Representation of type bindings to uninstantiated meta variables used during
@@ -216,6 +218,7 @@ data TcGblEnv
 
         tcg_fix_env   :: FixityEnv,     -- ^ Just for things in this module
         tcg_field_env :: RecFieldEnv,   -- ^ Just for things in this module
+                                        -- See Note [The interactive package] in HscTypes
 
         tcg_type_env :: TypeEnv,
           -- ^ Global type env for the module we are compiling now.  All
@@ -224,6 +227,9 @@ data TcGblEnv
           --
           -- (Ids defined in this module start in the local envt, though they
           --  move to the global envt during zonking)
+          --
+          -- NB: for what "things in this module" means, see
+          -- Note [The interactive package] in HscTypes
 
         tcg_type_env_var :: TcRef TypeEnv,
                 -- Used only to initialise the interface-file
@@ -328,6 +334,7 @@ data TcGblEnv
         tcg_rules     :: [LRuleDecl Id],    -- ...Rules
         tcg_fords     :: [LForeignDecl Id], -- ...Foreign import & exports
         tcg_vects     :: [LVectDecl Id],    -- ...Vectorisation declarations
+        tcg_patsyns   :: [PatSyn],          -- ...Pattern synonyms
 
         tcg_doc_hdr   :: Maybe LHsDocString, -- ^ Maybe Haddock header docs
         tcg_hpc       :: AnyHpcUsage,        -- ^ @True@ if any part of the
@@ -652,7 +659,7 @@ data PromotionErr
   | FamDataConPE     -- Data constructor for a data family
                      -- See Note [AFamDataCon: not promoting data family constructors] in TcRnDriver
 
-  | RecDataConPE     -- Data constructor in a reuursive loop
+  | RecDataConPE     -- Data constructor in a recursive loop
                      -- See Note [ARecDataCon: recusion and promoting data constructors] in TcTyClsDecls
   | NoDataKinds      -- -XDataKinds not enabled
 
@@ -777,7 +784,7 @@ data ImportAvails
           -- Used
           --
           --   (a) to help construct the usage information in the interface
-          --       file; if we import somethign we need to recompile if the
+          --       file; if we import something we need to recompile if the
           --       export version changes
           --
           --   (b) to specify what child modules to initialise
@@ -987,7 +994,7 @@ We can't require *equal* kinds, because
 
 Note [Kind orientation for CFunEqCan]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-For (F xis ~ rhs) we require that kind(rhs) is a subkind of kind(lhs).
+For (F xis ~ rhs) we require that kind(lhs) is a subkind of kind(rhs).
 This reallly only maters when rhs is an Open type variable (since only type
 variables have Open kinds):
    F ty ~ (a:Open)
@@ -1057,7 +1064,7 @@ ctPred :: Ct -> PredType
 ctPred ct = ctEvPred (cc_ev ct)
 
 dropDerivedWC :: WantedConstraints -> WantedConstraints
--- See Note [Insoluble derived constraints]
+-- See Note [Dropping derived constraints]
 dropDerivedWC wc@(WC { wc_flat = flats, wc_insol = insols })
   = wc { wc_flat  = filterBag isWantedCt          flats
        , wc_insol = filterBag (not . isDerivedCt) insols  }
@@ -1065,10 +1072,14 @@ dropDerivedWC wc@(WC { wc_flat = flats, wc_insol = insols })
     -- The implications are (recursively) already filtered
 \end{code}
 
-Note [Insoluble derived constraints]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Note [Dropping derived constraints]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 In general we discard derived constraints at the end of constraint solving;
-see dropDerivedWC.  For example,
+see dropDerivedWC.  A consequence is that
+   we never report an error for a derived constraint,
+   and hence we do not need to take much care with their CtLoc
+
+For example,
 
  * If we have an unsolved (Ord a), we don't want to complain about
    an unsolved (Eq a) as well.
@@ -1080,9 +1091,10 @@ Notably, functional dependencies.  If we have
     class C a b | a -> b
 and we have
     [W] C a b, [W] C a c
-where a,b,c are all signature variables.  Then we could reasonably
-report an error unifying (b ~ c). But it's probably not worth it;
-after all, we also get an error because we can't discharge the constraint.
+where a,b,c are all signature variables.  Then we could imagine
+reporting an error unifying (b ~ c). But it's better to report that we can't
+solve (C a b) and (C a c) since those arose directly from something the
+programmer wrote.
 
 
 %************************************************************************
@@ -1264,12 +1276,14 @@ data Implication
       ic_info  :: SkolemInfo,    -- See Note [Skolems in an implication]
                                  -- See Note [Shadowing in a constraint]
 
-      ic_fsks  :: [TcTyVar],   -- Extra flatten-skolems introduced by the flattening
-                               -- done by canonicalisation.
-
       ic_given  :: [EvVar],      -- Given evidence variables
                                  --   (order does not matter)
                                  -- See Invariant (GivenInv) in TcType
+
+      ic_fsks  :: [TcTyVar],     -- Extra flatten-skolems introduced by
+                                 -- by flattening the givens
+      ic_no_eqs :: Bool,         -- True  <=> ic_givens have no equalities, for sure
+                                 -- False <=> ic_givens might have equalities
 
       ic_env   :: TcLclEnv,      -- Gives the source location and error context
                                  -- for the implicatdion, and hence for all the
@@ -1284,13 +1298,14 @@ data Implication
 
 instance Outputable Implication where
   ppr (Implic { ic_untch = untch, ic_skols = skols, ic_fsks = fsks
-              , ic_given = given
+              , ic_given = given, ic_no_eqs = no_eqs
               , ic_wanted = wanted
               , ic_binds = binds, ic_info = info })
    = ptext (sLit "Implic") <+> braces
      (sep [ ptext (sLit "Untouchables =") <+> ppr untch
-          , ptext (sLit "Skolems =") <+> ppr skols
-          , ptext (sLit "Flatten-skolems =") <+> ppr fsks
+          , ptext (sLit "Skolems =") <+> pprTvBndrs skols
+          , ptext (sLit "Flatten-skolems =") <+> pprTvBndrs fsks
+          , ptext (sLit "No-eqs =") <+> ppr no_eqs
           , ptext (sLit "Given =") <+> pprEvVars given
           , ptext (sLit "Wanted =") <+> ppr wanted
           , ptext (sLit "Binds =") <+> ppr binds
@@ -1571,9 +1586,9 @@ Note [Preventing recursive dictionaries]
 
 We have some classes where it is not very useful to build recursive
 dictionaries (Coercible, at the moment). So we need the constraint solver to
-prevent that. We conservativey ensure this property using the subgoal depth of
+prevent that. We conservatively ensure this property using the subgoal depth of
 the constraints: When solving a Coercible constraint at depth d, we do not
-consider evicence from a depth <= d as suitable.
+consider evidence from a depth <= d as suitable.
 
 Therefore we need to record the minimum depth allowed to solve a CtWanted. This
 is done in the SubGoalDepth field of CtWanted. Most code now uses mkCtWanted,
@@ -1678,7 +1693,7 @@ data SkolemInfo
   | DataSkol            -- Bound at a data type declaration
   | FamInstSkol         -- Bound at a family instance decl
   | PatSkol             -- An existential type variable bound by a pattern for
-      DataCon           -- a data constructor with an existential type.
+      ConLike           -- a data constructor with an existential type.
       (HsMatchContext Name)
              -- e.g.   data T = forall a. Eq a => MkT a
              --        f (MkT x) = ...
@@ -1723,10 +1738,15 @@ pprSkolInfo FamInstSkol     = ptext (sLit "the family instance declaration")
 pprSkolInfo BracketSkol     = ptext (sLit "a Template Haskell bracket")
 pprSkolInfo (RuleSkol name) = ptext (sLit "the RULE") <+> doubleQuotes (ftext name)
 pprSkolInfo ArrowSkol       = ptext (sLit "the arrow form")
-pprSkolInfo (PatSkol dc mc)  = sep [ ptext (sLit "a pattern with constructor")
-                                   , nest 2 $ ppr dc <+> dcolon
-                                              <+> ppr (dataConUserType dc) <> comma
-                                  , ptext (sLit "in") <+> pprMatchContext mc ]
+pprSkolInfo (PatSkol cl mc) = case cl of
+    RealDataCon dc -> sep [ ptext (sLit "a pattern with constructor")
+                          , nest 2 $ ppr dc <+> dcolon
+                            <+> ppr (dataConUserType dc) <> comma
+                          , ptext (sLit "in") <+> pprMatchContext mc ]
+    PatSynCon ps -> sep [ ptext (sLit "a pattern with pattern synonym")
+                        , nest 2 $ ppr ps <+> dcolon
+                          <+> ppr (varType (patSynId ps)) <> comma
+                        , ptext (sLit "in") <+> pprMatchContext mc ]
 pprSkolInfo (InferSkol ids) = sep [ ptext (sLit "the inferred type of")
                                   , vcat [ ppr name <+> dcolon <+> ppr ty
                                          | (name,ty) <- ids ]]
@@ -1748,6 +1768,9 @@ pprSkolInfo UnkSkol = WARN( True, text "pprSkolInfo: UnkSkol" ) ptext (sLit "Unk
 \begin{code}
 data CtOrigin
   = GivenOrigin SkolemInfo
+  | FlatSkolOrigin              -- Flatten-skolems created for Givens
+                                -- Note [When does an implication have given equalities?]
+                                -- in TcSimplify
 
   -- All the others are for *wanted* constraints
   | OccurrenceOf Name           -- Occurrence of an overloaded identifier
@@ -1779,6 +1802,11 @@ data CtOrigin
 
   | ScOrigin            -- Typechecking superclasses of an instance declaration
   | DerivOrigin         -- Typechecking deriving
+  | DerivOriginDC DataCon Int
+                        -- Checking constraints arising from this data con and field index
+  | DerivOriginCoerce Id Type Type
+                        -- DerivOriginCoerce id ty1 ty2: Trying to coerce class method `id` from
+                        -- `ty1` to `ty2`.
   | StandAloneDerivOrigin -- Typechecking stand-alone deriving
   | DefaultOrigin       -- Typechecking a default decl
   | DoOrigin            -- Arising from a do expression
@@ -1793,6 +1821,7 @@ data CtOrigin
 
 pprO :: CtOrigin -> SDoc
 pprO (GivenOrigin sk)      = ppr sk
+pprO FlatSkolOrigin        = ptext (sLit "a given flatten-skolem")
 pprO (OccurrenceOf name)   = hsep [ptext (sLit "a use of"), quotes (ppr name)]
 pprO AppOrigin             = ptext (sLit "an application")
 pprO (SpecPragOrigin name) = hsep [ptext (sLit "a specialisation pragma for"), quotes (ppr name)]
@@ -1816,6 +1845,14 @@ pprO TupleOrigin           = ptext (sLit "a tuple")
 pprO NegateOrigin          = ptext (sLit "a use of syntactic negation")
 pprO ScOrigin              = ptext (sLit "the superclasses of an instance declaration")
 pprO DerivOrigin           = ptext (sLit "the 'deriving' clause of a data type declaration")
+pprO (DerivOriginDC dc n)  = hsep [ ptext (sLit "the"), speakNth n,
+                                    ptext (sLit "field of"), quotes (ppr dc),
+                                    parens (ptext (sLit "type") <+> quotes (ppr ty)) ]
+    where ty = dataConOrigArgTys dc !! (n-1)
+pprO (DerivOriginCoerce meth ty1 ty2)
+                           = fsep [ ptext (sLit "the coercion"), ptext (sLit "of the method")
+                                  , quotes (ppr meth), ptext (sLit "from type"), quotes (ppr ty1)
+                                  , ptext (sLit "to type"), quotes (ppr ty2) ]
 pprO StandAloneDerivOrigin = ptext (sLit "a 'deriving' declaration")
 pprO DefaultOrigin         = ptext (sLit "a 'default' declaration")
 pprO DoOrigin              = ptext (sLit "a do statement")
@@ -1832,4 +1869,3 @@ pprO ListOrigin            = ptext (sLit "an overloaded list")
 instance Outputable CtOrigin where
   ppr = pprO
 \end{code}
-

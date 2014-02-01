@@ -31,7 +31,7 @@ import DataCon
 import Coercion         hiding( substTy, substCo )
 import Rules
 import Type             hiding ( substTy )
-import TyCon            ( isRecursiveTyCon )
+import TyCon            ( isRecursiveTyCon, tyConName )
 import Id
 import MkCore           ( mkImpossibleExpr )
 import Var
@@ -53,13 +53,13 @@ import UniqFM
 import MonadUtils
 import Control.Monad    ( zipWithM )
 import Data.List
-import TyCon            ( TyCon, tyConName )
 import PrelNames        ( specTyConName )
 
 -- See Note [Forcing specialisation]
 #ifndef GHCI
 type SpecConstrAnnotation = ()
 #else
+import TyCon ( TyCon )
 import GHC.Exts( SpecConstrAnnotation(..) )
 #endif
 \end{code}
@@ -1549,7 +1549,7 @@ spec_one env fn arg_bndrs body (call_pat@(qvars, pats), rule_number)
                              `setIdArity` count isId spec_lam_args
               spec_str   = calcSpecStrictness fn spec_lam_args pats
                 -- Conditionally use result of new worker-wrapper transform
-              (spec_lam_args, spec_call_args) = mkWorkerArgs (sc_dflags env) qvars False body_ty
+              (spec_lam_args, spec_call_args) = mkWorkerArgs (sc_dflags env) qvars NoOneShotInfo body_ty
                 -- Usual w/w hack to avoid generating 
                 -- a spec_rhs of unlifted type and no args
 
@@ -1567,7 +1567,7 @@ calcSpecStrictness :: Id                     -- The original function
                    -> StrictSig              -- Strictness of specialised thing
 -- See Note [Transfer strictness]
 calcSpecStrictness fn qvars pats
-  = StrictSig (mkTopDmdType spec_dmds topRes)
+  = mkClosedStrictSig spec_dmds topRes
   where
     spec_dmds = [ lookupVarEnv dmd_env qv `orElse` topDmd | qv <- qvars, isId qv ]
     StrictSig (DmdType _ dmds _) = idStrictness fn

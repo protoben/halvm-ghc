@@ -803,7 +803,7 @@ checkValidInstHead ctxt clas cls_args
                 text "The class is abstract, manual instances are not permitted."
 
 abstractClasses :: [ Class ]
-abstractClasses = [ coercibleClass ]
+abstractClasses = [ coercibleClass ] -- See Note [Coercible Instances]
 
 instTypeErr :: Class -> [Type] -> SDoc -> SDoc
 instTypeErr cls tys msg
@@ -1009,7 +1009,7 @@ Here the instance decl really looks like
 but the k's are not scoped, and hence won't match Uniques.
 
 So instead we just match structure, with tcMatchTyX, and check
-that distinct type variales match 1-1 with distinct type variables.
+that distinct type variables match 1-1 with distinct type variables.
 
 HOWEVER, we *still* make the instance type variables scope over the
 type instances, to pick up non-obvious kinds.  Eg
