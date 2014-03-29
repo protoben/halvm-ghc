@@ -13,7 +13,7 @@ dnl
 # see what flags are available. (Better yet, read the documentation!)
 #
 
-AC_INIT([The Glorious Glasgow Haskell Compilation System], [7.8], [glasgow-haskell-bugs@haskell.org], [ghc])
+AC_INIT([The Glorious Glasgow Haskell Compilation System], [7.8.0], [glasgow-haskell-bugs@haskell.org], [ghc])
 
 # Set this to YES for a released version, otherwise NO
 : ${RELEASE=NO}
@@ -486,6 +486,21 @@ FP_ARG_WITH_PATH_GNU_PROG([NM], [nm], [nm])
 NmCmd="$NM"
 AC_SUBST([NmCmd])
 
+dnl ** Which ar to use?
+dnl --------------------------------------------------------------
+FP_ARG_WITH_PATH_GNU_PROG([AR], [ar], [ar])
+ArCmd="$AR"
+fp_prog_ar="$AR"
+AC_SUBST([ArCmd])
+
+dnl ** Which ranlib to use?
+dnl --------------------------------------------------------------
+FP_ARG_WITH_PATH_GNU_PROG([RANLIB], [ranlib], [ranlib])
+RanlibCmd="$RANLIB"
+RANLIB="$RanlibCmd"
+AC_SUBST([RanlibCmd])
+
+
 # Note: we may not have objdump on OS X, and we only need it on Windows (for DLL checks)
 case $HostOS_CPP in
 cygwin32|mingw32)
@@ -883,11 +898,11 @@ AC_COMPILE_IFELSE(
   [ AC_LANG_SOURCE([[__thread int tester = 0;]]) ],
   [
    AC_MSG_RESULT(yes)
-   AC_DEFINE([CC_SUPPORTS_TLS],[0],[Define to 1 if __thread is supported])
+   AC_DEFINE([CC_SUPPORTS_TLS],[1],[Define to 1 if __thread is supported])
   ],
   [
    AC_MSG_RESULT(no)
-   AC_DEFINE([CC_SUPPORTS_TLS],[1],[Define to 1 if __thread is supported])
+   AC_DEFINE([CC_SUPPORTS_TLS],[0],[Define to 1 if __thread is supported])
   ])
 
 

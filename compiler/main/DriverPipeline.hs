@@ -139,11 +139,13 @@ compileOne' m_tc_result mHscMessage
        input_fnpp  = ms_hspp_file summary
        mod_graph   = hsc_mod_graph hsc_env0
        needsTH     = any (xopt Opt_TemplateHaskell . ms_hspp_opts) mod_graph
+       needsQQ     = any (xopt Opt_QuasiQuotes     . ms_hspp_opts) mod_graph
+       needsLinker = needsTH || needsQQ
        isDynWay    = any (== WayDyn) (ways dflags0)
        isProfWay   = any (== WayProf) (ways dflags0)
    -- #8180 - when using TemplateHaskell, switch on -dynamic-too so
    -- the linker can correctly load the object files.
-   let dflags1 = if needsTH && dynamicGhc && not isDynWay && not isProfWay
+   let dflags1 = if needsLinker && dynamicGhc && not isDynWay && not isProfWay
                   then gopt_set dflags0 Opt_BuildDynamicToo
                   else dflags0
 
@@ -1335,7 +1337,7 @@ runPhase (RealPhase LlvmOpt) input_fn dflags
         -- passes only, so if the user is passing us extra options we assume
         -- they know what they are doing and don't get in the way.
         optFlag  = if null (getOpts dflags opt_lo)
-                       then map SysTools.Option $ words (llvmOpts !! opt_lvl)
+                       then map SysTools.Option $ words (llvmOpts ver !! opt_lvl)
                        else []
         tbaa | ver < 29                 = "" -- no tbaa in 2.8 and earlier
              | gopt Opt_LlvmTBAA dflags = "--enable-tbaa=true"
@@ -1355,7 +1357,11 @@ runPhase (RealPhase LlvmOpt) input_fn dflags
   where 
         -- we always (unless -optlo specified) run Opt since we rely on it to
         -- fix up some pretty big deficiencies in the code we generate
-        llvmOpts = ["-mem2reg -globalopt", "-O1", "-O2"]
+        llvmOpts ver = [ "-mem2reg -globalopt"
+                       , if ver >= 34 then "-O1 -globalopt" else "-O1"
+                         -- LLVM 3.4 -O1 doesn't eliminate aliases reliably (bug #8855)
+                       , "-O2"
+                       ]
 
 -----------------------------------------------------------------------------
 -- LlvmLlc phase

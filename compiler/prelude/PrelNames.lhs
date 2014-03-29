@@ -250,8 +250,6 @@ basicKnownKeyNames
         concatName, filterName, mapName,
         zipName, foldrName, buildName, augmentName, appendName,
 
-        dollarName,         -- The ($) apply function
-
         -- FFI primitive types that are not wired-in.
         stablePtrTyConName, ptrTyConName, funPtrTyConName,
         int8TyConName, int16TyConName, int32TyConName, int64TyConName,
@@ -851,7 +849,7 @@ groupWithName = varQual gHC_EXTS (fsLit "groupWith") groupWithIdKey
 fromStringName, otherwiseIdName, foldrName, buildName, augmentName,
     mapName, appendName, assertName,
     breakpointName, breakpointCondName, breakpointAutoName,
-    dollarName, opaqueTyConName :: Name
+    opaqueTyConName :: Name
 fromStringName = methName dATA_STRING (fsLit "fromString") fromStringClassOpKey
 otherwiseIdName   = varQual gHC_BASE (fsLit "otherwise")  otherwiseIdKey
 foldrName         = varQual gHC_BASE (fsLit "foldr")      foldrIdKey
@@ -859,7 +857,6 @@ buildName         = varQual gHC_BASE (fsLit "build")      buildIdKey
 augmentName       = varQual gHC_BASE (fsLit "augment")    augmentIdKey
 mapName           = varQual gHC_BASE (fsLit "map")        mapIdKey
 appendName        = varQual gHC_BASE (fsLit "++")         appendIdKey
-dollarName        = varQual gHC_BASE (fsLit "$")          dollarIdKey
 assertName        = varQual gHC_BASE (fsLit "assert")     assertIdKey
 breakpointName    = varQual gHC_BASE (fsLit "breakpoint") breakpointIdKey
 breakpointCondName= varQual gHC_BASE (fsLit "breakpointCond") breakpointCondIdKey
@@ -1475,6 +1472,7 @@ rep1TyConKey = mkPreludeTyConUnique 156
 typeNatKindConNameKey, typeSymbolKindConNameKey,
   typeNatAddTyFamNameKey, typeNatMulTyFamNameKey, typeNatExpTyFamNameKey,
   typeNatLeqTyFamNameKey, typeNatSubTyFamNameKey
+  , typeSymbolCmpTyFamNameKey, typeNatCmpTyFamNameKey
   :: Unique
 typeNatKindConNameKey     = mkPreludeTyConUnique 160
 typeSymbolKindConNameKey  = mkPreludeTyConUnique 161
@@ -1483,6 +1481,8 @@ typeNatMulTyFamNameKey    = mkPreludeTyConUnique 163
 typeNatExpTyFamNameKey    = mkPreludeTyConUnique 164
 typeNatLeqTyFamNameKey    = mkPreludeTyConUnique 165
 typeNatSubTyFamNameKey    = mkPreludeTyConUnique 166
+typeSymbolCmpTyFamNameKey = mkPreludeTyConUnique 167
+typeNatCmpTyFamNameKey    = mkPreludeTyConUnique 168
 
 ntTyConKey:: Unique
 ntTyConKey = mkPreludeTyConUnique 174

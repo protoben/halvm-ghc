@@ -60,9 +60,9 @@ extra-libraries:
 #endif /* !defined(HaLVM_TARGET_OS) */
 
 #ifdef INSTALLING
-include-dirs:           INCLUDE_DIR HALVM_SYSTEM_INCLUDES PAPI_INCLUDE_DIR
+include-dirs:           INCLUDE_DIR HALVM_SYSTEM_INCLUDES PAPI_INCLUDE_DIR FFI_INCLUDE_DIR
 #else /* !INSTALLING */
-include-dirs:           TOP"/rts/dist/build" TOP"/includes" TOP"/includes/dist-derivedconstants/header"
+include-dirs:           TOP"/rts/dist/build" TOP"/includes" TOP"/includes/dist-derivedconstants/header" FFI_INCLUDE_DIR
 #endif
 
 includes:               Stg.h

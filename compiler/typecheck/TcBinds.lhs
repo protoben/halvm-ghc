@@ -9,7 +9,7 @@ module TcBinds ( tcLocalBinds, tcTopBinds, tcRecSelBinds,
                  tcHsBootSigs, tcPolyCheck,
                  PragFun, tcSpecPrags, tcVectDecls, mkPragFun, 
                  TcSigInfo(..), TcSigFun, 
-                 instTcTySig, instTcTySigFromId,
+                 instTcTySig, instTcTySigFromId, findScopedTyVars,
                  badBootDeclErr ) where
 
 import {-# SOURCE #-} TcMatches ( tcGRHSsPat, tcMatchesFun )
@@ -520,7 +520,7 @@ tcPolyCheck rec_tc prag_fn
   = do { ev_vars <- newEvVars theta
        ; let skol_info = SigSkol (FunSigCtxt (idName poly_id)) (mkPhiTy theta tau)
              prag_sigs = prag_fn (idName poly_id)
-       ; tvs <- mapM (skolemiseSigTv . snd) tvs_w_scoped
+             tvs = map snd tvs_w_scoped
        ; (ev_binds, (binds', [mono_info])) 
             <- setSrcSpan loc $  
                checkConstraints skol_info tvs ev_vars $
@@ -1162,18 +1162,6 @@ However, we do *not* support this
         f :: forall a. a->a
         (f,g) = e
 
-Note [More instantiated than scoped]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-There may be more instantiated type variables than lexically-scoped 
-ones.  For example:
-        type T a = forall b. b -> (a,b)
-        f :: forall c. T c
-Here, the signature for f will have one scoped type variable, c,
-but two instantiated type variables, c' and b'.  
-
-We assume that the scoped ones are at the *front* of sig_tvs,
-and remember the names from the original HsForAllTy in the TcSigFun.
-
 Note [Signature skolems]
 ~~~~~~~~~~~~~~~~~~~~~~~~
 When instantiating a type signature, we do so with either skolems or
@@ -1248,45 +1236,28 @@ tcTySig _ = return []
 
 instTcTySigFromId :: SrcSpan -> Id -> TcM TcSigInfo
 instTcTySigFromId loc id
-  = do { (tvs, theta, tau) <- tcInstType inst_sig_tyvars (idType id)
+  = do { (tvs, theta, tau) <- tcInstType (tcInstSigTyVarsLoc loc)
+                                         (idType id)
        ; return (TcSigInfo { sig_id = id, sig_loc = loc
                            , sig_tvs = [(Nothing, tv) | tv <- tvs]
                            , sig_theta = theta, sig_tau = tau }) }
   where
     -- Hack: in an instance decl we use the selector id as
-    -- the template; but we do *not* want the SrcSpan on the Name of 
+    -- the template; but we do *not* want the SrcSpan on the Name of
     -- those type variables to refer to the class decl, rather to
-    -- the instance decl 
-    inst_sig_tyvars tvs = tcInstSigTyVars (map set_loc tvs)
-    set_loc tv = setTyVarName tv (mkInternalName (nameUnique n) (nameOccName n) loc)
-      where
-        n = tyVarName tv
+    -- the instance decl
 
 instTcTySig :: LHsType Name -> TcType    -- HsType and corresponding TcType
             -> Name -> TcM TcSigInfo
 instTcTySig hs_ty@(L loc _) sigma_ty name
   = do { (inst_tvs, theta, tau) <- tcInstType tcInstSigTyVars sigma_ty
-       ; return (TcSigInfo { sig_id = poly_id, sig_loc = loc
-                           , sig_tvs = zipEqual "instTcTySig" scoped_tvs inst_tvs
+       ; return (TcSigInfo { sig_id = mkLocalId name sigma_ty
+                           , sig_loc = loc
+                           , sig_tvs = findScopedTyVars hs_ty sigma_ty inst_tvs
                            , sig_theta = theta, sig_tau = tau }) }
-  where
-    poly_id      = mkLocalId name sigma_ty
-
-    scoped_names = hsExplicitTvs hs_ty
-    (sig_tvs,_)  = tcSplitForAllTys sigma_ty
-
-    scoped_tvs :: [Maybe Name]
-    scoped_tvs = mk_scoped scoped_names sig_tvs
-
-    mk_scoped :: [Name] -> [TyVar] -> [Maybe Name]
-    mk_scoped []     tvs      = [Nothing | _ <- tvs]
-    mk_scoped (n:ns) (tv:tvs) 
-           | n == tyVarName tv = Just n  : mk_scoped ns     tvs
-           | otherwise         = Nothing : mk_scoped (n:ns) tvs
-    mk_scoped (n:ns) [] = pprPanic "mk_scoped" (ppr name $$ ppr (n:ns) $$ ppr hs_ty $$ ppr sigma_ty)
 
 -------------------------------
-data GeneralisationPlan 
+data GeneralisationPlan
   = NoGen               -- No generalisation, no AbsBinds
 
   | InferGen            -- Implicit generalisation; there is an AbsBinds
@@ -1306,25 +1277,25 @@ instance Outputable GeneralisationPlan where
   ppr (InferGen b c) = ptext (sLit "InferGen") <+> ppr b <+> ppr c
   ppr (CheckGen _ s) = ptext (sLit "CheckGen") <+> ppr s
 
-decideGeneralisationPlan 
+decideGeneralisationPlan
    :: DynFlags -> TcTypeEnv -> [Name]
    -> [(Origin, LHsBind Name)] -> TcSigFun -> GeneralisationPlan
 decideGeneralisationPlan dflags type_env bndr_names lbinds sig_fn
-  | bang_pat_binds                                  = NoGen
+  | strict_pat_binds                                 = NoGen
   | Just (lbind, sig) <- one_funbind_with_sig lbinds = CheckGen lbind sig
-  | mono_local_binds                                = NoGen
-  | otherwise                                       = InferGen mono_restriction closed_flag
+  | mono_local_binds                                 = NoGen
+  | otherwise                                        = InferGen mono_restriction closed_flag
 
   where
     bndr_set = mkNameSet bndr_names
     binds = map (unLoc . snd) lbinds
 
-    bang_pat_binds = any isBangHsBind binds
-       -- Bang patterns must not be polymorphic,
-       -- because we are going to force them
-       -- See Trac #4498
+    strict_pat_binds = any isStrictHsBind binds
+       -- Strict patterns (top level bang or unboxed tuple) must not
+       -- be polymorphic, because we are going to force them
+       -- See Trac #4498, #8762
 
-    mono_restriction  = xopt Opt_MonomorphismRestriction dflags 
+    mono_restriction  = xopt Opt_MonomorphismRestriction dflags
                      && any restricted binds
 
     is_closed_ns :: NameSet -> Bool -> Bool
@@ -1333,7 +1304,7 @@ decideGeneralisationPlan dflags type_env bndr_names lbinds sig_fn
 
     is_closed_id :: Name -> Bool
     -- See Note [Bindings with closed types] in TcRnTypes
-    is_closed_id name 
+    is_closed_id name
       | name `elemNameSet` bndr_set
       = True              -- Ignore binders in this groups, of course
       | Just thing <- lookupNameEnv type_env name
@@ -1346,12 +1317,12 @@ decideGeneralisationPlan dflags type_env bndr_names lbinds sig_fn
       = WARN( isInternalName name, ppr name ) True
         -- The free-var set for a top level binding mentions
         -- imported things too, so that we can report unused imports
-        -- These won't be in the local type env.  
+        -- These won't be in the local type env.
         -- Ditto class method etc from the current module
-    
+
     closed_flag = foldr (is_closed_ns . bind_fvs) True binds
 
-    mono_local_binds = xopt Opt_MonoLocalBinds dflags 
+    mono_local_binds = xopt Opt_MonoLocalBinds dflags
                     && not closed_flag
 
     no_sig n = isNothing (sig_fn n)
@@ -1385,45 +1356,42 @@ checkStrictBinds :: TopLevelFlag -> RecFlag
                  -> TcM ()
 -- Check that non-overloaded unlifted bindings are
 --      a) non-recursive,
---      b) not top level, 
+--      b) not top level,
 --      c) not a multiple-binding group (more or less implied by (a))
 
 checkStrictBinds top_lvl rec_group orig_binds tc_binds poly_ids
-  | unlifted || bang_pat
+  | unlifted_bndrs || any_strict_pat   -- This binding group must be matched strictly
   = do  { checkTc (isNotTopLevel top_lvl)
-                  (strictBindErr "Top-level" unlifted orig_binds)
+                  (strictBindErr "Top-level" unlifted_bndrs orig_binds)
         ; checkTc (isNonRec rec_group)
-                  (strictBindErr "Recursive" unlifted orig_binds)
+                  (strictBindErr "Recursive" unlifted_bndrs orig_binds)
 
         ; checkTc (all is_monomorphic (bagToList tc_binds))
                   (polyBindErr orig_binds)
             -- data Ptr a = Ptr Addr#
             -- f x = let p@(Ptr y) = ... in ...
-            -- Here the binding for 'p' is polymorphic, but does 
+            -- Here the binding for 'p' is polymorphic, but does
             -- not mix with an unlifted binding for 'y'.  You should
             -- use a bang pattern.  Trac #6078.
-        
-        ; checkTc (isSingleton orig_binds)
-                  (strictBindErr "Multiple" unlifted orig_binds)
 
-        -- Ensure that unlifted bindings which look lazy, like:
-        --   f x = let I# y = x
-        -- cause an error.
-        ; when lifted_pat $
-            checkTc bang_pat
-                 -- No outer bang, but it's a compound pattern
-                 -- E.g   (I# x#) = blah
-                 -- Warn about this, but not about
-                 --      x# = 4# +# 1#
-                 --      (# a, b #) = ...
-                 (unliftedMustBeBang orig_binds) }
+        ; checkTc (isSingleton orig_binds)
+                  (strictBindErr "Multiple" unlifted_bndrs orig_binds)
+
+        -- Complain about a binding that looks lazy
+        --    e.g.    let I# y = x in ...
+        -- Remember, in checkStrictBinds we are going to do strict
+        -- matching, so (for software engineering reasons) we insist
+        -- that the strictness is manifest on each binding
+        -- However, lone (unboxed) variables are ok
+        ; checkTc (not any_pat_looks_lazy)
+                  (unliftedMustBeBang orig_binds) }
   | otherwise
   = traceTc "csb2" (ppr poly_ids) >>
     return ()
   where
-    unlifted    = any is_unlifted poly_ids
-    bang_pat    = any (isBangHsBind    . unLoc . snd) orig_binds
-    lifted_pat  = any (isLiftedPatBind . unLoc . snd) orig_binds
+    unlifted_bndrs     = any is_unlifted poly_ids
+    any_strict_pat     = any (isStrictHsBind   . unLoc . snd) orig_binds
+    any_pat_looks_lazy = any (looksLazyPatBind . unLoc . snd) orig_binds
 
     is_unlifted id = case tcSplitForAllTys (idType id) of
                        (_, rho) -> isUnLiftedType rho
@@ -1444,14 +1412,16 @@ polyBindErr binds
                 ptext (sLit "Probable fix: use a bang pattern")])
 
 strictBindErr :: String -> Bool -> [(Origin, LHsBind Name)] -> SDoc
-strictBindErr flavour unlifted binds
+strictBindErr flavour unlifted_bndrs binds
   = hang (text flavour <+> msg <+> ptext (sLit "aren't allowed:")) 
        2 (vcat (map (ppr . snd) binds))
   where
-    msg | unlifted  = ptext (sLit "bindings for unlifted types")
-        | otherwise = ptext (sLit "bang-pattern bindings")
+    msg | unlifted_bndrs = ptext (sLit "bindings for unlifted types")
+        | otherwise      = ptext (sLit "bang-pattern or unboxed-tuple bindings")
 \end{code}
 
+Note [Binding scoped type variables]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 %************************************************************************
 %*                                                                      *

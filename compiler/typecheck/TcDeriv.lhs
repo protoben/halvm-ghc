@@ -36,7 +36,7 @@ import RnSource   ( addTcgDUs )
 import HscTypes
 import Avail
 
-import Unify( tcMatchTy )
+import Unify( tcUnifyTy )
 import Id( idType )
 import Class
 import Type
@@ -469,11 +469,13 @@ renameDeriv is_boot inst_infos bagBinds
 
   where
     rn_inst_info :: InstInfo RdrName -> TcM (InstInfo Name, FreeVars)
-    rn_inst_info inst_info@(InstInfo { iSpec = inst
-                                     , iBinds = InstBindings
-                                                  { ib_binds = binds
-                                                  , ib_pragmas = sigs
-                                                  , ib_standalone_deriving = sa } })
+    rn_inst_info
+      inst_info@(InstInfo { iSpec = inst
+                          , iBinds = InstBindings
+                            { ib_binds = binds
+                            , ib_pragmas = sigs
+                            , ib_extensions = exts -- only for type-checking
+                            , ib_standalone_deriving = sa } })
         =       -- Bring the right type variables into
                 -- scope (yuk), and rename the method binds
            ASSERT( null sigs )
@@ -481,6 +483,7 @@ renameDeriv is_boot inst_infos bagBinds
            do { (rn_binds, fvs) <- rnMethodBinds (is_cls_nm inst) (\_ -> []) binds
               ; let binds' = InstBindings { ib_binds = rn_binds
                                            , ib_pragmas = []
+                                           , ib_extensions = exts
                                            , ib_standalone_deriving = sa }
               ; return (inst_info { iBinds = binds' }, fvs) }
         where
@@ -673,35 +676,42 @@ deriveTyData tvs tc tc_args (L loc deriv_pred)
         ; let cls_tyvars     = classTyVars cls
         ; checkTc (not (null cls_tyvars)) derivingNullaryErr
 
-        ; let kind            = tyVarKind (last cls_tyvars)
-              (arg_kinds, _)  = splitKindFunTys kind
+        ; let cls_arg_kind    = tyVarKind (last cls_tyvars)
+              (arg_kinds, _)  = splitKindFunTys cls_arg_kind
               n_args_to_drop  = length arg_kinds
               n_args_to_keep  = tyConArity tc - n_args_to_drop
               args_to_drop    = drop n_args_to_keep tc_args
               tc_args_to_keep = take n_args_to_keep tc_args
               inst_ty_kind    = typeKind (mkTyConApp tc tc_args_to_keep)
               dropped_tvs     = tyVarsOfTypes args_to_drop
-              tv_set          = mkVarSet tvs
-              mb_match        = tcMatchTy tv_set inst_ty_kind kind
-              Just subst      = mb_match   -- See Note [Match kinds in deriving]
 
-              final_tc_args   = substTys subst tc_args_to_keep
-              univ_tvs        = mkVarSet deriv_tvs `unionVarSet` tyVarsOfTypes final_tc_args
+              -- Match up the kinds, and apply the resulting kind substitution
+              -- to the types.  See Note [Unify kinds in deriving]
+              -- We are assuming the tycon tyvars and the class tyvars are distinct
+              mb_match        = tcUnifyTy inst_ty_kind cls_arg_kind
+              Just kind_subst = mb_match 
+              (univ_kvs, univ_tvs) = partition isKindVar $ varSetElems $
+                                     mkVarSet deriv_tvs `unionVarSet` 
+                                     tyVarsOfTypes tc_args_to_keep
+              univ_kvs'           = filter (`notElemTvSubst` kind_subst) univ_kvs
+              (subst', univ_tvs') = mapAccumL substTyVarBndr kind_subst univ_tvs
+              final_tc_args       = substTys subst' tc_args_to_keep
+              final_cls_tys       = substTys subst' cls_tys
 
         ; traceTc "derivTyData1" (vcat [ pprTvBndrs tvs, ppr tc, ppr tc_args
                                        , pprTvBndrs (varSetElems $ tyVarsOfTypes tc_args)
                                        , ppr n_args_to_keep, ppr n_args_to_drop
-                                       , ppr inst_ty_kind, ppr kind, ppr mb_match ])
+                                       , ppr inst_ty_kind, ppr cls_arg_kind, ppr mb_match ])
 
         -- Check that the result really is well-kinded
         ; checkTc (n_args_to_keep >= 0 && isJust mb_match)
-                  (derivingKindErr tc cls cls_tys kind)
+                  (derivingKindErr tc cls cls_tys cls_arg_kind)
 
         ; traceTc "derivTyData2" (vcat [ ppr univ_tvs ])
 
-        ; checkTc (allDistinctTyVars args_to_drop &&            -- (a) and (b)
-                   univ_tvs `disjointVarSet` dropped_tvs)       -- (c)
-                  (derivingEtaErr cls cls_tys (mkTyConApp tc final_tc_args))
+        ; checkTc (allDistinctTyVars args_to_drop &&              -- (a) and (b)
+                   not (any (`elemVarSet` dropped_tvs) univ_tvs)) -- (c)
+                  (derivingEtaErr cls final_cls_tys (mkTyConApp tc final_tc_args))
                 -- Check that
                 --  (a) The args to drop are all type variables; eg reject:
                 --              data instance T a Int = .... deriving( Monad )
@@ -713,8 +723,8 @@ deriveTyData tvs tc tc_args (L loc deriv_pred)
                 --              newtype T a s = ... deriving( ST s )
                 --              newtype K a a = ... deriving( Monad )
 
-        ; mkEqnHelp (varSetElemsKvsFirst univ_tvs)
-                    cls cls_tys tc final_tc_args Nothing } }
+        ; mkEqnHelp (univ_kvs' ++ univ_tvs')
+                    cls final_cls_tys tc final_tc_args Nothing } }
 
 derivePolyKindedTypeable :: Class -> [Type]
                          -> [TyVar] -> TyCon -> [Type]
@@ -742,7 +752,7 @@ derivePolyKindedTypeable cls cls_tys _tvs tc tc_args
                         | otherwise   =     kindVarsOnly ts
 \end{code}
 
-Note [Match kinds in deriving]
+Note [Unify kinds in deriving]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Consider (Trac #8534)
     data T a b = MkT a deriving( Functor )
@@ -752,12 +762,50 @@ So T :: forall k. * -> k -> *.   We want to get
     instance Functor (T * (a:*)) where ...
 Notice the '*' argument to T.
 
-So we need to (a) drop arguments from (T a b) to match the number of
-arrows in the (last argument of the) class; and then match kind of the
-remaining type against the expected kind, to figur out how to
-instantiate T's kind arguments.  Hence we match 
-   kind( T k (a:k) ) ~ (* -> *)
-to find k:=*.  Tricky stuff.
+Moreover, as well as instantiating T's kind arguments, we may need to instantiate
+C's kind args.  Consider (Trac #8865):
+  newtype T a b = MkT (Either a b) deriving( Category )
+where
+  Category :: forall k. (k -> k -> *) -> Constraint
+We need to generate the instance
+  insatnce Category * (Either a) where ...
+Notice the '*' argument to Cagegory.
+
+So we need to
+ * drop arguments from (T a b) to match the number of
+   arrows in the (last argument of the) class;
+ * and then *unify* kind of the remaining type against the
+   expected kind, to figure out how to instantiate C's and T's
+   kind arguments.
+
+In the two examples,
+ * we unify   kind-of( T k (a:k) ) ~ kind-of( Functor )
+         i.e.      (k -> *) ~ (* -> *)   to find k:=*.
+         yielding  k:=*
+
+ * we unify   kind-of( Either ) ~ kind-of( Category )
+         i.e.      (* -> * -> *)  ~ (k -> k -> k)
+         yielding  k:=*
+
+Now we get a kind substition.  We then need to:
+
+  1. Remove the substituted-out kind variables from the quantifed kind vars
+
+  2. Apply the substitution to the kinds of quantified *type* vars
+     (and extend the substitution to reflect this change)
+
+  3. Apply that extended substitution to the non-dropped args (types and
+     kinds) of the type and class
+
+Forgetting step (2) caused Trac #8893:
+  data V a = V [a] deriving Functor
+  data P (x::k->*) (a:k) = P (x a) deriving Functor
+  data C (x::k->*) (a:k) = C (V (P x a)) deriving Functor
+
+When deriving Functor for P, we unify k to *, but we then want
+an instance   $df :: forall (x:*->*). Functor x => Functor (P * (x:*->*))
+and similarly for C.  Notice the modifed kind of x, both at binding
+and occurrence sites.
 
 
 \begin{code}
@@ -1966,6 +2014,8 @@ genInst standalone_deriv oflag comauxs
                     , iBinds  = InstBindings
                         { ib_binds = gen_Newtype_binds loc clas tvs tys rhs_ty
                         , ib_pragmas = []
+                        , ib_extensions = [ Opt_ImpredicativeTypes
+                                          , Opt_RankNTypes ]
                         , ib_standalone_deriving = standalone_deriv } }
                 , emptyBag
                 , Just $ getName $ head $ tyConDataCons rep_tycon ) }
@@ -1981,6 +2031,7 @@ genInst standalone_deriv oflag comauxs
                                   , iBinds  = InstBindings
                                                 { ib_binds = meth_binds
                                                 , ib_pragmas = []
+                                                , ib_extensions = []
                                                 , ib_standalone_deriving = standalone_deriv } }
        ; return ( inst_info, deriv_stuff, Nothing ) }
   where

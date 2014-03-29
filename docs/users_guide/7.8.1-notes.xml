@@ -107,7 +107,7 @@
                 that previously compiled will no longer work.
 
                 For more information, see <xref linkend="roles"/>.
-           </para>
+          </para>
        </listitem>
 
         <listitem>
@@ -251,6 +251,12 @@
            </para>
 
             <para>
+                Note that you must be using Cabal and Cabal-install
+                1.18 for it to correctly build dynamic shared libraries
+                for you.
+           </para>
+
+            <para>
                 Currently, Dynamic GHCi and
                 <literal>-dynamic-too</literal> are not supported on
                 Windows (32bit or 64bit.)
@@ -291,6 +297,7 @@
                 explicitly declare the minimal complete definition of
                 a class. Should an instance not provide the minimal
                 required definitions, a warning will be emitted.
+                See <xref linkend="minimal-pragma"/> for details.
            </para>
        </listitem>
 
@@ -370,6 +377,14 @@
                 ARM with binutil's ld due to a
                 <ulink url="https://sourceware.org/bugzilla/show_bug.cgi?id=16177">
                 bug</ulink> in ld.
+           </para>
+       </listitem>
+
+        <listitem>
+            <para>
+                GHC now uses Unicode <emphasis>left/right single quotation
+                marks</emphasis> (i.e. U+2018 and U+2019) in compiler messages
+                if the current locale supports Unicode characters.
            </para>
        </listitem>
    </itemizedlist>
@@ -453,9 +468,9 @@
                      that have the same run-time-presentation, such as
                      newtypes, but also newtypes inside containers. See the
                      haddock documentation of
-                     <ulink url="&libraryBaseLocation;/GHC-Exts.html#v%3Acoerce">coerce</ulink>
+                     <ulink url="&libraryBaseLocation;/Data-Coerce.html#v%3Acoerce">coerce</ulink>
                      and of the class
-                     <ulink url="&libraryBaseLocation;/GHC-Exts.html#t%3ACoercible">Coercible</ulink>
+                     <ulink url="&libraryBaseLocation;/Data-Coerce.html#t%3ACoercible">Coercible</ulink>
                      for more details.
                </para>
                 <para>
@@ -553,8 +568,12 @@
                     guide the processor's caching decisions.
                </para>
                 <para>
-                    Currently, these are only supported with the LLVM
-                    backend and x86/amd64 backends.
+                    Currently, the primops get translated into
+                    the associated hardware supported prefetch
+                    instructions only with the LLVM backend and
+                    x86/amd64 backends. On all other backends,
+                    the prefetch primops are currently erased
+                    at code generation time.
                </para>
            </listitem>
        </itemizedlist>
@@ -759,6 +778,20 @@
              <listitem>
                 <para>
                     There is now a <literal>Data</literal> instance for <literal>Data.Version</literal>.
+               </para>
+           </listitem>
+             <listitem>
+                <para>
+                    There are now <literal>Data</literal>,
+                    <literal>Typeable</literal>, and
+                    <literal>Generic</literal> instances for the types
+                    in <literal>Data.Monoid</literal> and
+                    <literal>Control.Applicative</literal>
+               </para>
+           </listitem>
+             <listitem>
+                <para>
+                    There are now <literal>Num</literal> instances for <literal>Data.Monoid.Product</literal> and <literal>Data.Monoid.Sum</literal>
                </para>
            </listitem>
              <listitem>
