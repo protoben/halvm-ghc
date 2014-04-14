@@ -46,6 +46,10 @@
 	path = libraries/vector
 	url = git://git.haskell.org/packages/vector.git
 	ignore = untracked
+[submodule "libraries/time"]
+	path = libraries/time
+	url = git://git.haskell.org/packages/time.git
+	ignore = untracked
 [submodule "libraries/random"]
 	path = libraries/random
 	url = git://git.haskell.org/packages/random.git
