@@ -46,10 +46,6 @@
 	path = libraries/vector
 	url = ../packages/vector.git
 	ignore = untracked
-[submodule "libraries/time"]
-	path = libraries/time
-	url = ../packages/time.git
-	ignore = untracked
 [submodule "libraries/random"]
 	path = libraries/random
 	url = ../packages/random.git
