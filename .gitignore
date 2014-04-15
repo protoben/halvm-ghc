@@ -55,6 +55,7 @@ _darcs/
 /libraries/extensible-exceptions/
 /libraries/filepath/
 /libraries/ghc-prim/
+/libraries/HaLVMCore
 /libraries/haskell2010/
 /libraries/haskell98/
 /libraries/hoopl/
@@ -70,6 +71,7 @@ _darcs/
 /libraries/template-haskell/
 /libraries/unix/
 /libraries/utf8-string/
+/libraries/XenDevice
 /nofib/
 /utils/haddock/
 /utils/hsc2hs/
