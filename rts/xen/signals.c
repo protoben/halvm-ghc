@@ -196,12 +196,23 @@ void resetDefaultHandlers(void)
 static StgStablePtr  *pending_handler_queue  = NULL;
 static unsigned int   pending_handler_head   = 0;
 static unsigned int   pending_handler_tail   = 0;
+#ifdef THREADED_RTS
 static halvm_mutex_t  pending_handler_lock;
+#define PENDING_HANDLERS_LOCK()    halvm_acquire_lock(&pending_handler_lock);
+#define PENDING_HANDLERS_UNLOCK()  halvm_release_lock(&pending_handler_lock);
+
+#else
+#define PENDING_HANDLERS_LOCK()    ;
+#define PENDING_HANDLERS_UNLOCK()  ;
+#endif
 
 void initUserSignals(void)
 {
   pending_handler_queue = calloc(MAX_PENDING_HANDLERS, sizeof(StgStablePtr));
   pending_handler_head  = pending_handler_tail = 0;
+#ifdef THREADED_RTS
+  initMutex(&pending_handler_lock);
+#endif
 }
 
 int signals_pending(void)
@@ -209,41 +220,37 @@ int signals_pending(void)
   int res;
 
   force_hypervisor_callback();
-  if(pending_handler_lock > 1) printf("[0] pending_handler_lock = %x\n", pending_handler_lock);
-  halvm_acquire_lock(&pending_handler_lock);
+  allow_signals(0);
+  PENDING_HANDLERS_LOCK();
   res = pending_handler_head != pending_handler_tail;
-  halvm_release_lock(&pending_handler_lock);
-  if(pending_handler_lock > 1) printf("[1] pending_handler_lock = %x\n", pending_handler_lock);
+  PENDING_HANDLERS_UNLOCK();
+  allow_signals(1);
   return res;
 }
 
 static void enqueueSignalHandler(StgStablePtr handler)
 {
-  if(pending_handler_lock > 1) printf("[2] pending_handler_lock = %x\n", pending_handler_lock);
-  halvm_acquire_lock(&pending_handler_lock);
+  PENDING_HANDLERS_LOCK();
   pending_handler_queue[pending_handler_tail] = handler;
   pending_handler_tail = (pending_handler_tail + 1) % MAX_PENDING_HANDLERS;
   assert(pending_handler_tail != pending_handler_head);
-  halvm_release_lock(&pending_handler_lock);
-  if(pending_handler_lock > 1) printf("[3] pending_handler_lock = %x\n", pending_handler_lock);
+  PENDING_HANDLERS_UNLOCK();
 }
 
 StgStablePtr dequeueSignalHandler(void)
 {
   StgStablePtr retval;
 
-  if(pending_handler_lock > 1) printf("[4] pending_handler_lock = %x\n", pending_handler_lock);
   allow_signals(0);
-  halvm_acquire_lock(&pending_handler_lock);
+  PENDING_HANDLERS_LOCK();
   if(pending_handler_head == pending_handler_tail) {
     retval = NULL;
   } else {
     retval = pending_handler_queue[pending_handler_head];
     pending_handler_head = (pending_handler_head + 1) % MAX_PENDING_HANDLERS;
   }
-  halvm_release_lock(&pending_handler_lock);
+  PENDING_HANDLERS_UNLOCK();
   allow_signals(1);
-  if(pending_handler_lock > 1) printf("[5] pending_handler_lock = %x\n", pending_handler_lock);
 
   return retval;
 }
