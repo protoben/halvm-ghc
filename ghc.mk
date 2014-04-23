@@ -432,6 +432,8 @@ PACKAGES_STAGE2 += haskell2010
 endif
 
 ifeq "$(TargetOS_CPP)" "HaLVM"
+PACKAGES_STAGE1 += old-time
+PACKAGES_STAGE1 += haskell2010
 PACKAGES_STAGE1 += HALVMCore
 PACKAGES_STAGE1 += XenDevice
 endif

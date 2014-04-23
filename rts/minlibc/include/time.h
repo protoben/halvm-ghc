@@ -1,6 +1,8 @@
 #ifndef MINLIBC_TIME_H
 #define MINLIBC_TIME_H
 
+#include <stdlib.h>
+
 #ifdef __x86_64__
 typedef signed long      time_t;
 #else

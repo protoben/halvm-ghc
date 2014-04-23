@@ -563,7 +563,7 @@ rts_PACKAGE_CPP_OPTS += -DHAVE_LIBMINGWEX
 endif
 
 ifeq "$(TargetOS_CPP)" "HaLVM"
-rts_PACKAGE_CPP_OPTS += -DHALVM_SYSTEM_INCLUDES=$(ghcheaderdir)/../../../include
+rts_PACKAGE_CPP_OPTS += -DHALVM_SYSTEM_INCLUDES=$(ghcheaderdir)/minlibc
 else
 rts_PACKAGE_CPP_OPTS += -DHALVM_SYSTEM_INCLUDES=
 endif
