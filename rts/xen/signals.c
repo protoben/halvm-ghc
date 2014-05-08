@@ -359,6 +359,11 @@ void awaitEvent(rtsBool wait)
     if(wakeUpSleepingThreads(now))
       return;
 
+    if(signals_pending()) {
+      startSignalHandlers(&MainCapability);
+      return;
+    }
+
     /* if we're supposed to wait, try blocking for awhile */
     if(wait) {
       lnat block_time = ~0;
@@ -368,11 +373,6 @@ void awaitEvent(rtsBool wait)
         block_time /= 1000; /* us -> ms */
       }
       runtime_block(block_time);
-    }
-
-    if(signals_pending()) {
-      startSignalHandlers(&MainCapability);
-      return;
     }
 
     if(sched_state >= SCHED_INTERRUPTING)
