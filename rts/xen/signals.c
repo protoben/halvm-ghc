@@ -369,8 +369,10 @@ void awaitEvent(rtsBool wait)
       lnat block_time = ~0;
 
       if(sleeping_queue != END_TSO_QUEUE) {
-        block_time  = sleeping_queue->block_info.target - now; /* in us */
-        block_time /= 1000; /* us -> ms */
+        StgWord target = sleeping_queue->block_info.target; /* in us */
+
+        assert(target > now);
+        block_time = (target - now) / 1000; /* us -> ms */
       }
       runtime_block(block_time);
     }
