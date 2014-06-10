@@ -1045,7 +1045,7 @@ runPhase (RealPhase cc_phase) input_fn dflags
         -- files; this is the Value Add(TM) that using ghc instead of
         -- gcc gives you :)
         pkg_include_dirs <- liftIO $ getPackageIncludePath dflags pkgs
-        let include_paths = foldr (\ x xs -> "-I" : x : xs) []
+        let include_paths = foldr (\ x xs -> ("-I" ++ x) : xs) []
                               (cmdline_include_paths ++ pkg_include_dirs)
 
         let gcc_extra_viac_flags = extraGccViaCFlags dflags
@@ -1259,6 +1259,7 @@ runPhase (RealPhase SplitAs) _input_fn dflags
             osuf = objectSuf dflags
             split_odir  = base_o ++ "_" ++ osuf ++ "_split"
 
+        -- this also creates the hierarchy
         liftIO $ createDirectoryIfMissing True split_odir
 
         -- remove M_split/ *.o, because we're going to archive M_split/ *.o
@@ -1469,6 +1470,7 @@ runPhase (RealPhase MergeStub) input_fn dflags
  = do
      PipeState{maybe_stub_o} <- getPipeState
      output_fn <- phaseOutputFilename StopLn
+     liftIO $ createDirectoryIfMissing True (takeDirectory output_fn)
      case maybe_stub_o of
        Nothing ->
          panic "runPhase(MergeStub): no stub"
