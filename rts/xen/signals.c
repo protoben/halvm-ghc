@@ -395,16 +395,19 @@ void runtime_block(unsigned long milliseconds)
     force_hypervisor_callback();
     if(!signals_pending()) {
       uint64_t now, until;
+      int result;
 
       milliseconds = (milliseconds > one_day) ? one_day : milliseconds;
       now = monotonic_clock();
       until = now + (milliseconds * 1000000UL);
       if(monotonic_clock() < until) {
-        vcpu_set_singleshot_timer_t t = { .timeout_abs_ns = until, .flags = 0 };
-        assert(HYPERCALL_vcpu_op(VCPUOP_set_singleshot_timer,vcpu_num(),&t)>=0);
-        assert(HYPERCALL_sched_op(SCHEDOP_block, 0) >= 0);
-        force_hypervisor_callback();
-        now = monotonic_clock();
+        vcpu_set_singleshot_timer_t t = { .timeout_abs_ns = until, .flags = VCPU_SSHOTTMR_future };
+        result = HYPERCALL_vcpu_op(VCPUOP_set_singleshot_timer,vcpu_num(),&t);
+        if (result >= 0) {
+            assert(HYPERCALL_sched_op(SCHEDOP_block, 0) >= 0);
+            force_hypervisor_callback();
+            now = monotonic_clock();
+        }
       } else allow_signals(1);
     } else allow_signals(1);
   }
