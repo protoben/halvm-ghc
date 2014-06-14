@@ -217,14 +217,14 @@ void initUserSignals(void)
 
 int signals_pending(void)
 {
-  int res;
+  int res, orig_allowed;
 
   force_hypervisor_callback();
-  allow_signals(0);
+  orig_allowed = allow_signals(0);
   PENDING_HANDLERS_LOCK();
   res = pending_handler_head != pending_handler_tail;
   PENDING_HANDLERS_UNLOCK();
-  allow_signals(1);
+  allow_signals(orig_allowed);
   return res;
 }
 
@@ -240,8 +240,9 @@ static void enqueueSignalHandler(StgStablePtr handler)
 StgStablePtr dequeueSignalHandler(void)
 {
   StgStablePtr retval;
+  int orig_allowed;
 
-  allow_signals(0);
+  orig_allowed = allow_signals(0);
   PENDING_HANDLERS_LOCK();
   if(pending_handler_head == pending_handler_tail) {
     retval = NULL;
@@ -250,15 +251,17 @@ StgStablePtr dequeueSignalHandler(void)
     pending_handler_head = (pending_handler_head + 1) % MAX_PENDING_HANDLERS;
   }
   PENDING_HANDLERS_UNLOCK();
-  allow_signals(1);
+  allow_signals(orig_allowed);
 
   return retval;
 }
 
 #include "vmm.h"
 
-void allow_signals(int allow)
+int allow_signals(int allow)
 {
+  int orig_val;
+
 #if defined(__x86_64__) && !defined(THREADED_RTS)
   static int initialized = 0;
   if(!initialized) {
@@ -271,10 +274,12 @@ void allow_signals(int allow)
     initialized = 1;
   }
 #endif
-  __sync_lock_test_and_set(&vcpu_info().evtchn_upcall_mask, !!!allow);
+  orig_val = __sync_lock_test_and_set(&vcpu_info().evtchn_upcall_mask,!!!allow);
   asm volatile("" : : : "memory");
   if(allow && vcpu_info().evtchn_upcall_pending)
     force_hypervisor_callback();
+
+  return orig_val;
 }
 
 #ifndef THREADED_RTS
@@ -390,8 +395,10 @@ void awaitEvent(rtsBool wait)
 
 void runtime_block(unsigned long milliseconds)
 {
+  int orig_allowed;
+
   if(!signals_pending()) {
-    allow_signals(0);
+    orig_allowed = allow_signals(0);
     force_hypervisor_callback();
     if(!signals_pending()) {
       uint64_t now, until;
@@ -408,8 +415,8 @@ void runtime_block(unsigned long milliseconds)
             force_hypervisor_callback();
             now = monotonic_clock();
         }
-      } else allow_signals(1);
-    } else allow_signals(1);
+      } else allow_signals(orig_allowed);
+    } else allow_signals(orig_allowed);
   }
 }
 
