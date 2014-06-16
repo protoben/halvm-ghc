@@ -400,6 +400,7 @@ void runtime_block(unsigned long milliseconds)
   if(!signals_pending()) {
     orig_allowed = allow_signals(0);
     force_hypervisor_callback();
+
     if(!signals_pending()) {
       uint64_t now, until;
       int result;
@@ -415,8 +416,10 @@ void runtime_block(unsigned long milliseconds)
             force_hypervisor_callback();
             now = monotonic_clock();
         }
-      } else allow_signals(orig_allowed);
-    } else allow_signals(orig_allowed);
+      }
+    }
+
+    allow_signals(orig_allowed);
   }
 }
 
