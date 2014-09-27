@@ -1,8 +1,13 @@
 #ifndef MINLIBC_LIMITS_H
 #define MINLIBC_LIMITS_H
 
+#define UCHAR_MAX       255u
 #define SCHAR_MAX       127
+
+#define USHRT_MAX       65535u
 #define SHRT_MAX        32767
+
+#define UINT_MAX        0xffffffffu
 #define INT_MAX         2147483647
 
 #ifdef __x86_64__
