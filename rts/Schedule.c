@@ -1801,6 +1801,10 @@ forkProcess(HsStablePtr *entry
         ACQUIRE_LOCK(&capabilities[i]->lock);
     }
 
+#ifdef THREADED_RTS
+    ACQUIRE_LOCK(&all_tasks_mutex);
+#endif
+
     stopTimer(); // See #4074
 
 #if defined(TRACING)
@@ -1822,13 +1826,18 @@ forkProcess(HsStablePtr *entry
             releaseCapability_(capabilities[i],rtsFalse);
             RELEASE_LOCK(&capabilities[i]->lock);
         }
+
+#ifdef THREADED_RTS
+        RELEASE_LOCK(&all_tasks_mutex);
+#endif
+
         boundTaskExiting(task);
 
 	// just return the pid
         return pid;
 	
     } else { // child
-	
+
 #if defined(THREADED_RTS)
         initMutex(&sched_mutex);
         initMutex(&sm_mutex);
@@ -1838,6 +1847,8 @@ forkProcess(HsStablePtr *entry
         for (i=0; i < n_capabilities; i++) {
             initMutex(&capabilities[i]->lock);
         }
+
+        initMutex(&all_tasks_mutex);
 #endif
 
 #ifdef TRACING
