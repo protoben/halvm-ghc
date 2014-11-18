@@ -54,3 +54,6 @@
 	path = libraries/random
 	url = git://git.haskell.org/packages/random.git
 	ignore = untracked
+[submodule "rts/minlibc"]
+	path = rts/minlibc
+	url = git://github.com/GaloisInc/minlibc
