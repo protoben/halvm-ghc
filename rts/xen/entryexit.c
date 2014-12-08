@@ -113,9 +113,11 @@ void runtime_entry(start_info_t *start_info, void *init_sp)
   HYPERVISOR_shared_info = map_frames(&shared_info_mfn,1);
   runtime_stack = runtime_alloc(NULL, VCPU_STACK_SIZE, PROT_READWRITE);
 #ifdef __x86_64__
-  asm("mov %0, %%rsp" : : "r"((uintptr_t)runtime_stack + VCPU_STACK_SIZE));
+  asm("mov %0, %%rsp" :
+      : "r"((uintptr_t)runtime_stack + VCPU_STACK_SIZE - PAGE_SIZE));
 #else
-  asm("mov %0, %%esp" : : "r"((uintptr_t)runtime_stack + VCPU_STACK_SIZE - 8));
+  asm("mov %0, %%esp" :
+      : "r"((uintptr_t)runtime_stack + VCPU_STACK_SIZE - PAGE_SIZE));
 #endif
   init_signals(HYPERVISOR_shared_info);
 #ifdef THREADED_RTS
@@ -188,7 +190,10 @@ void runtime_entry(start_info_t *start_info, void *init_sp)
         break;
     }
   }
-  if(argv[argc]) argc++;
+  if(argv[argc]) {
+    argv[argc][pos++] = '\0';
+    argc++;
+  }
 
   /* Jump to GHC */
   main(argc, argv);
