@@ -137,7 +137,7 @@ void runtime_entry(start_info_t *start_info, void *init_sp)
   argc = 0; argv = malloc((6 + cmdline_size) * sizeof(char *));
   memset(argv, 0, (6 + cmdline_size) * sizeof(char *));
   /* these are constant ... */
-  argv[argc++] = "";
+  argv[argc++] = "HaLVM";
   argv[argc++] = "+RTS";
   argv[argc++] = "-c";
   /* tell GHC how much memory to use */
