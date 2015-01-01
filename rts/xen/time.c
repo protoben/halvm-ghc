@@ -91,7 +91,7 @@ time_t runtime_time()
          while (start_version & 0x1);
     rmb();
     retval  = shared_info->wc_sec;
-    retval += monotonic_clock() / (10 ^ 9); /* ns -> s */
+    retval += shared_info->wc_nsec / 1000000000ULL; /* ns -> s */
     rmb();
     end_version = vcpu_info().time.version;
     rmb();
