@@ -22,8 +22,8 @@
 #define  mb() asm volatile ("mfence"                  : : : "memory")
 #else
 #define wmb() asm volatile (""                        : : : "memory")
-#define rmb() asm volatile ("lock; addl %0, 0(%%esp)" : : : "memory")
-#define  mb() asm volatile ("lock; addl %0, 0(%%esp)" : : : "memory")
+#define rmb() asm volatile ("lock; addl $0, 0(%%esp)" : : : "memory")
+#define  mb() asm volatile ("lock; addl $0, 0(%%esp)" : : : "memory")
 #endif
 
 struct FILE {
