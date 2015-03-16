@@ -15,10 +15,12 @@
 #include <string.h>
 
 #define PAGE_ALIGN(t1,t2,x) (t1)(((t2)x + (PAGE_SIZE-1)) & (~(PAGE_SIZE-1)))
+#define PAGE_ALIGNED(a)     (0 == ((uintptr_t)a & (PAGE_SIZE - 1)))
 
 extern int            _text;
-       unsigned long  cur_pages = 0;
-       unsigned long  max_pages = 0;
+extern char           _mem_start[];
+unsigned long  cur_pages = 0;
+unsigned long  max_pages = 0;
 
 /******************************************************************************/
 
@@ -81,6 +83,9 @@ unsigned long initialize_memory(start_info_t *start_info, void *init_sp)
   max_pages = HYPERCALL_memory_op(XENMEM_maximum_reservation, &self);
   cur_pages = HYPERCALL_memory_op(XENMEM_current_reservation, &self);
 
+  printf("init_sp: 0x%p\n", init_sp);
+  printf("self:    0x%p\n", &self);
+
   /* sanity checks */
   assert(p2m_map);
   assert((long)cur_pages > 0);
@@ -103,7 +108,7 @@ unsigned long initialize_memory(start_info_t *start_info, void *init_sp)
   i = ((uintptr_t)free_space_start - (uintptr_t)&_text) >> PAGE_SHIFT;
   for(cur = free_space_start;
       i < used_frames;
-      i++, cur = (void*)((uintptr_t)cur + 4096)) {
+      i++, cur = (void*)((uintptr_t)cur + PAGE_SIZE)) {
     set_pframe_unused(i);
     set_pt_entry(cur, 0);
   }
@@ -118,13 +123,15 @@ unsigned long initialize_memory(start_info_t *start_info, void *init_sp)
 
 static inline void *advance_page(void *p)
 {
-  return CANONICALIZE((void*)((uintptr_t)DECANONICALIZE(p) + 4096));
+  return CANONICALIZE((void*)((uintptr_t)DECANONICALIZE(p) + PAGE_SIZE));
 }
 
 static void *run_search_loop(void *start, size_t length)
 {
   void *cur = start, *retval = NULL;
   size_t needed_space = length;
+
+  /* printf("searching from: 0x%x\n", start); */
 
   assert(start);
   while(needed_space > 0) {
@@ -155,12 +162,14 @@ static void *run_search_loop(void *start, size_t length)
     }
   }
 
+  /* printf("found: 0x%x\n", retval); */
+
   return retval;
 }
 
 static inline void *find_new_addr(void *start_in, size_t length)
 {
-  static void *glob_search_hint = (void*)0x1000;
+  static void *glob_search_hint = (void*)_mem_start;
   void *p = PAGE_ALIGN(void*,uintptr_t,start_in);
 
   /* and if they didn't give us any info (or it's junk, see above), */
@@ -171,13 +180,30 @@ static inline void *find_new_addr(void *start_in, size_t length)
   return p;
 }
 
-void *runtime_alloc(void *start, size_t length_in, int prot)
+static void *internal_alloc(void *, size_t, int);
+
+void *runtime_alloc(void *dest_in, size_t length_in, int prot)
 {
-  size_t length = PAGE_ALIGN(size_t,size_t,length_in);
-  void *dest, *cur, *end;
+  size_t length = PAGE_ALIGN(size_t, size_t, length_in);
+  void * dest   = NULL;
+
+  assert(dest = find_new_addr(dest_in, length));
+
+  return internal_alloc(dest, length, prot);
+}
+
+/* Always allocate with a destination address already found, an amount that is
+ * already page aligned.
+ */
+static void *internal_alloc(void *dest, size_t length, int prot)
+{
+  void *cur, *end;
+
+  assert(PAGE_ALIGNED(dest));
+  assert(PAGE_ALIGNED(length));
 
   halvm_acquire_lock(&memory_search_lock);
-  assert(dest = find_new_addr(start, length));
+
   cur = dest;
   end = (void*)((uintptr_t)dest + length);
   while( (uintptr_t)cur < (uintptr_t)end ) {
@@ -386,37 +412,23 @@ W_ getPageFaults(void)
   return 0;
 }
 
+static char * next_request = HASKELL_HEAP_START;
+
 void *osGetMBlocks(nat n)
 {
-  size_t padsize = (n + 1) * MBLOCK_SIZE;
-  void *allocp, *retval, *extra;
+  char * allocp = NULL;
 
-  allocp = runtime_alloc(NULL, padsize, PROT_READWRITE);
+  allocp = internal_alloc(next_request, n * MBLOCK_SIZE, PROT_READWRITE);
   if(!allocp) {
     printf("WARNING: Out of memory. The GHC RTS is about to go nuts.\n");
     return NULL;
   }
 
-  retval = (void*)(((uintptr_t)allocp + (MBLOCK_SIZE-1)) & ~(MBLOCK_SIZE-1));
-  /* free the stuff at the beginning and end that we don't need */
-  if(allocp == retval) {
-    /* we got back an aligned value, so all the extra is at the end */
-    extra = (void*)((uintptr_t)allocp + (n * MBLOCK_SIZE));
-    runtime_free(extra, MBLOCK_SIZE);
-  } else {
-    /* if this case fires, we used some of our extra memory to align the */
-    /* return value, so this is going to be a little complicated.        */
-    size_t extra_head, extra_tail;
+  next_request = allocp + n * MBLOCK_SIZE;
 
-    extra = (void*)((uintptr_t)retval + (n * MBLOCK_SIZE));
-    extra_head = (uintptr_t)retval - (uintptr_t)allocp;
-    extra_tail = ((uintptr_t)allocp + padsize) - (uintptr_t)extra;
+  /* printf("osGetMBlocks: %d -> 0x%x\n", n, allocp); */
 
-    runtime_free(allocp, extra_head);
-    runtime_free(extra, extra_tail);
-  }
-
-  return retval;
+  return allocp;
 }
 
 void osFreeAllMBlocks(void)
@@ -431,6 +443,7 @@ void osMemInit(void)
 
 void osFreeMBlocks(char *addr, nat n)
 {
+  /* printf("osFreeMBlocks: 0x%x + %d\n", addr, n); */
   runtime_free(addr, n * MBLOCK_SIZE);
 }
 

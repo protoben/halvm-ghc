@@ -9,8 +9,11 @@
 #include <sys/types.h>
 #include <xen/xen.h>
 
+// start the haskell heap at 64M
+#define HASKELL_HEAP_START        ((char *)0x4000000)
+
 #define PAGE_SHIFT                12
-#define PAGE_SIZE                 (1 << 12)
+#define PAGE_SIZE                 (1 << PAGE_SHIFT)
 #define VCPU_STACK_SIZE           (256 * PAGE_SIZE)
 #define IRQ_STACK_SIZE            (8 * PAGE_SIZE)
 

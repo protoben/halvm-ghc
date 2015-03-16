@@ -36,8 +36,8 @@ typedef uint64_t            pte_t;
 #define BUILD_ADDR(b,c,d)   ((void*)((((uintptr_t)(b)) << 30)    |         \
                                      (((uintptr_t)(c)) << 21)    |         \
                                      (((uintptr_t)(d)) << 12)))
-#define CANONICALIZE(x)     x
-#define DECANONICALIZE(x)   x
+#define CANONICALIZE(x)     (x)
+#define DECANONICALIZE(x)   (x)
 #endif
 
 #ifdef CONFIG_X86_64
