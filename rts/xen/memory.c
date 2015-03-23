@@ -22,6 +22,30 @@ extern char           _mem_start[];
 unsigned long  cur_pages = 0;
 unsigned long  max_pages = 0;
 
+
+/** Stats *********************************************************************/
+
+struct {
+    int num_pg_allocs;
+    int num_pg_frees;
+    int num_mb_allocs;
+    int num_mb_frees;
+} stats;
+
+static void dump_stats(void) {
+    printf("GC Stats:\n");
+    printf("\tnum_pg_allocs: %d\n", stats.num_pg_allocs);
+    printf("\tnum_pg_frees:  %d\n", stats.num_pg_frees);
+    printf("\tnum_mb_allocs: %d\n", stats.num_mb_allocs);
+    printf("\tnum_mb_frees:  %d\n", stats.num_mb_frees);
+
+    printf("\tmalloc heap:   %dkb\n",
+            (stats.num_pg_allocs - (stats.num_mb_allocs * 256)) * 4);
+    printf("\tmblocks:       %dkb\n", stats.num_mb_allocs * 256 * 4);
+
+    return;
+}
+
 /******************************************************************************/
 
 mfn_t *p2m_map = NULL;
@@ -126,14 +150,19 @@ static inline void *advance_page(void *p)
   return CANONICALIZE((void*)((uintptr_t)DECANONICALIZE(p) + PAGE_SIZE));
 }
 
-static void *run_search_loop(void *start, size_t length)
+/*
+ * INVARIANTS:
+ *   * start is already aligned WRT align
+ *   * align is a multiple of PAGE_SIZE
+ */
+static void *run_search_loop(void *start, size_t length, size_t align)
 {
-  void *cur = start, *retval = NULL;
+  char *cur = start, *block_start = start, *retval = NULL;
   size_t needed_space = length;
 
   /* printf("searching from: 0x%x\n", start); */
 
-  assert(start);
+  assert(NULL != start);
   while(needed_space > 0) {
     pte_t ent = get_pt_entry(cur);
 
@@ -141,11 +170,17 @@ static void *run_search_loop(void *start, size_t length)
       /* nevermind, we can't use anything we've found up until now */
       needed_space = length;
       retval       = NULL;
-    } else {
-      /* we can start or extend the current run */
-      if(!retval) retval = cur;
-      needed_space     = needed_space - PAGE_SIZE;
+
+      /* increment by the target address by the alignemnt required */
+      block_start += align;
+      cur          = block_start;
+
+      continue;
     }
+
+    /* we can start or extend the current run */
+    if(!retval) retval = cur;
+    needed_space     = needed_space - PAGE_SIZE;
 
     if(needed_space > 0) {
       cur = advance_page(cur);
@@ -175,7 +210,7 @@ static inline void *find_new_addr(void *start_in, size_t length)
   /* and if they didn't give us any info (or it's junk, see above), */
   /* let's use a reasonable hint about where to start our search.   */
   if(!p) p = glob_search_hint;
-  p = run_search_loop(p, length);
+  p = run_search_loop(p, length, PAGE_SIZE);
   glob_search_hint = PAGE_ALIGN(void*,uintptr_t,((uintptr_t)p + length));
   return p;
 }
@@ -231,6 +266,7 @@ static void *internal_alloc(void *dest, size_t length, int prot)
       set_pt_entry(cur, entry);
     }
 
+    ++stats.num_pg_allocs;
     cur = advance_page(cur);
   }
 
@@ -383,6 +419,8 @@ void runtime_free(void *start, size_t length)
     }
     set_pt_entry(start, 0);
     start = (void*)((uintptr_t)start + PAGE_SIZE);
+
+    ++stats.num_pg_frees;
   }
   halvm_release_lock(&memory_search_lock);
 }
@@ -417,14 +455,19 @@ static char * next_request = HASKELL_HEAP_START;
 void *osGetMBlocks(nat n)
 {
   char * allocp = NULL;
+  int len       = n * MBLOCK_SIZE;
+  char * addr   = run_search_loop(next_request, len, MBLOCK_SIZE);
 
-  allocp = internal_alloc(next_request, n * MBLOCK_SIZE, PROT_READWRITE);
-  if(!allocp) {
+  allocp = internal_alloc(addr, len, PROT_READWRITE);
+  if(NULL == allocp) {
     printf("WARNING: Out of memory. The GHC RTS is about to go nuts.\n");
+    dump_stats();
     return NULL;
   }
 
-  next_request = allocp + n * MBLOCK_SIZE;
+  next_request = allocp + len;
+
+  stats.num_mb_allocs += n;
 
   /* printf("osGetMBlocks: %d -> 0x%x\n", n, allocp); */
 
@@ -445,6 +488,11 @@ void osFreeMBlocks(char *addr, nat n)
 {
   /* printf("osFreeMBlocks: 0x%x + %d\n", addr, n); */
   runtime_free(addr, n * MBLOCK_SIZE);
+
+  /* next time, start allocation from this block */
+  next_request = addr;
+
+  stats.num_mb_frees += n;
 }
 
 void osReleaseFreeMemory(void)
