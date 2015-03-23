@@ -126,7 +126,9 @@ void runtime_entry(start_info_t *start_info, void *init_sp)
   if(num_vcpus > 1)
     printf("WARNING: Allocated >1 CPUs in the non-threaded RTS.\n");
 #endif
-  assert(HYPERCALL_set_trap_table(trap_table) >= 0);
+  /* Don't register our trap table, as Xen's default gives more useful
+   * information */
+  /* assert(HYPERCALL_set_trap_table(trap_table) >= 0); */
   assert(HYPERCALL_set_callbacks(hypervisor_callback, failsafe_callback) >= 0);
   allow_signals(1);
   init_time(HYPERVISOR_shared_info);
