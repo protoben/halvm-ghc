@@ -133,12 +133,12 @@ void set_pt_entry(void *addr, pte_t val)
   assert(mmu_update(ENTRY_MADDR(l2ent)+(VADDR_L1_IDX(addr)*sizeof(pte_t)),val));
   halvm_release_lock(&vmm_lock);
 
-  if(ENTRY_PRESENT(val)) {
+  /* if(ENTRY_PRESENT(val)) { */
     mmuext_op_t flush;
     flush.cmd = MMUEXT_INVLPG_ALL;
     flush.arg1.linear_addr = (unsigned long)addr;
     assert(HYPERCALL_mmuext_op(&flush, 1, NULL, DOMID_SELF) >= 0);
-  }
+  /* } */
 }
 
 void *machine_to_virtual(uint64_t maddr)
