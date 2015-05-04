@@ -21,6 +21,8 @@
 
 void main(int, char**);
 void runtime_entry(start_info_t *, void *) __attribute__((noreturn));
+void runtime_exit(void);
+void shutdown(int);
 
 struct start_info  *system_start_info      = NULL;
 struct shared_info *HYPERVISOR_shared_info = NULL;
@@ -206,7 +208,12 @@ void runtime_entry(start_info_t *start_info, void *init_sp)
 
 void runtime_exit(void)
 {
-  sched_shutdown_t op = { .reason = SHUTDOWN_poweroff };
-  for( ;; ) HYPERCALL_sched_op(SCHEDOP_shutdown, &op);
+  shutdown(SHUTDOWN_poweroff);
 }
 
+/* SCHEDOP_shutdown tells Xen not to schedule us anymore. Toolstack cleans up */
+void shutdown(int reason)
+{
+  sched_shutdown_t op = { .reason = reason };
+  for( ;; ) HYPERCALL_sched_op(SCHEDOP_shutdown, &op);
+}
