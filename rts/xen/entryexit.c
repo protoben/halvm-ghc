@@ -101,6 +101,7 @@ void runtime_entry(start_info_t *start_info, void *init_sp)
   unsigned long maxpages;
   mfn_t shared_info_mfn;
   size_t cmdline_size;
+  uint16_t heap_estimate;
 
   /* system startup stuff, that must occur before we go to GHC */
   system_start_info = start_info;
@@ -146,7 +147,10 @@ void runtime_entry(start_info_t *start_info, void *init_sp)
   argv[argc++] = "-c";
   /* tell GHC how much memory to use */
   argv[argc] = malloc(16);
-  snprintf(argv[argc],16,"-M%dm", (maxpages - used_frames()) / 256);
+  heap_estimate = (maxpages - used_frames()) / 256;
+  printf("Total memory: %d pages (%dm)\n", maxpages, maxpages/256);
+  printf("Heap estimate: %dm is available.\n", heap_estimate);
+  snprintf(argv[argc],16,"-M%dm", heap_estimate);
   argc++;
 #ifdef THREADED_RTS
   argv[argc++] = "-N";

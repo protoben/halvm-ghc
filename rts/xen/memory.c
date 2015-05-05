@@ -39,9 +39,17 @@ static void dump_stats(void) {
     printf("\tnum_mb_allocs: %d\n", stats.num_mb_allocs);
     printf("\tnum_mb_frees:  %d\n", stats.num_mb_frees);
 
-    printf("\tmalloc heap:   %dkb\n",
-            (stats.num_pg_allocs - (stats.num_mb_allocs * 256)) * 4);
-    printf("\tmblocks:       %dkb\n", stats.num_mb_allocs * 256 * 4);
+    int in_use_kb = (stats.num_pg_allocs - stats.num_pg_frees) * 4;
+    int mblocks_kb = (stats.num_mb_allocs - stats.num_mb_frees) * 256 * 4;
+    int mallocd_kb = in_use_kb - mblocks_kb;
+
+    printf("\tTotal in use:  %dkb\n", in_use_kb);
+    printf("\tmalloc heap:   %dkb\n", mallocd_kb);
+    printf("\tmblocks:       %dkb\n", mblocks_kb);
+
+    printf("\tPAGE_SIZE = %d\n", PAGE_SIZE); // temporary
+    printf("\tmax_pages = %d\n", max_pages);
+    printf("\tcur_pages = %d\n", cur_pages);
 
     return;
 }
@@ -171,7 +179,7 @@ static void *run_search_loop(void *start, size_t length, size_t align)
       needed_space = length;
       retval       = NULL;
 
-      /* increment by the target address by the alignemnt required */
+      /* increment by the target address by the alignment required */
       block_start += align;
       cur          = block_start;
 
