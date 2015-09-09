@@ -1,7 +1,7 @@
 #ifndef RTS_XEN_IOMANAGER_H
 #define RTS_XEN_IOMANAGER_H
 
-StgStablePtr waitForWaiter(void);
+StgWord waitForWaiter(StgStablePtr *out);
 void registerWaiter(int, StgStablePtr);
 
 #endif

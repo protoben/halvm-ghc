@@ -60,32 +60,32 @@ void registerWaiter(int usecs MUNUSED, StgStablePtr action MUNUSED)
 #endif
 }
 
-StgStablePtr waitForWaiter()
+StgWord waitForWaiter(StgStablePtr *out)
 {
 #ifdef THREADED_RTS
-  while(1) {
-    StgStablePtr signal = dequeueSignalHandler();
-    unsigned long target;
+  StgStablePtr signal = dequeueSignalHandler();
+  unsigned long target;
 
-    if(signal) {
-      return signal;
-    }
-
-    halvm_acquire_lock(&waiters_lock);
-    if(waiters && waiters->target <= getDelayTarget(0)) {
-      StgStablePtr retval = waiters->action;
-      waiter_t *dead = waiters;
-
-      waiters = waiters->next;
-      halvm_release_lock(&waiters_lock);
-      free(dead);
-      return retval;
-    }
-    target = waiters ? waiters->target : getDelayTarget(6000000);
-    halvm_release_lock(&waiters_lock);
-
-    sleepUntilWaiter(target);
+  if(signal) {
+    *out = signal;
+    return 0;
   }
+
+  halvm_acquire_lock(&waiters_lock);
+  if(waiters && waiters->target <= getDelayTarget(0)) {
+    waiter_t *dead = waiters;
+
+    *out = waiters->action;
+    waiters = waiters->next;
+    halvm_release_lock(&waiters_lock);
+    free(dead);
+
+    return 0;
+  }
+  target = waiters ? waiters->target : getDelayTarget(6000000);
+  halvm_release_lock(&waiters_lock);
+
+  return target;
 #else
   assert(0);
   return NULL;
