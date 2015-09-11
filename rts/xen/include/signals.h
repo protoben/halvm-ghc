@@ -17,7 +17,7 @@ long bind_ipi(uint32_t);
 void set_c_handler(uint32_t, void (*)(int));
 void clear_c_handler(uint32_t);
 void set_haskell_handler(uint32_t, StgStablePtr);
-void clear_haskell_handler(uint32_t);
+StgStablePtr clear_haskell_handler(uint32_t);
 long channel_send(uint32_t);
 long channel_alloc(uint32_t, uint32_t);
 long channel_bind(uint32_t, uint32_t);

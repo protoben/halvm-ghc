@@ -109,11 +109,11 @@ void set_haskell_handler(uint32_t chan, StgStablePtr handler)
   unmask_channel(chan);
 }
 
-void clear_haskell_handler(uint32_t chan)
+StgStablePtr clear_haskell_handler(uint32_t chan)
 {
   assert(chan < MAX_EVTCHANS);
   mask_channel(chan);
-  (void)sync_swap(&(signal_handlers[chan].haskell_handler), NULL);
+  return sync_swap(&(signal_handlers[chan].haskell_handler), NULL);
 }
 
 void mask_channel(uint32_t chan)
