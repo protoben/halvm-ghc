@@ -34,7 +34,7 @@ static halvm_mutex_t  waiters_lock;
 static waiter_t      *waiters = NULL;
 #endif
 
-void registerWaiter(int usecs MUNUSED, StgStablePtr action MUNUSED)
+void registerWaiter(HsInt usecs MUNUSED, StgStablePtr action MUNUSED)
 {
 #ifdef THREADED_RTS
   waiter_t *newWaiter = malloc(sizeof(waiter_t));
