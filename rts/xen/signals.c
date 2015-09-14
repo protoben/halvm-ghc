@@ -19,6 +19,10 @@
 #include "smp.h"
 #include "time_rts.h"
 
+#ifndef THREADED_RTS
+#include "AwaitEvent.h"
+#endif
+
 static void force_hypervisor_callback(void);
 
 #define sync_swap               __sync_lock_test_and_set
@@ -331,7 +335,7 @@ void startSignalHandlers(Capability *cap)
 {
   StgStablePtr next;
 
-  while( next = dequeueSignalHandler() ) {
+  while( (next = dequeueSignalHandler()) ) {
     StgClosure *h = (StgClosure*)deRefStablePtr(next);
     scheduleThread(cap, createIOThread(cap,RtsFlags.GcFlags.initialStkSize,h));
   }

@@ -33,8 +33,4 @@ int     signals_pending(void);
 int     allow_signals(int);
 StgStablePtr dequeueSignalHandler(void);
 
-#ifndef THREADED_RTS
-void    awaitEvent(rtsBool);
-#endif
-
 #endif

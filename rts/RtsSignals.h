@@ -20,6 +20,7 @@
 #elif defined(HaLVM_TARGET_OS)
 
 #include <signal.h>
+#include <signals.h>
 extern void startSignalHandlers(Capability *cap);
 
 #else

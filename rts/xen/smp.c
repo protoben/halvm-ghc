@@ -392,7 +392,7 @@ nat getNumberOfProcessors(void)
 int forkOS_createThread(HsStablePtr entry __attribute__((unused)))
 {
   printf("ERROR: forkOS_createThread called.\n");
-  assert(0);
+  return 0;
 }
 
 int createOSThread(OSThreadId *pid, OSThreadProc *startProc, void *param)
@@ -443,7 +443,6 @@ OSThreadId osThreadId(void)
 void interruptOSThread(OSThreadId id __attribute__((unused)))
 {
   printf("ERROR: interruptOSThread called.\n");
-  assert(0);
 }
 
 void shutdownThread(void)
@@ -599,11 +598,16 @@ void setThreadAffinity(nat n, nat m)
 int forkOS_createThread(HsStablePtr entry __attribute__((unused)))
 {
   printf("ERROR: forkOS_createThread called.\n");
-  assert(0);
+  return 0;
 }
 
 nat getNumberOfProcessors(void)
 {
   return 1;
 }
+
+void sleepUntilWaiter(unsigned long target_us __attribute__((unused)))
+{
+}
+
 #endif

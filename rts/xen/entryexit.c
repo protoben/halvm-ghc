@@ -21,8 +21,7 @@
 
 void main(int, char**);
 void runtime_entry(start_info_t *, void *) __attribute__((noreturn));
-void runtime_exit(void);
-void shutdown(int);
+void shutdown(int) __attribute__((noreturn));
 
 struct start_info  *system_start_info      = NULL;
 struct shared_info *HYPERVISOR_shared_info = NULL;
@@ -48,6 +47,7 @@ extern void simd_coprocessor_error(void);
 extern void hypervisor_callback(void);
 extern void failsafe_callback(void);
 
+#if 0
 static trap_info_t trap_table[] = {
   {  0, 0, FLAT_KERNEL_CS, (unsigned long)divide_error                },
   {  1, 0, FLAT_KERNEL_CS, (unsigned long)debug                       },
@@ -69,6 +69,7 @@ static trap_info_t trap_table[] = {
   { 19, 0, FLAT_KERNEL_CS, (unsigned long)simd_coprocessor_error      },
   {  0, 0,           0, 0                           }
 };
+#endif
 
 enum cmdline_parse_state {
   stateEmpty,

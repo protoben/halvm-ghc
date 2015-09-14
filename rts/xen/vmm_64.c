@@ -9,6 +9,10 @@
 #include "locks.h"
 #include "smp.h"
 
+#include "Rts.h"
+#include "RtsUtils.h"
+#include "rts/OSThreads.h"
+
 static halvm_mutex_t     vmm_lock;
 // Information regarding the handy temporary space we use
 static pte_t            *temp_table;

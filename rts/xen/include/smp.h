@@ -52,7 +52,6 @@ static inline vcpu_local_info_t *cpu_info(void)
 void init_smp_system(uint32_t);
 void unlockThread(vcpu_thread_t *);
 void lockCurrentThread(halvm_mutex_t*);
-void sleepUntilWaiter(unsigned long);
 void pokeSleepThread(void);
 #else
 extern struct shared_info *HYPERVISOR_shared_info;
@@ -61,5 +60,7 @@ extern struct shared_info *HYPERVISOR_shared_info;
 #define vcpu_info()      (HYPERVISOR_shared_info->vcpu_info[0])
 #define vcpu_evt_bits(x) (0)
 #endif
+
+void sleepUntilWaiter(unsigned long);
 
 #endif

@@ -104,7 +104,7 @@ void closeCondition(halvm_condlock_t *cond)
 
 rtsBool broadcastCondition(halvm_condlock_t *cond __attribute__((unused)))
 {
-  assert(0); /* not called by the RTS */
+  return rtsTrue;
 }
 
 rtsBool signalCondition(halvm_condlock_t *cond)

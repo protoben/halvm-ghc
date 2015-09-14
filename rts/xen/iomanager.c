@@ -3,6 +3,7 @@
 #include <assert.h>
 #include "iomanager.h"
 #include "time_rts.h"
+#include "signals.h"
 #include "Task.h"
 #include "Schedule.h"
 #include "smp.h"
@@ -10,13 +11,11 @@
 void setIOManagerControlFd(int fd)
 {
   printf("ERROR: Someone called setIOManagerControlFd(%d)\n", fd);
-  assert(0);
 }
 
 void setIOManagerWakeupFd(int fd)
 {
   printf("ERROR: Someone called setIOManagerWakeupFd(%d)\n", fd);
-  assert(0);
 }
 
 void ioManagerWakeup(void)
@@ -60,7 +59,7 @@ void registerWaiter(int usecs MUNUSED, StgStablePtr action MUNUSED)
 #endif
 }
 
-StgWord waitForWaiter(StgStablePtr *out)
+StgWord waitForWaiter(StgStablePtr *out MUNUSED)
 {
 #ifdef THREADED_RTS
   StgStablePtr signal = dequeueSignalHandler();
@@ -87,7 +86,6 @@ StgWord waitForWaiter(StgStablePtr *out)
 
   return target;
 #else
-  assert(0);
   return NULL;
 #endif
 }
