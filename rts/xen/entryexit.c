@@ -215,6 +215,6 @@ void runtime_exit(void)
 /* SCHEDOP_shutdown tells Xen not to schedule us anymore. Toolstack cleans up */
 void shutdown(int reason)
 {
-  sched_shutdown_t op = { .reason = reason };
+  sched_shutdown_t op ={ .reason = reason ? SHUTDOWN_crash : SHUTDOWN_poweroff};
   for( ;; ) HYPERCALL_sched_op(SCHEDOP_shutdown, &op);
 }
