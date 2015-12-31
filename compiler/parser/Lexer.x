@@ -1,14 +1,19 @@
 -----------------------------------------------------------------------------
 -- (c) The University of Glasgow, 2006
 --
--- GHC's lexer.
+-- GHC's lexer for Haskell 2010 [1].
 --
--- This is a combination of an Alex-generated lexer from a regex
--- definition, with some hand-coded bits.
+-- This is a combination of an Alex-generated lexer [2] from a regex
+-- definition, with some hand-coded bits. [3]
 --
 -- Completely accurate information about token-spans within the source
 -- file is maintained.  Every token has a start and end RealSrcLoc
 -- attached to it.
+--
+-- References:
+-- [1] https://www.haskell.org/onlinereport/haskell2010/haskellch2.html
+-- [2] http://www.haskell.org/alex/
+-- [3] https://ghc.haskell.org/trac/ghc/wiki/Commentary/Compiler/Parser
 --
 -----------------------------------------------------------------------------
 
@@ -31,9 +36,14 @@
 --       form?  This is quite difficult to achieve.  We don't do it for
 --       qualified varids.
 
+
+-- -----------------------------------------------------------------------------
+-- Alex "Haskell code fragment top"
+
 {
 -- XXX The above flags turn off warnings in the generated code:
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# OPTIONS_GHC -fno-warn-unused-matches #-}
 {-# OPTIONS_GHC -fno-warn-unused-binds #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
@@ -56,90 +66,126 @@ module Lexer (
    getLexState, popLexState, pushLexState,
    extension, bangPatEnabled, datatypeContextsEnabled,
    traditionalRecordSyntaxEnabled,
-   typeLiteralsEnabled,
    explicitForallEnabled,
    inRulePrag,
    explicitNamespacesEnabled,
    patternSynonymsEnabled,
    sccProfilingOn, hpcEnabled,
    addWarning,
-   lexTokenStream
+   lexTokenStream,
+   addAnnotation,AddAnn,mkParensApiAnn
   ) where
 
-import Bag
-import ErrUtils
-import Outputable
-import StringBuffer
-import FastString
-import SrcLoc
-import UniqFM
-import DynFlags
-import Module
-import Ctype
-import BasicTypes       ( InlineSpec(..), RuleMatchInfo(..), FractionalLit(..) )
-import Util             ( readRational )
-
+-- base
+import Control.Applicative
 import Control.Monad
 import Data.Bits
-import Data.ByteString (ByteString)
 import Data.Char
 import Data.List
 import Data.Maybe
-import Data.Map (Map)
-import qualified Data.Map as Map
 import Data.Ratio
 import Data.Word
+
+-- bytestring
+import Data.ByteString (ByteString)
+
+-- containers
+import Data.Map (Map)
+import qualified Data.Map as Map
+
+-- data/typeable
+import Data.Data
+import Data.Typeable
+
+-- compiler/utils
+import Bag
+import Outputable
+import StringBuffer
+import FastString
+import UniqFM
+import Util             ( readRational )
+
+-- compiler/main
+import ErrUtils
+import DynFlags
+
+-- compiler/basicTypes
+import SrcLoc
+import Module
+import BasicTypes     ( InlineSpec(..), RuleMatchInfo(..), FractionalLit(..),
+                        SourceText )
+
+-- compiler/parser
+import Ctype
+
+import ApiAnnotation
 }
 
-$unispace    = \x05 -- Trick Alex into handling Unicode. See alexGetChar.
-$whitechar   = [\ \n\r\f\v $unispace]
-$white_no_nl = $whitechar # \n
+-- -----------------------------------------------------------------------------
+-- Alex "Character set macros"
+
+-- NB: The logic behind these definitions is also reflected in basicTypes/Lexeme.hs
+-- Any changes here should likely be reflected there.
+$unispace    = \x05 -- Trick Alex into handling Unicode. See alexGetByte.
+$nl          = [\n\r\f]
+$whitechar   = [$nl\v\ $unispace]
+$white_no_nl = $whitechar # \n -- TODO #8424
 $tab         = \t
 
 $ascdigit  = 0-9
-$unidigit  = \x03 -- Trick Alex into handling Unicode. See alexGetChar.
+$unidigit  = \x03 -- Trick Alex into handling Unicode. See alexGetByte.
 $decdigit  = $ascdigit -- for now, should really be $digit (ToDo)
 $digit     = [$ascdigit $unidigit]
 
 $special   = [\(\)\,\;\[\]\`\{\}]
-$ascsymbol = [\!\#\$\%\&\*\+\.\/\<\=\>\?\@\\\^\|\-\~]
-$unisymbol = \x04 -- Trick Alex into handling Unicode. See alexGetChar.
-$symbol    = [$ascsymbol $unisymbol] # [$special \_\:\"\']
+$ascsymbol = [\!\#\$\%\&\*\+\.\/\<\=\>\?\@\\\^\|\-\~\:]
+$unisymbol = \x04 -- Trick Alex into handling Unicode. See alexGetByte.
+$symbol    = [$ascsymbol $unisymbol] # [$special \_\"\']
 
-$unilarge  = \x01 -- Trick Alex into handling Unicode. See alexGetChar.
+$unilarge  = \x01 -- Trick Alex into handling Unicode. See alexGetByte.
 $asclarge  = [A-Z]
 $large     = [$asclarge $unilarge]
 
-$unismall  = \x02 -- Trick Alex into handling Unicode. See alexGetChar.
+$unismall  = \x02 -- Trick Alex into handling Unicode. See alexGetByte.
 $ascsmall  = [a-z]
 $small     = [$ascsmall $unismall \_]
 
-$unigraphic = \x06 -- Trick Alex into handling Unicode. See alexGetChar.
-$graphic   = [$small $large $symbol $digit $special $unigraphic \:\"\']
+$unigraphic = \x06 -- Trick Alex into handling Unicode. See alexGetByte.
+$graphic   = [$small $large $symbol $digit $special $unigraphic \"\']
 
+$binit     = 0-1
 $octit     = 0-7
 $hexit     = [$decdigit A-F a-f]
-$symchar   = [$symbol \:]
-$nl        = [\n\r]
-$idchar    = [$small $large $digit \']
+
+$suffix    = \x07 -- Trick Alex into handling Unicode. See alexGetByte.
+-- TODO #10196. Only allow modifier letters in the suffix of an identifier.
+$idchar    = [$small $large $digit $suffix \']
 
 $pragmachar = [$small $large $digit]
 
 $docsym    = [\| \^ \* \$]
 
-@varid     = $small $idchar*
-@conid     = $large $idchar*
 
-@varsym    = $symbol $symchar*
-@consym    = \: $symchar*
+-- -----------------------------------------------------------------------------
+-- Alex "Regular expression macros"
+
+@varid     = $small $idchar*          -- variable identifiers
+@conid     = $large $idchar*          -- constructor identifiers
+
+@varsym    = ($symbol # \:) $symbol*  -- variable (operator) symbol
+@consym    = \: $symbol*              -- constructor (operator) symbol
 
 @decimal     = $decdigit+
+@binary      = $binit+
 @octal       = $octit+
 @hexadecimal = $hexit+
 @exponent    = [eE] [\-\+]? @decimal
 
--- we support the hierarchical module name extension:
 @qual = (@conid \.)+
+@qvarid = @qual @varid
+@qconid = @qual @conid
+@qvarsym = @qual @varsym
+@qconsym = @qual @consym
 
 @floating_point = @decimal \. @decimal @exponent? | @decimal @exponent
 
@@ -148,9 +194,17 @@ $docsym    = [\| \^ \* \$]
 @negative = \-
 @signed = @negative ?
 
+
+-- -----------------------------------------------------------------------------
+-- Alex "Identifier"
+
 haskell :-
 
--- everywhere: skip whitespace and comments
+
+-- -----------------------------------------------------------------------------
+-- Alex "Rules"
+
+-- everywhere: skip whitespace
 $white_no_nl+ ;
 $tab+         { warn Opt_WarnTabs (text "Tab character") }
 
@@ -177,7 +231,7 @@ $tab+         { warn Opt_WarnTabs (text "Tab character") }
 -- have a Haddock comment). The rules then munch the rest of the line.
 
 "-- " ~[$docsym \#] .* { lineCommentToken }
-"--" [^$symbol : \ ] .* { lineCommentToken }
+"--" [^$symbol \ ] .* { lineCommentToken }
 
 -- Next, match Haddock comments if no -haddock flag
 
@@ -189,7 +243,7 @@ $tab+         { warn Opt_WarnTabs (text "Tab character") }
 -- make sure that the first non-dash character isn't a symbol, and munch the
 -- rest of the line.
 
-"---"\-* [^$symbol :] .* { lineCommentToken }
+"---"\-* ~$symbol .* { lineCommentToken }
 
 -- Since the previous rules all match dashes followed by at least one
 -- character, we also need to match a whole line filled with just dashes.
@@ -250,13 +304,13 @@ $tab+         { warn Opt_WarnTabs (text "Tab character") }
 
 -- single-line line pragmas, of the form
 --    # <line> "<file>" <extra-stuff> \n
-<line_prag1> $decdigit+                 { setLine line_prag1a }
+<line_prag1> @decimal                   { setLine line_prag1a }
 <line_prag1a> \" [$graphic \ ]* \"      { setFile line_prag1b }
 <line_prag1b> .*                        { pop }
 
 -- Haskell-style line pragmas, of the form
 --    {-# LINE <line> "<file>" #-}
-<line_prag2> $decdigit+                 { setLine line_prag2a }
+<line_prag2> @decimal                   { setLine line_prag2a }
 <line_prag2a> \" [$graphic \ ]* \"      { setFile line_prag2b }
 <line_prag2b> "#-}"|"-}"                { pop }
    -- NOTE: accept -} at the end of a LINE pragma, for compatibility
@@ -339,8 +393,8 @@ $tab+         { warn Opt_WarnTabs (text "Tab character") }
                      { lex_quasiquote_tok }
 
   -- qualified quasi-quote (#5555)
-  "[" @qual @varid "|"  / { ifExtension qqEnabled }
-                          { lex_qquasiquote_tok }
+  "[" @qvarid "|"  / { ifExtension qqEnabled }
+                     { lex_qquasiquote_tok }
 }
 
 <0> {
@@ -374,15 +428,15 @@ $tab+         { warn Opt_WarnTabs (text "Tab character") }
 }
 
 <0,option_prags> {
-  @qual @varid                  { idtoken qvarid }
-  @qual @conid                  { idtoken qconid }
+  @qvarid                       { idtoken qvarid }
+  @qconid                       { idtoken qconid }
   @varid                        { varid }
   @conid                        { idtoken conid }
 }
 
 <0> {
-  @qual @varid "#"+ / { ifExtension magicHashEnabled } { idtoken qvarid }
-  @qual @conid "#"+ / { ifExtension magicHashEnabled } { idtoken qconid }
+  @qvarid "#"+      / { ifExtension magicHashEnabled } { idtoken qvarid }
+  @qconid "#"+      / { ifExtension magicHashEnabled } { idtoken qconid }
   @varid "#"+       / { ifExtension magicHashEnabled } { varid }
   @conid "#"+       / { ifExtension magicHashEnabled } { idtoken conid }
 }
@@ -390,8 +444,8 @@ $tab+         { warn Opt_WarnTabs (text "Tab character") }
 -- ToDo: - move `var` and (sym) into lexical syntax?
 --       - remove backquote from $special?
 <0> {
-  @qual @varsym                                    { idtoken qvarsym }
-  @qual @consym                                    { idtoken qconsym }
+  @qvarsym                                         { idtoken qvarsym }
+  @qconsym                                         { idtoken qconsym }
   @varsym                                          { varsym }
   @consym                                          { consym }
 }
@@ -401,9 +455,12 @@ $tab+         { warn Opt_WarnTabs (text "Tab character") }
 <0> {
   -- Normal integral literals (:: Num a => a, from Integer)
   @decimal                                                               { tok_num positive 0 0 decimal }
+  0[bB] @binary                / { ifExtension binaryLiteralsEnabled }   { tok_num positive 2 2 binary }
   0[oO] @octal                                                           { tok_num positive 2 2 octal }
   0[xX] @hexadecimal                                                     { tok_num positive 2 2 hexadecimal }
   @negative @decimal           / { ifExtension negativeLiteralsEnabled } { tok_num negative 1 1 decimal }
+  @negative 0[bB] @binary      / { ifExtension negativeLiteralsEnabled `alexAndPred`
+                                   ifExtension binaryLiteralsEnabled }   { tok_num negative 3 3 binary }
   @negative 0[oO] @octal       / { ifExtension negativeLiteralsEnabled } { tok_num negative 3 3 octal }
   @negative 0[xX] @hexadecimal / { ifExtension negativeLiteralsEnabled } { tok_num negative 3 3 hexadecimal }
 
@@ -417,13 +474,19 @@ $tab+         { warn Opt_WarnTabs (text "Tab character") }
   -- It's simpler (and faster?) to give separate cases to the negatives,
   -- especially considering octal/hexadecimal prefixes.
   @decimal                     \# / { ifExtension magicHashEnabled } { tok_primint positive 0 1 decimal }
+  0[bB] @binary                \# / { ifExtension magicHashEnabled `alexAndPred`
+                                      ifExtension binaryLiteralsEnabled } { tok_primint positive 2 3 binary }
   0[oO] @octal                 \# / { ifExtension magicHashEnabled } { tok_primint positive 2 3 octal }
   0[xX] @hexadecimal           \# / { ifExtension magicHashEnabled } { tok_primint positive 2 3 hexadecimal }
   @negative @decimal           \# / { ifExtension magicHashEnabled } { tok_primint negative 1 2 decimal }
+  @negative 0[bB] @binary      \# / { ifExtension magicHashEnabled `alexAndPred`
+                                      ifExtension binaryLiteralsEnabled } { tok_primint negative 3 4 binary }
   @negative 0[oO] @octal       \# / { ifExtension magicHashEnabled } { tok_primint negative 3 4 octal }
   @negative 0[xX] @hexadecimal \# / { ifExtension magicHashEnabled } { tok_primint negative 3 4 hexadecimal }
 
   @decimal                     \# \# / { ifExtension magicHashEnabled } { tok_primword 0 2 decimal }
+  0[bB] @binary                \# \# / { ifExtension magicHashEnabled `alexAndPred`
+                                         ifExtension binaryLiteralsEnabled } { tok_primword 2 4 binary }
   0[oO] @octal                 \# \# / { ifExtension magicHashEnabled } { tok_primword 2 4 octal }
   0[xX] @hexadecimal           \# \# / { ifExtension magicHashEnabled } { tok_primword 2 4 hexadecimal }
 
@@ -442,7 +505,12 @@ $tab+         { warn Opt_WarnTabs (text "Tab character") }
   \"                            { lex_string_tok }
 }
 
+
+-- -----------------------------------------------------------------------------
+-- Alex "Haskell code fragment bottom"
+
 {
+
 -- -----------------------------------------------------------------------------
 -- The token type
 
@@ -456,6 +524,7 @@ data Token
   | ITdo
   | ITelse
   | IThiding
+  | ITforeign
   | ITif
   | ITimport
   | ITin
@@ -473,7 +542,6 @@ data Token
   | ITwhere
 
   | ITforall                    -- GHC extension keywords
-  | ITforeign
   | ITexport
   | ITlabel
   | ITdynamic
@@ -492,31 +560,36 @@ data Token
   | ITby
   | ITusing
   | ITpattern
+  | ITstatic
 
-  -- Pragmas
-  | ITinline_prag InlineSpec RuleMatchInfo
-  | ITspec_prag                 -- SPECIALISE
-  | ITspec_inline_prag Bool     -- SPECIALISE INLINE (or NOINLINE)
-  | ITsource_prag
-  | ITrules_prag
-  | ITwarning_prag
-  | ITdeprecated_prag
+  -- Pragmas, see  note [Pragma source text] in BasicTypes
+  | ITinline_prag       SourceText InlineSpec RuleMatchInfo
+  | ITspec_prag         SourceText                -- SPECIALISE
+  | ITspec_inline_prag  SourceText Bool    -- SPECIALISE INLINE (or NOINLINE)
+  | ITsource_prag       SourceText
+  | ITrules_prag        SourceText
+  | ITwarning_prag      SourceText
+  | ITdeprecated_prag   SourceText
   | ITline_prag
-  | ITscc_prag
-  | ITgenerated_prag
-  | ITcore_prag                 -- hdaume: core annotations
-  | ITunpack_prag
-  | ITnounpack_prag
-  | ITann_prag
+  | ITscc_prag          SourceText
+  | ITgenerated_prag    SourceText
+  | ITcore_prag         SourceText         -- hdaume: core annotations
+  | ITunpack_prag       SourceText
+  | ITnounpack_prag     SourceText
+  | ITann_prag          SourceText
   | ITclose_prag
   | IToptions_prag String
   | ITinclude_prag String
   | ITlanguage_prag
-  | ITvect_prag
-  | ITvect_scalar_prag
-  | ITnovect_prag
-  | ITminimal_prag
-  | ITctype
+  | ITvect_prag         SourceText
+  | ITvect_scalar_prag  SourceText
+  | ITnovect_prag       SourceText
+  | ITminimal_prag      SourceText
+  | IToverlappable_prag SourceText  -- instance overlap mode
+  | IToverlapping_prag  SourceText  -- instance overlap mode
+  | IToverlaps_prag     SourceText  -- instance overlap mode
+  | ITincoherent_prag   SourceText  -- instance overlap mode
+  | ITctype             SourceText
 
   | ITdotdot                    -- reserved symbols
   | ITcolon
@@ -569,15 +642,15 @@ data Token
 
   | ITdupipvarid   FastString   -- GHC extension: implicit param: ?x
 
-  | ITchar       Char
-  | ITstring     FastString
-  | ITinteger    Integer
-  | ITrational   FractionalLit
+  | ITchar     SourceText Char       -- Note [Literal source text] in BasicTypes
+  | ITstring   SourceText FastString -- Note [Literal source text] in BasicTypes
+  | ITinteger  SourceText Integer    -- Note [Literal source text] in BasicTypes
+  | ITrational FractionalLit
 
-  | ITprimchar   Char
-  | ITprimstring ByteString
-  | ITprimint    Integer
-  | ITprimword   Integer
+  | ITprimchar   SourceText Char     -- Note [Literal source text] in BasicTypes
+  | ITprimstring SourceText ByteString -- Note [Literal source text] @BasicTypes
+  | ITprimint    SourceText Integer  -- Note [Literal source text] in BasicTypes
+  | ITprimword   SourceText Integer  -- Note [Literal source text] in BasicTypes
   | ITprimfloat  FractionalLit
   | ITprimdouble FractionalLit
 
@@ -628,6 +701,10 @@ data Token
 
   deriving Show
 
+instance Outputable Token where
+  ppr x = text (show x)
+
+
 -- the bitmap provided as the third component indicates whether the
 -- corresponding extension keyword is valid under the extension options
 -- provided to the compiler; if the extension corresponding to *any* of the
@@ -635,7 +712,7 @@ data Token
 -- facilitates using a keyword in two different extensions that can be
 -- activated independently)
 --
-reservedWordsFM :: UniqFM (Token, Int)
+reservedWordsFM :: UniqFM (Token, ExtsBitmap)
 reservedWordsFM = listToUFM $
     map (\(x, y, z) -> (mkFastString x, (y, z)))
         [( "_",              ITunderscore,    0 ),
@@ -664,34 +741,35 @@ reservedWordsFM = listToUFM $
          ( "type",           ITtype,          0 ),
          ( "where",          ITwhere,         0 ),
 
-         ( "forall",         ITforall,        bit explicitForallBit .|.
-                                              bit inRulePragBit),
-         ( "mdo",            ITmdo,           bit recursiveDoBit),
+         ( "forall",         ITforall,        xbit ExplicitForallBit .|.
+                                              xbit InRulePragBit),
+         ( "mdo",            ITmdo,           xbit RecursiveDoBit),
              -- See Note [Lexing type pseudo-keywords]
          ( "family",         ITfamily,        0 ),
          ( "role",           ITrole,          0 ),
-         ( "pattern",        ITpattern,       bit patternSynonymsBit),
-         ( "group",          ITgroup,         bit transformComprehensionsBit),
-         ( "by",             ITby,            bit transformComprehensionsBit),
-         ( "using",          ITusing,         bit transformComprehensionsBit),
+         ( "pattern",        ITpattern,       xbit PatternSynonymsBit),
+         ( "static",         ITstatic,        0 ),
+         ( "group",          ITgroup,         xbit TransformComprehensionsBit),
+         ( "by",             ITby,            xbit TransformComprehensionsBit),
+         ( "using",          ITusing,         xbit TransformComprehensionsBit),
 
-         ( "foreign",        ITforeign,       bit ffiBit),
-         ( "export",         ITexport,        bit ffiBit),
-         ( "label",          ITlabel,         bit ffiBit),
-         ( "dynamic",        ITdynamic,       bit ffiBit),
-         ( "safe",           ITsafe,          bit ffiBit .|.
-                                              bit safeHaskellBit),
-         ( "interruptible",  ITinterruptible, bit interruptibleFfiBit),
-         ( "unsafe",         ITunsafe,        bit ffiBit),
-         ( "stdcall",        ITstdcallconv,   bit ffiBit),
-         ( "ccall",          ITccallconv,     bit ffiBit),
-         ( "capi",           ITcapiconv,      bit cApiFfiBit),
-         ( "prim",           ITprimcallconv,  bit ffiBit),
-         ( "javascript",     ITjavascriptcallconv, bit ffiBit),
+         ( "foreign",        ITforeign,       xbit FfiBit),
+         ( "export",         ITexport,        xbit FfiBit),
+         ( "label",          ITlabel,         xbit FfiBit),
+         ( "dynamic",        ITdynamic,       xbit FfiBit),
+         ( "safe",           ITsafe,          xbit FfiBit .|.
+                                              xbit SafeHaskellBit),
+         ( "interruptible",  ITinterruptible, xbit InterruptibleFfiBit),
+         ( "unsafe",         ITunsafe,        xbit FfiBit),
+         ( "stdcall",        ITstdcallconv,   xbit FfiBit),
+         ( "ccall",          ITccallconv,     xbit FfiBit),
+         ( "capi",           ITcapiconv,      xbit CApiFfiBit),
+         ( "prim",           ITprimcallconv,  xbit FfiBit),
+         ( "javascript",     ITjavascriptcallconv, xbit FfiBit),
 
-         ( "rec",            ITrec,           bit arrowsBit .|.
-                                              bit recursiveDoBit),
-         ( "proc",           ITproc,          bit arrowsBit)
+         ( "rec",            ITrec,           xbit ArrowsBit .|.
+                                              xbit RecursiveDoBit),
+         ( "proc",           ITproc,          xbit ArrowsBit)
      ]
 
 {-----------------------------------
@@ -711,7 +789,7 @@ Also, note that these are included in the `varid` production in the parser --
 a key detail to make all this work.
 -------------------------------------}
 
-reservedSymsFM :: UniqFM (Token, Int -> Bool)
+reservedSymsFM :: UniqFM (Token, ExtsBitmap -> Bool)
 reservedSymsFM = listToUFM $
     map (\ (x,y,z) -> (mkFastString x,(y,z)))
       [ ("..",  ITdotdot,   always)
@@ -822,11 +900,11 @@ nextCharIs buf p = not (atEnd buf) && p (currentChar buf)
 nextCharIsNot :: StringBuffer -> (Char -> Bool) -> Bool
 nextCharIsNot buf p = not (nextCharIs buf p)
 
-notFollowedBy :: Char -> AlexAccPred Int
+notFollowedBy :: Char -> AlexAccPred ExtsBitmap
 notFollowedBy char _ _ _ (AI _ buf)
   = nextCharIsNot buf (== char)
 
-notFollowedBySymbol :: AlexAccPred Int
+notFollowedBySymbol :: AlexAccPred ExtsBitmap
 notFollowedBySymbol _ _ _ (AI _ buf)
   = nextCharIsNot buf (`elem` "!#$%&*+./<=>?@\\^|-~")
 
@@ -835,7 +913,7 @@ notFollowedBySymbol _ _ _ (AI _ buf)
 -- maximal munch, but not always, because the nested comment rule is
 -- valid in all states, but the doc-comment rules are only valid in
 -- the non-layout states.
-isNormalComment :: AlexAccPred Int
+isNormalComment :: AlexAccPred ExtsBitmap
 isNormalComment bits _ _ (AI _ buf)
   | haddockEnabled bits = notFollowedByDocOrPragma
   | otherwise           = nextCharIsNot buf (== '#')
@@ -849,10 +927,10 @@ afterOptionalSpace buf p
       then p (snd (nextChar buf))
       else p buf
 
-atEOL :: AlexAccPred Int
+atEOL :: AlexAccPred ExtsBitmap
 atEOL _ _ _ (AI _ buf) = atEnd buf || currentChar buf == '\n'
 
-ifExtension :: (Int -> Bool) -> AlexAccPred Int
+ifExtension :: (ExtsBitmap -> Bool) -> AlexAccPred ExtsBitmap
 ifExtension pred bits _ _ _ = pred bits
 
 multiline_doc_comment :: Action
@@ -893,22 +971,23 @@ lineCommentToken span buf len = do
   using regular expressions.
 -}
 nested_comment :: P (RealLocated Token) -> Action
-nested_comment cont span _str _len = do
+nested_comment cont span buf len = do
   input <- getInput
-  go "" (1::Int) input
+  go (reverse $ lexemeToString buf len) (1::Int) input
   where
-    go commentAcc 0 input = do setInput input
-                               b <- extension rawTokenStreamEnabled
-                               if b
-                                 then docCommentEnd input commentAcc ITblockComment _str span
-                                 else cont
+    go commentAcc 0 input = do
+      setInput input
+      b <- extension rawTokenStreamEnabled
+      if b
+        then docCommentEnd input commentAcc ITblockComment buf span
+        else cont
     go commentAcc n input = case alexGetChar' input of
       Nothing -> errBrace input span
       Just ('-',input) -> case alexGetChar' input of
         Nothing  -> errBrace input span
-        Just ('\125',input) -> go commentAcc (n-1) input
+        Just ('\125',input) -> go ('\125':'-':commentAcc) (n-1) input -- '}'
         Just (_,_)          -> go ('-':commentAcc) n input
-      Just ('\123',input) -> case alexGetChar' input of
+      Just ('\123',input) -> case alexGetChar' input of  -- '{' char
         Nothing  -> errBrace input span
         Just ('-',input) -> go ('-':'\123':commentAcc) (n+1) input
         Just (_,_)       -> go ('\123':commentAcc) n input
@@ -953,13 +1032,14 @@ withLexedDocType lexDocComment = do
 -- RULES pragmas turn on the forall and '.' keywords, and we turn them
 -- off again at the end of the pragma.
 rulePrag :: Action
-rulePrag span _buf _len = do
-  setExts (.|. bit inRulePragBit)
-  return (L span ITrules_prag)
+rulePrag span buf len = do
+  setExts (.|. xbit InRulePragBit)
+  let !src = lexemeToString buf len
+  return (L span (ITrules_prag src))
 
 endPrag :: Action
 endPrag span _buf _len = do
-  setExts (.&. complement (bit inRulePragBit))
+  setExts (.&. complement (xbit InRulePragBit))
   return (L span ITclose_prag)
 
 -- docCommentEnd
@@ -1043,6 +1123,11 @@ varid span buf len =
                    return ITcase
       maybe_layout keyword
       return $ L span keyword
+    Just (ITstatic, _) -> do
+      flags <- getDynFlags
+      if xopt Opt_StaticPointers flags
+        then return $ L span ITstatic
+        else return $ L span $ ITvarid fs
     Just (keyword, 0) -> do
       maybe_layout keyword
       return $ L span keyword
@@ -1086,13 +1171,14 @@ sym con span buf len =
     !fs = lexemeToFastString buf len
 
 -- Variations on the integral numeric literal.
-tok_integral :: (Integer -> Token)
+tok_integral :: (String -> Integer -> Token)
              -> (Integer -> Integer)
              -> Int -> Int
              -> (Integer, (Char -> Int))
              -> Action
 tok_integral itint transint transbuf translen (radix,char_to_int) span buf len
- = return $ L span $ itint $! transint $ parseUnsignedInteger
+ = return $ L span $ itint (lexemeToString buf len)
+       $! transint $ parseUnsignedInteger
        (offsetBytes transbuf buf) (subtract translen len) radix char_to_int
 
 -- some conveniences for use with tok_integral
@@ -1112,6 +1198,7 @@ positive = id
 negative = negate
 decimal, octal, hexadecimal :: (Integer, Char -> Int)
 decimal = (10,octDecDigit)
+binary = (2,octDecDigit)
 octal = (8,octDecDigit)
 hexadecimal = (16,hexDigit)
 
@@ -1273,10 +1360,16 @@ lex_string_prag mkTok span _buf _len
 -- This stuff is horrible.  I hates it.
 
 lex_string_tok :: Action
-lex_string_tok span _buf _len = do
+lex_string_tok span buf _len = do
   tok <- lex_string ""
   end <- getSrcLoc
-  return (L (mkRealSrcSpan (realSrcSpanStart span) end) tok)
+  (AI end bufEnd) <- getInput
+  let
+    tok' = case tok of
+            ITprimstring _ bs -> ITprimstring src bs
+            ITstring _ s -> ITstring src s
+    src = lexemeToString buf (cur bufEnd - cur buf)
+  return (L (mkRealSrcSpan (realSrcSpanStart span) end) tok')
 
 lex_string :: String -> P Token
 lex_string s = do
@@ -1296,11 +1389,11 @@ lex_string s = do
                    if any (> '\xFF') s
                     then failMsgP "primitive string literal must contain only characters <= \'\\xFF\'"
                     else let bs = unsafeMkByteString (reverse s)
-                         in return (ITprimstring bs)
+                         in return (ITprimstring "" bs)
               _other ->
-                return (ITstring (mkFastString (reverse s)))
+                return (ITstring "" (mkFastString (reverse s)))
           else
-                return (ITstring (mkFastString (reverse s)))
+                return (ITstring "" (mkFastString (reverse s)))
 
     Just ('\\',i)
         | Just ('&',i) <- next -> do
@@ -1334,7 +1427,7 @@ lex_char_tok :: Action
 -- but WITHOUT CONSUMING the x or T part  (the parser does that).
 -- So we have to do two characters of lookahead: when we see 'x we need to
 -- see if there's a trailing quote
-lex_char_tok span _buf _len = do        -- We've seen '
+lex_char_tok span buf _len = do        -- We've seen '
    i1 <- getInput       -- Look ahead to first character
    let loc = realSrcSpanStart span
    case alexGetChar' i1 of
@@ -1349,7 +1442,7 @@ lex_char_tok span _buf _len = do        -- We've seen '
                   lit_ch <- lex_escape
                   i3 <- getInput
                   mc <- getCharOrFail i3 -- Trailing quote
-                  if mc == '\'' then finish_char_tok loc lit_ch
+                  if mc == '\'' then finish_char_tok buf loc lit_ch
                                 else lit_error i3
 
         Just (c, i2@(AI _end2 _))
@@ -1361,27 +1454,28 @@ lex_char_tok span _buf _len = do        -- We've seen '
            case alexGetChar' i2 of      -- Look ahead one more character
                 Just ('\'', i3) -> do   -- We've seen 'x'
                         setInput i3
-                        finish_char_tok loc c
+                        finish_char_tok buf loc c
                 _other -> do            -- We've seen 'x not followed by quote
                                         -- (including the possibility of EOF)
                                         -- If TH is on, just parse the quote only
                         let (AI end _) = i1
                         return (L (mkRealSrcSpan loc end) ITsimpleQuote)
 
-finish_char_tok :: RealSrcLoc -> Char -> P (RealLocated Token)
-finish_char_tok loc ch  -- We've already seen the closing quote
+finish_char_tok :: StringBuffer -> RealSrcLoc -> Char -> P (RealLocated Token)
+finish_char_tok buf loc ch  -- We've already seen the closing quote
                         -- Just need to check for trailing #
   = do  magicHash <- extension magicHashEnabled
-        i@(AI end _) <- getInput
+        i@(AI end bufEnd) <- getInput
+        let src = lexemeToString buf (cur bufEnd - cur buf)
         if magicHash then do
                 case alexGetChar' i of
                         Just ('#',i@(AI end _)) -> do
-                                setInput i
-                                return (L (mkRealSrcSpan loc end) (ITprimchar ch))
+                          setInput i
+                          return (L (mkRealSrcSpan loc end) (ITprimchar src ch))
                         _other ->
-                                return (L (mkRealSrcSpan loc end) (ITchar ch))
+                          return (L (mkRealSrcSpan loc end) (ITchar src ch))
             else do
-                   return (L (mkRealSrcSpan loc end) (ITchar ch))
+                   return (L (mkRealSrcSpan loc end) (ITchar src ch))
 
 isAny :: Char -> Bool
 isAny c | c > '\x7f' = isPrint c
@@ -1410,6 +1504,7 @@ lex_escape = do
 
         'x'   -> readNum is_hexdigit 16 hexDigit
         'o'   -> readNum is_octdigit  8 octDecDigit
+        'b'   -> readNum is_bindigit  2 octDecDigit
         x | is_decdigit x -> readNum2 is_decdigit 10 octDecDigit (octDecDigit x)
 
         c1 ->  do
@@ -1592,7 +1687,7 @@ data PState = PState {
         last_loc   :: RealSrcSpan, -- pos of previous token
         last_len   :: !Int,        -- len of previous token
         loc        :: RealSrcLoc,  -- current loc (end of prev token + 1)
-        extsBitmap :: !Int,        -- bitmap that determines permitted
+        extsBitmap :: !ExtsBitmap,    -- bitmap that determines permitted
                                    -- extensions
         context    :: [LayoutContext],
         lex_state  :: [Int],
@@ -1614,7 +1709,15 @@ data PState = PState {
         alr_expecting_ocurly :: Maybe ALRLayout,
         -- Have we just had the '}' for a let block? If so, than an 'in'
         -- token doesn't need to close anything:
-        alr_justClosedExplicitLetBlock :: Bool
+        alr_justClosedExplicitLetBlock :: Bool,
+
+        -- The next three are used to implement Annotations giving the
+        -- locations of 'noise' tokens in the source, so that users of
+        -- the GHC API can do source to source conversions.
+        -- See note [Api annotations] in ApiAnnotation.hs
+        annotations :: [(ApiAnnKey,[SrcSpan])],
+        comment_q :: [Located AnnotationComment],
+        annotations_comments :: [(SrcSpan,[Located AnnotationComment])]
      }
         -- last_loc and last_len are used when generating error messages,
         -- and in pushCurrentContext only.  Sigh, if only Happy passed the
@@ -1631,6 +1734,13 @@ data ALRLayout = ALRLayoutLet
                | ALRLayoutDo
 
 newtype P a = P { unP :: PState -> ParseResult a }
+
+instance Functor P where
+  fmap = liftM
+
+instance Applicative P where
+  pure  = return
+  (<*>) = ap
 
 instance Monad P where
   return = returnP
@@ -1664,18 +1774,18 @@ getPState = P $ \s -> POk s s
 instance HasDynFlags P where
     getDynFlags = P $ \s -> POk s (dflags s)
 
-withThisPackage :: (PackageId -> a) -> P a
+withThisPackage :: (PackageKey -> a) -> P a
 withThisPackage f
  = do pkg <- liftM thisPackage getDynFlags
       return $ f pkg
 
-extension :: (Int -> Bool) -> P Bool
+extension :: (ExtsBitmap -> Bool) -> P Bool
 extension p = P $ \s -> POk s (p $! extsBitmap s)
 
-getExts :: P Int
+getExts :: P ExtsBitmap
 getExts = P $ \s -> POk s (extsBitmap s)
 
-setExts :: (Int -> Int) -> P ()
+setExts :: (ExtsBitmap -> ExtsBitmap) -> P ()
 setExts f = P $ \s -> POk s{ extsBitmap = f (extsBitmap s) } ()
 
 setSrcLoc :: RealSrcLoc -> P ()
@@ -1721,13 +1831,14 @@ alexGetByte (AI loc s)
         loc'   = advanceSrcLoc loc c
         byte   = fromIntegral $ ord adj_c
 
-        non_graphic     = '\x0'
-        upper           = '\x1'
-        lower           = '\x2'
-        digit           = '\x3'
-        symbol          = '\x4'
-        space           = '\x5'
-        other_graphic   = '\x6'
+        non_graphic     = '\x00'
+        upper           = '\x01'
+        lower           = '\x02'
+        digit           = '\x03'
+        symbol          = '\x04'
+        space           = '\x05'
+        other_graphic   = '\x06'
+        suffix          = '\x07'
 
         adj_c
           | c <= '\x06' = non_graphic
@@ -1736,11 +1847,15 @@ alexGetByte (AI loc s)
           -- character is encountered we output these values
           -- with the actual character value hidden in the state.
           | otherwise =
+                -- NB: The logic behind these definitions is also reflected
+                -- in basicTypes/Lexeme.hs
+                -- Any changes here should likely be reflected there.
+
                 case generalCategory c of
                   UppercaseLetter       -> upper
                   LowercaseLetter       -> lower
                   TitlecaseLetter       -> upper
-                  ModifierLetter        -> other_graphic
+                  ModifierLetter        -> suffix -- see #10196
                   OtherLetter           -> lower -- see #1103
                   NonSpacingMark        -> other_graphic
                   SpacingCombiningMark  -> other_graphic
@@ -1855,130 +1970,107 @@ setAlrExpectingOCurly b = P $ \s -> POk (s {alr_expecting_ocurly = b}) ()
 
 -- for reasons of efficiency, flags indicating language extensions (eg,
 -- -fglasgow-exts or -XParallelArrays) are represented by a bitmap
--- stored in an unboxed Int
+-- stored in an unboxed Word64
+type ExtsBitmap = Word64
 
-ffiBit :: Int
-ffiBit= 0
-interruptibleFfiBit :: Int
-interruptibleFfiBit = 1
-cApiFfiBit :: Int
-cApiFfiBit = 2
-parrBit :: Int
-parrBit = 3
-arrowsBit :: Int
-arrowsBit  = 4
-thBit :: Int
-thBit = 5
-ipBit :: Int
-ipBit = 6
-explicitForallBit :: Int
-explicitForallBit = 7 -- the 'forall' keyword and '.' symbol
-bangPatBit :: Int
-bangPatBit = 8  -- Tells the parser to understand bang-patterns
-                -- (doesn't affect the lexer)
-patternSynonymsBit :: Int
-patternSynonymsBit = 9 -- pattern synonyms
-haddockBit :: Int
-haddockBit = 10 -- Lex and parse Haddock comments
-magicHashBit :: Int
-magicHashBit = 11 -- "#" in both functions and operators
-kindSigsBit :: Int
-kindSigsBit = 12 -- Kind signatures on type variables
-recursiveDoBit :: Int
-recursiveDoBit = 13 -- mdo
-unicodeSyntaxBit :: Int
-unicodeSyntaxBit = 14 -- the forall symbol, arrow symbols, etc
-unboxedTuplesBit :: Int
-unboxedTuplesBit = 15 -- (# and #)
-datatypeContextsBit :: Int
-datatypeContextsBit = 16
-transformComprehensionsBit :: Int
-transformComprehensionsBit = 17
-qqBit :: Int
-qqBit = 18 -- enable quasiquoting
-inRulePragBit :: Int
-inRulePragBit = 19
-rawTokenStreamBit :: Int
-rawTokenStreamBit = 20 -- producing a token stream with all comments included
-sccProfilingOnBit :: Int
-sccProfilingOnBit = 21
-hpcBit :: Int
-hpcBit = 22
-alternativeLayoutRuleBit :: Int
-alternativeLayoutRuleBit = 23
-relaxedLayoutBit :: Int
-relaxedLayoutBit = 24
-nondecreasingIndentationBit :: Int
-nondecreasingIndentationBit = 25
-safeHaskellBit :: Int
-safeHaskellBit = 26
-traditionalRecordSyntaxBit :: Int
-traditionalRecordSyntaxBit = 27
-typeLiteralsBit :: Int
-typeLiteralsBit = 28
-explicitNamespacesBit :: Int
-explicitNamespacesBit = 29
-lambdaCaseBit :: Int
-lambdaCaseBit = 30
-negativeLiteralsBit :: Int
-negativeLiteralsBit = 31
+xbit :: ExtBits -> ExtsBitmap
+xbit = bit . fromEnum
+
+xtest :: ExtBits -> ExtsBitmap -> Bool
+xtest ext xmap = testBit xmap (fromEnum ext)
+
+data ExtBits
+  = FfiBit
+  | InterruptibleFfiBit
+  | CApiFfiBit
+  | ParrBit
+  | ArrowsBit
+  | ThBit
+  | IpBit
+  | ExplicitForallBit -- the 'forall' keyword and '.' symbol
+  | BangPatBit -- Tells the parser to understand bang-patterns
+               -- (doesn't affect the lexer)
+  | PatternSynonymsBit -- pattern synonyms
+  | HaddockBit-- Lex and parse Haddock comments
+  | MagicHashBit -- "#" in both functions and operators
+  | KindSigsBit -- Kind signatures on type variables
+  | RecursiveDoBit -- mdo
+  | UnicodeSyntaxBit -- the forall symbol, arrow symbols, etc
+  | UnboxedTuplesBit -- (# and #)
+  | DatatypeContextsBit
+  | TransformComprehensionsBit
+  | QqBit -- enable quasiquoting
+  | InRulePragBit
+  | RawTokenStreamBit -- producing a token stream with all comments included
+  | SccProfilingOnBit
+  | HpcBit
+  | AlternativeLayoutRuleBit
+  | RelaxedLayoutBit
+  | NondecreasingIndentationBit
+  | SafeHaskellBit
+  | TraditionalRecordSyntaxBit
+  | ExplicitNamespacesBit
+  | LambdaCaseBit
+  | BinaryLiteralsBit
+  | NegativeLiteralsBit
+  deriving Enum
 
 
-always :: Int -> Bool
+always :: ExtsBitmap -> Bool
 always           _     = True
-parrEnabled :: Int -> Bool
-parrEnabled      flags = testBit flags parrBit
-arrowsEnabled :: Int -> Bool
-arrowsEnabled    flags = testBit flags arrowsBit
-thEnabled :: Int -> Bool
-thEnabled        flags = testBit flags thBit
-ipEnabled :: Int -> Bool
-ipEnabled        flags = testBit flags ipBit
-explicitForallEnabled :: Int -> Bool
-explicitForallEnabled flags = testBit flags explicitForallBit
-bangPatEnabled :: Int -> Bool
-bangPatEnabled   flags = testBit flags bangPatBit
-haddockEnabled :: Int -> Bool
-haddockEnabled   flags = testBit flags haddockBit
-magicHashEnabled :: Int -> Bool
-magicHashEnabled flags = testBit flags magicHashBit
--- kindSigsEnabled :: Int -> Bool
--- kindSigsEnabled  flags = testBit flags kindSigsBit
-unicodeSyntaxEnabled :: Int -> Bool
-unicodeSyntaxEnabled flags = testBit flags unicodeSyntaxBit
-unboxedTuplesEnabled :: Int -> Bool
-unboxedTuplesEnabled flags = testBit flags unboxedTuplesBit
-datatypeContextsEnabled :: Int -> Bool
-datatypeContextsEnabled flags = testBit flags datatypeContextsBit
-qqEnabled :: Int -> Bool
-qqEnabled        flags = testBit flags qqBit
-inRulePrag :: Int -> Bool
-inRulePrag       flags = testBit flags inRulePragBit
-rawTokenStreamEnabled :: Int -> Bool
-rawTokenStreamEnabled flags = testBit flags rawTokenStreamBit
-alternativeLayoutRule :: Int -> Bool
-alternativeLayoutRule flags = testBit flags alternativeLayoutRuleBit
-hpcEnabled :: Int -> Bool
-hpcEnabled flags = testBit flags hpcBit
-relaxedLayout :: Int -> Bool
-relaxedLayout flags = testBit flags relaxedLayoutBit
-nondecreasingIndentation :: Int -> Bool
-nondecreasingIndentation flags = testBit flags nondecreasingIndentationBit
-sccProfilingOn :: Int -> Bool
-sccProfilingOn flags = testBit flags sccProfilingOnBit
-traditionalRecordSyntaxEnabled :: Int -> Bool
-traditionalRecordSyntaxEnabled flags = testBit flags traditionalRecordSyntaxBit
-typeLiteralsEnabled :: Int -> Bool
-typeLiteralsEnabled flags = testBit flags typeLiteralsBit
+parrEnabled :: ExtsBitmap -> Bool
+parrEnabled = xtest ParrBit
+arrowsEnabled :: ExtsBitmap -> Bool
+arrowsEnabled = xtest ArrowsBit
+thEnabled :: ExtsBitmap -> Bool
+thEnabled = xtest ThBit
+ipEnabled :: ExtsBitmap -> Bool
+ipEnabled = xtest IpBit
+explicitForallEnabled :: ExtsBitmap -> Bool
+explicitForallEnabled = xtest ExplicitForallBit
+bangPatEnabled :: ExtsBitmap -> Bool
+bangPatEnabled = xtest BangPatBit
+haddockEnabled :: ExtsBitmap -> Bool
+haddockEnabled = xtest HaddockBit
+magicHashEnabled :: ExtsBitmap -> Bool
+magicHashEnabled = xtest MagicHashBit
+-- kindSigsEnabled :: ExtsBitmap -> Bool
+-- kindSigsEnabled = xtest KindSigsBit
+unicodeSyntaxEnabled :: ExtsBitmap -> Bool
+unicodeSyntaxEnabled = xtest UnicodeSyntaxBit
+unboxedTuplesEnabled :: ExtsBitmap -> Bool
+unboxedTuplesEnabled = xtest UnboxedTuplesBit
+datatypeContextsEnabled :: ExtsBitmap -> Bool
+datatypeContextsEnabled = xtest DatatypeContextsBit
+qqEnabled :: ExtsBitmap -> Bool
+qqEnabled = xtest QqBit
+inRulePrag :: ExtsBitmap -> Bool
+inRulePrag = xtest InRulePragBit
+rawTokenStreamEnabled :: ExtsBitmap -> Bool
+rawTokenStreamEnabled = xtest RawTokenStreamBit
+alternativeLayoutRule :: ExtsBitmap -> Bool
+alternativeLayoutRule = xtest AlternativeLayoutRuleBit
+hpcEnabled :: ExtsBitmap -> Bool
+hpcEnabled = xtest HpcBit
+relaxedLayout :: ExtsBitmap -> Bool
+relaxedLayout = xtest RelaxedLayoutBit
+nondecreasingIndentation :: ExtsBitmap -> Bool
+nondecreasingIndentation = xtest NondecreasingIndentationBit
+sccProfilingOn :: ExtsBitmap -> Bool
+sccProfilingOn = xtest SccProfilingOnBit
+traditionalRecordSyntaxEnabled :: ExtsBitmap -> Bool
+traditionalRecordSyntaxEnabled = xtest TraditionalRecordSyntaxBit
 
-explicitNamespacesEnabled :: Int -> Bool
-explicitNamespacesEnabled flags = testBit flags explicitNamespacesBit
-lambdaCaseEnabled :: Int -> Bool
-lambdaCaseEnabled flags = testBit flags lambdaCaseBit
-negativeLiteralsEnabled :: Int -> Bool
-negativeLiteralsEnabled flags = testBit flags negativeLiteralsBit
-patternSynonymsEnabled :: Int -> Bool
-patternSynonymsEnabled flags = testBit flags patternSynonymsBit
+explicitNamespacesEnabled :: ExtsBitmap -> Bool
+explicitNamespacesEnabled = xtest ExplicitNamespacesBit
+lambdaCaseEnabled :: ExtsBitmap -> Bool
+lambdaCaseEnabled = xtest LambdaCaseBit
+binaryLiteralsEnabled :: ExtsBitmap -> Bool
+binaryLiteralsEnabled = xtest BinaryLiteralsBit
+negativeLiteralsEnabled :: ExtsBitmap -> Bool
+negativeLiteralsEnabled = xtest NegativeLiteralsBit
+patternSynonymsEnabled :: ExtsBitmap -> Bool
+patternSynonymsEnabled = xtest PatternSynonymsBit
 
 -- PState for parsing options pragmas
 --
@@ -1999,7 +2091,7 @@ mkPState flags buf loc =
       last_loc      = mkRealSrcSpan loc loc,
       last_len      = 0,
       loc           = loc,
-      extsBitmap    = fromIntegral bitmap,
+      extsBitmap    = bitmap,
       context       = [],
       lex_state     = [bol, 0],
       srcfiles      = [],
@@ -2008,44 +2100,47 @@ mkPState flags buf loc =
       alr_last_loc = alrInitialLoc (fsLit "<no file>"),
       alr_context = [],
       alr_expecting_ocurly = Nothing,
-      alr_justClosedExplicitLetBlock = False
+      alr_justClosedExplicitLetBlock = False,
+      annotations = [],
+      comment_q = [],
+      annotations_comments = []
     }
     where
-      bitmap =     ffiBit                      `setBitIf` xopt Opt_ForeignFunctionInterface flags
-               .|. interruptibleFfiBit         `setBitIf` xopt Opt_InterruptibleFFI         flags
-               .|. cApiFfiBit                  `setBitIf` xopt Opt_CApiFFI                  flags
-               .|. parrBit                     `setBitIf` xopt Opt_ParallelArrays           flags
-               .|. arrowsBit                   `setBitIf` xopt Opt_Arrows                   flags
-               .|. thBit                       `setBitIf` xopt Opt_TemplateHaskell          flags
-               .|. qqBit                       `setBitIf` xopt Opt_QuasiQuotes              flags
-               .|. ipBit                       `setBitIf` xopt Opt_ImplicitParams           flags
-               .|. explicitForallBit           `setBitIf` xopt Opt_ExplicitForAll           flags
-               .|. bangPatBit                  `setBitIf` xopt Opt_BangPatterns             flags
-               .|. haddockBit                  `setBitIf` gopt Opt_Haddock                  flags
-               .|. magicHashBit                `setBitIf` xopt Opt_MagicHash                flags
-               .|. kindSigsBit                 `setBitIf` xopt Opt_KindSignatures           flags
-               .|. recursiveDoBit              `setBitIf` xopt Opt_RecursiveDo              flags
-               .|. unicodeSyntaxBit            `setBitIf` xopt Opt_UnicodeSyntax            flags
-               .|. unboxedTuplesBit            `setBitIf` xopt Opt_UnboxedTuples            flags
-               .|. datatypeContextsBit         `setBitIf` xopt Opt_DatatypeContexts         flags
-               .|. transformComprehensionsBit  `setBitIf` xopt Opt_TransformListComp        flags
-               .|. transformComprehensionsBit  `setBitIf` xopt Opt_MonadComprehensions      flags
-               .|. rawTokenStreamBit           `setBitIf` gopt Opt_KeepRawTokenStream       flags
-               .|. hpcBit                      `setBitIf` gopt Opt_Hpc                      flags
-               .|. alternativeLayoutRuleBit    `setBitIf` xopt Opt_AlternativeLayoutRule    flags
-               .|. relaxedLayoutBit            `setBitIf` xopt Opt_RelaxedLayout            flags
-               .|. sccProfilingOnBit           `setBitIf` gopt Opt_SccProfilingOn           flags
-               .|. nondecreasingIndentationBit `setBitIf` xopt Opt_NondecreasingIndentation flags
-               .|. safeHaskellBit              `setBitIf` safeImportsOn                     flags
-               .|. traditionalRecordSyntaxBit  `setBitIf` xopt Opt_TraditionalRecordSyntax  flags
-               .|. typeLiteralsBit             `setBitIf` xopt Opt_DataKinds flags
-               .|. explicitNamespacesBit       `setBitIf` xopt Opt_ExplicitNamespaces flags
-               .|. lambdaCaseBit               `setBitIf` xopt Opt_LambdaCase               flags
-               .|. negativeLiteralsBit         `setBitIf` xopt Opt_NegativeLiterals         flags
-               .|. patternSynonymsBit          `setBitIf` xopt Opt_PatternSynonyms          flags
+      bitmap =     FfiBit                      `setBitIf` xopt Opt_ForeignFunctionInterface flags
+               .|. InterruptibleFfiBit         `setBitIf` xopt Opt_InterruptibleFFI         flags
+               .|. CApiFfiBit                  `setBitIf` xopt Opt_CApiFFI                  flags
+               .|. ParrBit                     `setBitIf` xopt Opt_ParallelArrays           flags
+               .|. ArrowsBit                   `setBitIf` xopt Opt_Arrows                   flags
+               .|. ThBit                       `setBitIf` xopt Opt_TemplateHaskell          flags
+               .|. QqBit                       `setBitIf` xopt Opt_QuasiQuotes              flags
+               .|. IpBit                       `setBitIf` xopt Opt_ImplicitParams           flags
+               .|. ExplicitForallBit           `setBitIf` xopt Opt_ExplicitForAll           flags
+               .|. BangPatBit                  `setBitIf` xopt Opt_BangPatterns             flags
+               .|. HaddockBit                  `setBitIf` gopt Opt_Haddock                  flags
+               .|. MagicHashBit                `setBitIf` xopt Opt_MagicHash                flags
+               .|. KindSigsBit                 `setBitIf` xopt Opt_KindSignatures           flags
+               .|. RecursiveDoBit              `setBitIf` xopt Opt_RecursiveDo              flags
+               .|. UnicodeSyntaxBit            `setBitIf` xopt Opt_UnicodeSyntax            flags
+               .|. UnboxedTuplesBit            `setBitIf` xopt Opt_UnboxedTuples            flags
+               .|. DatatypeContextsBit         `setBitIf` xopt Opt_DatatypeContexts         flags
+               .|. TransformComprehensionsBit  `setBitIf` xopt Opt_TransformListComp        flags
+               .|. TransformComprehensionsBit  `setBitIf` xopt Opt_MonadComprehensions      flags
+               .|. RawTokenStreamBit           `setBitIf` gopt Opt_KeepRawTokenStream       flags
+               .|. HpcBit                      `setBitIf` gopt Opt_Hpc                      flags
+               .|. AlternativeLayoutRuleBit    `setBitIf` xopt Opt_AlternativeLayoutRule    flags
+               .|. RelaxedLayoutBit            `setBitIf` xopt Opt_RelaxedLayout            flags
+               .|. SccProfilingOnBit           `setBitIf` gopt Opt_SccProfilingOn           flags
+               .|. NondecreasingIndentationBit `setBitIf` xopt Opt_NondecreasingIndentation flags
+               .|. SafeHaskellBit              `setBitIf` safeImportsOn                     flags
+               .|. TraditionalRecordSyntaxBit  `setBitIf` xopt Opt_TraditionalRecordSyntax  flags
+               .|. ExplicitNamespacesBit       `setBitIf` xopt Opt_ExplicitNamespaces flags
+               .|. LambdaCaseBit               `setBitIf` xopt Opt_LambdaCase               flags
+               .|. BinaryLiteralsBit           `setBitIf` xopt Opt_BinaryLiterals           flags
+               .|. NegativeLiteralsBit         `setBitIf` xopt Opt_NegativeLiterals         flags
+               .|. PatternSynonymsBit          `setBitIf` xopt Opt_PatternSynonyms          flags
       --
-      setBitIf :: Int -> Bool -> Int
-      b `setBitIf` cond | cond      = bit b
+      setBitIf :: ExtBits -> Bool -> ExtsBitmap
+      b `setBitIf` cond | cond      = xbit b
                         | otherwise = 0
 
 addWarning :: WarningFlag -> SrcSpan -> SDoc -> P ()
@@ -2101,6 +2196,8 @@ srcParseErr dflags buf len
          else ptext (sLit "parse error on input") <+> quotes (text token)
               $$ ppWhen (not th_enabled && token == "$") -- #7396
                         (text "Perhaps you intended to use TemplateHaskell")
+              $$ ppWhen (token == "<-")
+                        (text "Perhaps this statement should be within a 'do' block?")
   where token = lexemeToString (offsetBytes (-len) buf) len
         th_enabled = xopt Opt_TemplateHaskell dflags
 
@@ -2124,13 +2221,24 @@ lexError str = do
 -- This is the top-level function: called from the parser each time a
 -- new token is to be read from the input.
 
-lexer :: (Located Token -> P a) -> P a
-lexer cont = do
+lexer :: Bool -> (Located Token -> P a) -> P a
+lexer queueComments cont = do
   alr <- extension alternativeLayoutRule
   let lexTokenFun = if alr then lexTokenAlr else lexToken
   (L span tok) <- lexTokenFun
   --trace ("token: " ++ show tok) $ do
-  cont (L (RealSrcSpan span) tok)
+
+  case tok of
+    ITeof -> addAnnotationOnly noSrcSpan AnnEofPos (RealSrcSpan span)
+    _ -> return ()
+
+  if (queueComments && isDocComment tok)
+    then queueComment (L (RealSrcSpan span) tok)
+    else return ()
+
+  if (queueComments && isComment tok)
+    then queueComment (L (RealSrcSpan span) tok) >> lexer queueComments cont
+    else cont (L (RealSrcSpan span) tok)
 
 lexTokenAlr :: P (RealLocated Token)
 lexTokenAlr = do mPending <- popPendingImplicitToken
@@ -2395,7 +2503,7 @@ lexTokenStream buf loc dflags = unP go initState
     where dflags' = gopt_set (gopt_unset dflags Opt_Haddock) Opt_KeepRawTokenStream
           initState = mkPState dflags' buf loc
           go = do
-            ltok <- lexer return
+            ltok <- lexer False return
             case ltok of
               L _ ITeof -> return []
               _ -> liftM (ltok:) go
@@ -2415,39 +2523,45 @@ ignoredPrags = Map.fromList (map ignored pragmas)
                      -- CFILES is a hugs-only thing.
                      pragmas = options_pragmas ++ ["cfiles", "contract"]
 
-oneWordPrags = Map.fromList([("rules", rulePrag),
-                           ("inline", token (ITinline_prag Inline FunLike)),
-                           ("inlinable", token (ITinline_prag Inlinable FunLike)),
-                           ("inlineable", token (ITinline_prag Inlinable FunLike)),
+oneWordPrags = Map.fromList([
+           ("rules", rulePrag),
+           ("inline", strtoken (\s -> (ITinline_prag s Inline FunLike))),
+           ("inlinable", strtoken (\s -> (ITinline_prag s Inlinable FunLike))),
+           ("inlineable", strtoken (\s -> (ITinline_prag s Inlinable FunLike))),
                                           -- Spelling variant
-                           ("notinline", token (ITinline_prag NoInline FunLike)),
-                           ("specialize", token ITspec_prag),
-                           ("source", token ITsource_prag),
-                           ("warning", token ITwarning_prag),
-                           ("deprecated", token ITdeprecated_prag),
-                           ("scc", token ITscc_prag),
-                           ("generated", token ITgenerated_prag),
-                           ("core", token ITcore_prag),
-                           ("unpack", token ITunpack_prag),
-                           ("nounpack", token ITnounpack_prag),
-                           ("ann", token ITann_prag),
-                           ("vectorize", token ITvect_prag),
-                           ("novectorize", token ITnovect_prag),
-                           ("minimal", token ITminimal_prag),
-                           ("ctype", token ITctype)])
+           ("notinline", strtoken (\s -> (ITinline_prag s NoInline FunLike))),
+           ("specialize", strtoken (\s -> ITspec_prag s)),
+           ("source", strtoken (\s -> ITsource_prag s)),
+           ("warning", strtoken (\s -> ITwarning_prag s)),
+           ("deprecated", strtoken (\s -> ITdeprecated_prag s)),
+           ("scc", strtoken (\s -> ITscc_prag s)),
+           ("generated", strtoken (\s -> ITgenerated_prag s)),
+           ("core", strtoken (\s -> ITcore_prag s)),
+           ("unpack", strtoken (\s -> ITunpack_prag s)),
+           ("nounpack", strtoken (\s -> ITnounpack_prag s)),
+           ("ann", strtoken (\s -> ITann_prag s)),
+           ("vectorize", strtoken (\s -> ITvect_prag s)),
+           ("novectorize", strtoken (\s -> ITnovect_prag s)),
+           ("minimal", strtoken (\s -> ITminimal_prag s)),
+           ("overlaps", strtoken (\s -> IToverlaps_prag s)),
+           ("overlappable", strtoken (\s -> IToverlappable_prag s)),
+           ("overlapping", strtoken (\s -> IToverlapping_prag s)),
+           ("incoherent", strtoken (\s -> ITincoherent_prag s)),
+           ("ctype", strtoken (\s -> ITctype s))])
 
-twoWordPrags = Map.fromList([("inline conlike", token (ITinline_prag Inline ConLike)),
-                             ("notinline conlike", token (ITinline_prag NoInline ConLike)),
-                             ("specialize inline", token (ITspec_inline_prag True)),
-                             ("specialize notinline", token (ITspec_inline_prag False)),
-                             ("vectorize scalar", token ITvect_scalar_prag)])
+twoWordPrags = Map.fromList([
+     ("inline conlike", strtoken (\s -> (ITinline_prag s Inline ConLike))),
+     ("notinline conlike", strtoken (\s -> (ITinline_prag s NoInline ConLike))),
+     ("specialize inline", strtoken (\s -> (ITspec_inline_prag s True))),
+     ("specialize notinline", strtoken (\s -> (ITspec_inline_prag s False))),
+     ("vectorize scalar", strtoken (\s -> ITvect_scalar_prag s))])
 
 dispatch_pragmas :: Map String Action -> Action
 dispatch_pragmas prags span buf len = case Map.lookup (clean_pragma (lexemeToString buf len)) prags of
                                        Just found -> found span buf len
                                        Nothing -> lexError "unknown pragma"
 
-known_pragma :: Map String Action -> AlexAccPred Int
+known_pragma :: Map String Action -> AlexAccPred ExtsBitmap
 known_pragma prags _ (AI _ startbuf) _ (AI _ curbuf)
  = isKnown && nextCharIsNot curbuf pragmaNameChar
     where l = lexemeToString startbuf (byteDiff startbuf curbuf)
@@ -2467,4 +2581,91 @@ clean_pragma prag = canon_ws (map toLower (unprefix prag))
                                               "constructorlike" -> "conlike"
                                               _ -> prag'
                           canon_ws s = unwords (map canonical (words s))
+
+
+
+{-
+%************************************************************************
+%*                                                                      *
+        Helper functions for generating annotations in the parser
+%*                                                                      *
+%************************************************************************
+-}
+
+-- |Encapsulated call to addAnnotation, requiring only the SrcSpan of
+-- the AST element the annotation belongs to
+type AddAnn = (SrcSpan -> P ())
+
+addAnnotation :: SrcSpan -> AnnKeywordId -> SrcSpan -> P ()
+addAnnotation l a v = do
+  addAnnotationOnly l a v
+  allocateComments l
+
+addAnnotationOnly :: SrcSpan -> AnnKeywordId -> SrcSpan -> P ()
+addAnnotationOnly l a v = P $ \s -> POk s {
+  annotations = ((l,a), [v]) : annotations s
+  } ()
+
+-- |Given a 'SrcSpan' that surrounds a 'HsPar' or 'HsParTy', generate
+-- 'AddAnn' values for the opening and closing bordering on the start
+-- and end of the span
+mkParensApiAnn :: SrcSpan -> [AddAnn]
+mkParensApiAnn (UnhelpfulSpan _)  = []
+mkParensApiAnn s@(RealSrcSpan ss) = [mj AnnOpenP lo,mj AnnCloseP lc]
+  where
+    mj a l = (\s -> addAnnotation s a l)
+    f = srcSpanFile ss
+    sl = srcSpanStartLine ss
+    sc = srcSpanStartCol ss
+    el = srcSpanEndLine ss
+    ec = srcSpanEndCol ss
+    lo = mkSrcSpan (srcSpanStart s)         (mkSrcLoc f sl (sc+1))
+    lc = mkSrcSpan (mkSrcLoc f el (ec - 1)) (srcSpanEnd s)
+
+queueComment :: Located Token -> P()
+queueComment c = P $ \s -> POk s {
+  comment_q = commentToAnnotation c : comment_q s
+  } ()
+
+-- | Go through the @comment_q@ in @PState@ and remove all comments
+-- that belong within the given span
+allocateComments :: SrcSpan -> P ()
+allocateComments ss = P $ \s ->
+  let
+    (before,rest)  = break (\(L l _) -> isSubspanOf l ss) (comment_q s)
+    (middle,after) = break (\(L l _) -> not (isSubspanOf l ss)) rest
+    comment_q' = before ++ after
+    newAnns = if null middle then []
+                             else [(ss,middle)]
+  in
+    POk s {
+       comment_q = comment_q'
+     , annotations_comments = newAnns ++ (annotations_comments s)
+     } ()
+
+commentToAnnotation :: Located Token -> Located AnnotationComment
+commentToAnnotation (L l (ITdocCommentNext s))  = L l (AnnDocCommentNext s)
+commentToAnnotation (L l (ITdocCommentPrev s))  = L l (AnnDocCommentPrev s)
+commentToAnnotation (L l (ITdocCommentNamed s)) = L l (AnnDocCommentNamed s)
+commentToAnnotation (L l (ITdocSection n s))    = L l (AnnDocSection n s)
+commentToAnnotation (L l (ITdocOptions s))      = L l (AnnDocOptions s)
+commentToAnnotation (L l (ITdocOptionsOld s))   = L l (AnnDocOptionsOld s)
+commentToAnnotation (L l (ITlineComment s))     = L l (AnnLineComment s)
+commentToAnnotation (L l (ITblockComment s))    = L l (AnnBlockComment s)
+
+-- ---------------------------------------------------------------------
+
+isComment :: Token -> Bool
+isComment (ITlineComment     _)   = True
+isComment (ITblockComment    _)   = True
+isComment _ = False
+
+isDocComment :: Token -> Bool
+isDocComment (ITdocCommentNext  _)   = True
+isDocComment (ITdocCommentPrev  _)   = True
+isDocComment (ITdocCommentNamed _)   = True
+isDocComment (ITdocSection      _ _) = True
+isDocComment (ITdocOptions      _)   = True
+isDocComment (ITdocOptionsOld   _)   = True
+isDocComment _ = False
 }

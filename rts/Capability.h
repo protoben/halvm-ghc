@@ -79,6 +79,11 @@ struct Capability_ {
     // full pinned object blocks allocated since the last GC
     bdescr *pinned_object_blocks;
 
+    // per-capability weak pointer list associated with nursery (older
+    // lists stored in generation object)
+    StgWeak *weak_ptr_list_hd;
+    StgWeak *weak_ptr_list_tl;
+
     // Context switch flag.  When non-zero, this means: stop running
     // Haskell code, and switch threads.
     int context_switch;
@@ -92,6 +97,10 @@ struct Capability_ {
     // Haskell code, unlike the context_switch flag which is only
     // reset after we have executed the context switch.
     int interrupt;
+
+    // Total words allocated by this cap since rts start
+    // See [Note allocation accounting] in Storage.c
+    W_ total_allocated;
 
 #if defined(THREADED_RTS)
     // Worker Tasks waiting in the wings.  Singly-linked.
@@ -121,9 +130,11 @@ struct Capability_ {
 
     // Stats on spark creation/conversion
     SparkCounters spark_stats;
+#if !defined(mingw32_HOST_OS)
+    // IO manager for this cap
+    int io_manager_control_wr_fd;
 #endif
-    // Total words allocated by this cap since rts start
-    W_ total_allocated;
+#endif
 
     // Per-capability STM-related data
     StgTVarWatchQueue *free_tvar_watch_queues;
@@ -147,9 +158,9 @@ struct Capability_ {
 #endif
 
 // These properties should be true when a Task is holding a Capability
-#define ASSERT_FULL_CAPABILITY_INVARIANTS(cap,task)			\
-  ASSERT(cap->running_task != NULL && cap->running_task == task);	\
-  ASSERT(task->cap == cap);						\
+#define ASSERT_FULL_CAPABILITY_INVARIANTS(cap,task)                     \
+  ASSERT(cap->running_task != NULL && cap->running_task == task);       \
+  ASSERT(task->cap == cap);                                             \
   ASSERT_PARTIAL_CAPABILITY_INVARIANTS(cap,task)
 
 // Sometimes a Task holds a Capability, but the Task is not associated
@@ -157,10 +168,10 @@ struct Capability_ {
 // (a) a Task holds multiple Capabilities, and (b) when the current
 // Task is bound, its thread has just blocked, and it may have been
 // moved to another Capability.
-#define ASSERT_PARTIAL_CAPABILITY_INVARIANTS(cap,task)	\
-  ASSERT(cap->run_queue_hd == END_TSO_QUEUE ?		\
-	    cap->run_queue_tl == END_TSO_QUEUE : 1);	\
-  ASSERT(myTask() == task);				\
+#define ASSERT_PARTIAL_CAPABILITY_INVARIANTS(cap,task)  \
+  ASSERT(cap->run_queue_hd == END_TSO_QUEUE ?           \
+            cap->run_queue_tl == END_TSO_QUEUE : 1);    \
+  ASSERT(myTask() == task);                             \
   ASSERT_TASK_ID(task);
 
 #if defined(THREADED_RTS)
@@ -192,18 +203,18 @@ void moreCapabilities (nat from, nat to);
 #if defined(THREADED_RTS)
 void releaseCapability           (Capability* cap);
 void releaseAndWakeupCapability  (Capability* cap);
-void releaseCapability_ (Capability* cap, rtsBool always_wakeup); 
+void releaseCapability_ (Capability* cap, rtsBool always_wakeup);
 // assumes cap->lock is held
 #else
 // releaseCapability() is empty in non-threaded RTS
 INLINE_HEADER void releaseCapability  (Capability* cap STG_UNUSED) {};
 INLINE_HEADER void releaseAndWakeupCapability  (Capability* cap STG_UNUSED) {};
-INLINE_HEADER void releaseCapability_ (Capability* cap STG_UNUSED, 
+INLINE_HEADER void releaseCapability_ (Capability* cap STG_UNUSED,
                                        rtsBool always_wakeup STG_UNUSED) {};
 #endif
 
 // declared in includes/rts/Threads.h:
-// extern Capability MainCapability; 
+// extern Capability MainCapability;
 
 // declared in includes/rts/Threads.h:
 // extern nat n_capabilities;
@@ -237,7 +248,7 @@ extern volatile StgWord pending_sync;
 //
 // On return, *cap is non-NULL, and points to the Capability acquired.
 //
-void waitForReturnCapability (Capability **cap/*in/out*/, Task *task);
+void waitForCapability (Capability **cap/*in/out*/, Task *task);
 
 EXTERN_INLINE void recordMutableCap (StgClosure *p, Capability *cap, nat gen);
 
@@ -257,12 +268,6 @@ EXTERN_INLINE void recordClosureMutated (Capability *cap, StgClosure *p);
 // current task should then re-acquire it using waitForCapability().
 //
 rtsBool yieldCapability (Capability** pCap, Task *task, rtsBool gcAllowed);
-
-// Acquires a capability for doing some work.
-//
-// On return: pCap points to the capability.
-//
-void waitForCapability (Task *task, Mutex *mutex, Capability **pCap);
 
 // Wakes up a worker thread on just one Capability, used when we
 // need to service some global event.
@@ -352,11 +357,11 @@ recordMutableCap (StgClosure *p, Capability *cap, nat gen)
     // NO: assertion is violated by performPendingThrowTos()
     bd = cap->mut_lists[gen];
     if (bd->free >= bd->start + BLOCK_SIZE_W) {
-	bdescr *new_bd;
-	new_bd = allocBlock_lock();
-	new_bd->link = bd;
-	bd = new_bd;
-	cap->mut_lists[gen] = bd;
+        bdescr *new_bd;
+        new_bd = allocBlock_lock();
+        new_bd->link = bd;
+        bd = new_bd;
+        cap->mut_lists[gen] = bd;
     }
     *bd->free++ = (StgWord)p;
 }
@@ -372,15 +377,15 @@ recordClosureMutated (Capability *cap, StgClosure *p)
 
 #if defined(THREADED_RTS)
 INLINE_HEADER rtsBool
-emptySparkPoolCap (Capability *cap) 
+emptySparkPoolCap (Capability *cap)
 { return looksEmpty(cap->sparks); }
 
 INLINE_HEADER nat
-sparkPoolSizeCap (Capability *cap) 
+sparkPoolSizeCap (Capability *cap)
 { return sparkPoolSize(cap->sparks); }
 
 INLINE_HEADER void
-discardSparksCap (Capability *cap) 
+discardSparksCap (Capability *cap)
 { discardSparks(cap->sparks); }
 #endif
 

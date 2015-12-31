@@ -19,7 +19,7 @@
 #include <sys/types.h>
 #endif
 
-// 
+//
 // Creating threads
 //
 StgTSO *createThread (Capability *cap, W_ stack_size);
@@ -29,11 +29,11 @@ void scheduleWaitThread (/* in    */ StgTSO *tso,
                          /* inout */ Capability **cap);
 
 StgTSO *createGenThread       (Capability *cap, W_ stack_size,
-			       StgClosure *closure);
+                               StgClosure *closure);
 StgTSO *createIOThread        (Capability *cap, W_ stack_size,
-			       StgClosure *closure);
+                               StgClosure *closure);
 StgTSO *createStrictIOThread  (Capability *cap, W_ stack_size,
-			       StgClosure *closure);
+                               StgClosure *closure);
 
 // Suspending/resuming threads around foreign calls
 void *        suspendThread (StgRegTable *, rtsBool interruptible);
@@ -42,8 +42,12 @@ StgRegTable * resumeThread  (void *);
 //
 // Thread operations from Threads.c
 //
-int    cmp_thread      (StgPtr tso1, StgPtr tso2);
-int    rts_getThreadId (StgPtr tso);
+int     cmp_thread                       (StgPtr tso1, StgPtr tso2);
+int     rts_getThreadId                  (StgPtr tso);
+HsInt64 rts_getThreadAllocationCounter   (StgPtr tso);
+void    rts_setThreadAllocationCounter   (StgPtr tso, HsInt64 i);
+void    rts_enableThreadAllocationLimit  (StgPtr tso);
+void    rts_disableThreadAllocationLimit (StgPtr tso);
 
 #if !defined(mingw32_HOST_OS)
 pid_t  forkProcess     (HsStablePtr *entry);

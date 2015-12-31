@@ -359,7 +359,7 @@ endif
 # Packages to build
 # The lists of packages that we *actually* going to build in each stage:
 #
-#  $(PACKAGES_STAGE0) 
+#  $(PACKAGES_STAGE0)
 #  $(PACKAGES_STAGE1)
 #  $(PACKAGES_STAGE2)
 #
@@ -383,7 +383,7 @@ else
 # programs such as GHC and ghc-pkg, that we do not assume the stage0
 # compiler already has installed (or up-to-date enough).
 
-PACKAGES_STAGE0 = Cabal/Cabal hpc bin-package-db hoopl transformers
+PACKAGES_STAGE0 = binary Cabal/Cabal hpc bin-package-db hoopl transformers
 ifeq "$(Windows_Host)" "NO"
 ifneq "$(HostOS_CPP)" "ios"
 ifneq "$(TargetOS_CPP)" "HaLVM"
@@ -400,7 +400,6 @@ PACKAGES_STAGE1 += array
 PACKAGES_STAGE1 += deepseq
 PACKAGES_STAGE1 += bytestring
 PACKAGES_STAGE1 += containers
-PACKAGES_STAGE1 += old-locale
 
 ifeq "$(Windows_Host)" "YES"
 PACKAGES_STAGE1 += Win32
@@ -422,23 +421,21 @@ endif
 PACKAGES_STAGE1 += pretty
 PACKAGES_STAGE1 += template-haskell
 PACKAGES_STAGE1 += binary
+PACKAGES_STAGE1 += Cabal/Cabal
+PACKAGES_STAGE1 += bin-package-db
 PACKAGES_STAGE1 += hoopl
 PACKAGES_STAGE1 += transformers
 
-ifneq "$(CrossCompiling)" "YES"
-PACKAGES_STAGE2 += old-time
-PACKAGES_STAGE2 += haskell98
-PACKAGES_STAGE2 += haskell2010
+ifeq "$(HADDOCK_DOCS)" "YES"
+PACKAGES_STAGE1 += xhtml
 endif
 
 ifeq "$(TargetOS_CPP)" "HaLVM"
 PACKAGES_STAGE1 += old-time
 PACKAGES_STAGE1 += haskell2010
-PACKAGES_STAGE1 += HALVMCore
-PACKAGES_STAGE1 += XenDevice
+PACKAGES_STAGE1 += xhtml
 endif
 
-PACKAGES_STAGE1 += xhtml
 ifeq "$(Windows_Target)" "NO"
 ifneq "$(TargetOS_CPP)" "ios"
 ifneq "$(TargetOS_CPP)" "HaLVM"
@@ -452,7 +449,7 @@ endif
 
 # We normally install only the packages down to this point
 REGULAR_INSTALL_PACKAGES := $(addprefix libraries/,$(PACKAGES_STAGE1))
-ifeq "$(Stage1Only)" "NO"
+ifneq "$(Stage1Only)" "YES"
 REGULAR_INSTALL_PACKAGES += compiler
 endif
 REGULAR_INSTALL_PACKAGES += $(addprefix libraries/,$(PACKAGES_STAGE2))
@@ -469,9 +466,17 @@ ifneq "$(CrossCompiling)" "YES"
 define addExtraPackage
 ifeq "$2" "-"
 # Do nothing; this package is already handled above
-else ifeq "$2 $$(GhcProfiled)" "dph YES"
-# Ignore the package: These packages need TH, which is incompatible
-# with a profiled GHC
+else ifeq "$2" "dph"
+## DPH-specific clause
+ifeq "$$(GhcProfiled)" "YES"
+# Ignore package: The DPH packages need TH, which is incompatible with
+# a profiled GHC
+else ifneq "$$(BUILD_DPH)" "YES"
+# Ignore package: DPH was disabled
+else
+PACKAGES_STAGE2 += $1
+endif
+## end of DPH-specific clause
 else
 PACKAGES_STAGE2 += $1
 endif
@@ -481,7 +486,7 @@ endif
 
 # If we want to just install everything, then we want all the packages
 SUPERSIZE_INSTALL_PACKAGES := $(addprefix libraries/,$(PACKAGES_STAGE1))
-ifeq "$(Stage1Only)" "NO"
+ifneq "$(Stage1Only)" "YES"
 SUPERSIZE_INSTALL_PACKAGES += compiler
 endif
 SUPERSIZE_INSTALL_PACKAGES += $(addprefix libraries/,$(PACKAGES_STAGE2))
@@ -599,7 +604,9 @@ libraries/ghc-prim_dist-install_EXTRA_HADDOCK_SRCS = libraries/ghc-prim/dist-ins
 
 ifneq "$(CLEANING)" "YES"
 ifeq "$(INTEGER_LIBRARY)" "integer-gmp"
-libraries/base_dist-install_CONFIGURE_OPTS += --flags=-integer-simple
+libraries/base_dist-install_CONFIGURE_OPTS += --flags=integer-gmp
+else ifeq "$(INTEGER_LIBRARY)" "integer-gmp2"
+libraries/base_dist-install_CONFIGURE_OPTS += --flags=integer-gmp2
 else ifeq "$(INTEGER_LIBRARY)" "integer-simple"
 libraries/base_dist-install_CONFIGURE_OPTS += --flags=integer-simple
 else
@@ -639,7 +646,7 @@ BUILD_DIRS += includes
 BUILD_DIRS += rts
 
 ifneq "$(BINDIST)" "YES"
-BUILD_DIRS += bindisttest 
+BUILD_DIRS += bindisttest
 BUILD_DIRS += utils/genapply
 endif
 
@@ -652,7 +659,9 @@ ifneq "$(CLEANING)" "YES"
 BUILD_DIRS += $(patsubst %, libraries/%, $(PACKAGES_STAGE2))
 BUILD_DIRS += $(patsubst %, libraries/%, $(PACKAGES_STAGE1))
 BUILD_DIRS += $(patsubst %, libraries/%, $(filter-out $(PACKAGES_STAGE1),$(PACKAGES_STAGE0)))
+ifeq "$(BUILD_DPH)" "YES"
 BUILD_DIRS += $(wildcard libraries/dph)
+endif
 endif
 
 
@@ -664,13 +673,22 @@ BUILD_DIRS += libraries/integer-gmp/gmp
 BUILD_DIRS += libraries/integer-gmp/mkGmpDerivedConstants
 endif
 
+ifeq "$(INTEGER_LIBRARY)" "integer-gmp2"
+BUILD_DIRS += libraries/integer-gmp2/gmp
+else ifneq "$(findstring clean,$(MAKECMDGOALS))" ""
+BUILD_DIRS += libraries/integer-gmp2/gmp
+endif
+
+ifeq "$(HADDOCK_DOCS)" "YES"
 BUILD_DIRS += utils/haddock
 BUILD_DIRS += utils/haddock/doc
+endif
+
 BUILD_DIRS += compiler
 BUILD_DIRS += utils/hsc2hs
 BUILD_DIRS += utils/ghc-pkg
 BUILD_DIRS += utils/testremove
-ifeq "$(Stage1Only)" "NO"
+ifneq "$(Stage1Only)" "YES"
 BUILD_DIRS += utils/ghctags
 endif
 BUILD_DIRS += utils/dll-split
@@ -703,10 +721,10 @@ stage1_libs : $(ALL_STAGE1_LIBS)
 
 # ----------------------------------------------
 # Per-package compiler flags
-# 
-# If you want to add per-package compiler flags, this 
+#
+# If you want to add per-package compiler flags, this
 # is the place to do it.  Do it like this for package <pkg>
-#   
+#
 #   libraries/<pkg>_dist-boot_HC_OPTS += -Wwarn
 #   libraries/<pkg>_dist-install_HC_OPTS += -Wwarn
 
@@ -726,7 +744,7 @@ ifneq "$(BINDIST)" "YES"
 
 ifneq "$(BOOTSTRAPPING_CONF)" ""
 ifeq "$(wildcard $(BOOTSTRAPPING_CONF))" ""
-$(shell echo "[]" >$(BOOTSTRAPPING_CONF))
+$(shell $(GHC_PKG) init $(BOOTSTRAPPING_CONF))
 endif
 endif
 
@@ -918,10 +936,10 @@ install_packages: rts/dist/package.conf.install
 	$(call INSTALL_DIR,"$(DESTDIR)$(topdir)")
 	$(call removeTrees,"$(INSTALLED_PACKAGE_CONF)")
 	$(call INSTALL_DIR,"$(INSTALLED_PACKAGE_CONF)")
-	$(call INSTALL_DIR,"$(DESTDIR)$(topdir)/rts-1.0")
-	$(call installLibsTo, $(RTS_INSTALL_LIBS), "$(DESTDIR)$(topdir)/rts-1.0")
+	$(call INSTALL_DIR,"$(DESTDIR)$(topdir)/rts")
+	$(call installLibsTo, $(RTS_INSTALL_LIBS), "$(DESTDIR)$(topdir)/rts")
 	$(foreach p, $(INSTALL_DYNLIBS), \
-	    $(call installLibsTo, $(wildcard $p/dist-install/build/*.so $p/dist-install/build/*.dll $p/dist-install/build/*.dylib), "$(DESTDIR)$(topdir)/$($p_PACKAGE)-$($p_dist-install_VERSION)"))
+	    $(call installLibsTo, $(wildcard $p/dist-install/build/*.so $p/dist-install/build/*.dll $p/dist-install/build/*.dylib), "$(DESTDIR)$(topdir)/$($p_dist-install_PACKAGE_KEY)"))
 	$(foreach p, $(INSTALL_PACKAGES),                             \
 	    $(call make-command,                                      \
 	           "$(ghc-cabal_INPLACE)" copy                        \
@@ -1108,14 +1126,31 @@ SRC_DIST_GHC_DIRS = mk rules docs distrib bindisttest libffi includes \
     utils docs rts compiler ghc driver libraries libffi-tarballs
 SRC_DIST_GHC_FILES += \
     configure.ac config.guess config.sub configure \
-    aclocal.m4 README ANNOUNCE HACKING LICENSE Makefile install-sh \
-    settings.in VERSION \
-    boot packages ghc.mk
+    aclocal.m4 README.md ANNOUNCE HACKING.md INSTALL.md LICENSE Makefile \
+    install-sh settings.in VERSION GIT_COMMIT_ID \
+    boot packages ghc.mk MAKEHELP.md
 
-VERSION :
-	echo $(ProjectVersion) >VERSION
+.PHONY: VERSION
+VERSION:
+	@if test -f $@ && test "`cat $@`" = "$(ProjectVersion)"; \
+	then echo "$@ needs no update"; \
+	else echo "update $@ ($(ProjectVersion))"; echo "$(ProjectVersion)" > $@; fi
 
-sdist : VERSION
+.PHONY: GIT_COMMIT_ID
+GIT_COMMIT_ID:
+	@if test -d .git && test "`git rev-parse HEAD`" != "$(ProjectGitCommitId)"; then \
+	   echo "******************************************************************************"; \
+	   echo "Stale ProjectGitCommitId (=$(ProjectGitCommitId)) detected!"; \
+           echo "'git rev-parse HEAD' says: `git rev-parse HEAD`"; \
+	   echo "Please re-run './configure' before creating source-distribution"; \
+	   echo "******************************************************************************"; \
+	   exit 1; \
+	fi
+	@if test -f $@ && test "`cat $@`" = "$(ProjectGitCommitId)"; \
+	then echo "$@ needs no update"; \
+	else echo "update $@ ($(ProjectGitCommitId))"; echo -n "$(ProjectGitCommitId)" > $@; fi
+
+sdist-ghc-prep : VERSION GIT_COMMIT_ID
 
 # Use:
 #     $(call sdist_ghc_file,compiler,stage2,cmm,Foo/Bar,CmmLex,x)
@@ -1133,10 +1168,10 @@ EXTRA_PACKAGES=parallel stm random primitive vector dph
 sdist-ghc-prep :
 	$(call removeTrees,$(SRC_DIST_GHC_ROOT))
 	$(call removeFiles,$(SRC_DIST_GHC_TARBALL))
-	-mkdir $(SRC_DIST_ROOT)
-	mkdir $(SRC_DIST_GHC_ROOT)
-	mkdir $(SRC_DIST_GHC_DIR)
-	cd $(SRC_DIST_GHC_DIR) && for i in $(SRC_DIST_GHC_DIRS); do mkdir $$i; ( cd $$i && lndir $(TOP)/$$i ); done
+	mkdir -p $(SRC_DIST_ROOT)
+	mkdir -p $(SRC_DIST_GHC_ROOT)
+	mkdir -p $(SRC_DIST_GHC_DIR)
+	cd $(SRC_DIST_GHC_DIR) && for i in $(SRC_DIST_GHC_DIRS); do mkdir -p $$i; ( cd $$i && lndir $(TOP)/$$i ); done
 	cd $(SRC_DIST_GHC_DIR) && for i in $(SRC_DIST_GHC_FILES); do $(LN_S) $(TOP)/$$i .; done
 	cd $(SRC_DIST_GHC_DIR) && $(MAKE) distclean
 	$(call removeTrees,$(SRC_DIST_GHC_DIR)/libraries/tarballs/)
@@ -1147,8 +1182,7 @@ sdist-ghc-prep :
 	$(call sdist_ghc_file,compiler,stage2,cmm,,CmmLex,x)
 	$(call sdist_ghc_file,compiler,stage2,cmm,,CmmParse,y)
 	$(call sdist_ghc_file,compiler,stage2,parser,,Lexer,x)
-	$(call sdist_ghc_file,compiler,stage2,parser,,Parser,y.pp)
-	$(call sdist_ghc_file,compiler,stage2,parser,,ParserCore,y)
+	$(call sdist_ghc_file,compiler,stage2,parser,,Parser,y)
 	$(call sdist_ghc_file,utils/hpc,dist-install,,,HpcParser,y)
 	$(call sdist_ghc_file,utils/genprimopcode,dist,,,Lexer,x)
 	$(call sdist_ghc_file,utils/genprimopcode,dist,,,Parser,y)
@@ -1158,10 +1192,10 @@ sdist-ghc-prep :
 sdist-windows-tarballs-prep :
 	$(call removeTrees,$(SRC_DIST_WINDOWS_TARBALLS_ROOT))
 	$(call removeFiles,$(SRC_DIST_WINDOWS_TARBALLS_TARBALL))
-	-mkdir $(SRC_DIST_ROOT)
-	mkdir $(SRC_DIST_WINDOWS_TARBALLS_ROOT)
-	mkdir $(SRC_DIST_WINDOWS_TARBALLS_DIR)
-	mkdir $(SRC_DIST_WINDOWS_TARBALLS_DIR)/ghc-tarballs
+	mkdir -p $(SRC_DIST_ROOT)
+	mkdir -p $(SRC_DIST_WINDOWS_TARBALLS_ROOT)
+	mkdir -p $(SRC_DIST_WINDOWS_TARBALLS_DIR)
+	mkdir -p $(SRC_DIST_WINDOWS_TARBALLS_DIR)/ghc-tarballs
 	cd $(SRC_DIST_WINDOWS_TARBALLS_DIR)/ghc-tarballs && lndir $(TOP)/ghc-tarballs
 	$(call removeTrees,$(SRC_DIST_WINDOWS_TARBALLS_DIR)/ghc-tarballs/.git)
 
@@ -1169,12 +1203,12 @@ sdist-windows-tarballs-prep :
 sdist-testsuite-prep :
 	$(call removeTrees,$(SRC_DIST_TESTSUITE_ROOT))
 	$(call removeFiles,$(SRC_DIST_TESTSUITE_TARBALL))
-	-mkdir $(SRC_DIST_ROOT)
-	mkdir $(SRC_DIST_TESTSUITE_ROOT)
-	mkdir $(SRC_DIST_TESTSUITE_DIR)
-	mkdir $(SRC_DIST_TESTSUITE_DIR)/testsuite
+	mkdir -p $(SRC_DIST_ROOT)
+	mkdir -p $(SRC_DIST_TESTSUITE_ROOT)
+	mkdir -p $(SRC_DIST_TESTSUITE_DIR)
+	mkdir -p $(SRC_DIST_TESTSUITE_DIR)/testsuite
 	cd $(SRC_DIST_TESTSUITE_DIR)/testsuite && lndir $(TOP)/testsuite
-	$(call removeTrees,$(SRC_DIST_TESTSUITE_DIR)/testsuite/.git)
+	cd $(SRC_DIST_TESTSUITE_DIR)/testsuite && $(MAKE) distclean
 
 .PHONY: sdist-ghc
 sdist-ghc: sdist-ghc-prep
@@ -1218,8 +1252,13 @@ sdist_%:
 
 .PHONY: clean
 
-CLEAN_FILES += libraries/bootstrapping.conf
 CLEAN_FILES += libraries/integer-gmp/cbits/GmpDerivedConstants.h
+CLEAN_FILES += libraries/integer-gmp/include/HsIntegerGmp.h
+CLEAN_FILES += libraries/integer-gmp2/include/HsIntegerGmp.h
+CLEAN_FILES += libraries/base/include/EventConfig.h
+CLEAN_FILES += mk/config.mk.old
+CLEAN_FILES += mk/project.mk.old
+CLEAN_FILES += compiler/ghc.cabal.old
 
 # These are no longer generated, but we still clean them for a while
 # as they may still be in old GHC trees:
@@ -1227,8 +1266,8 @@ CLEAN_FILES += includes/GHCConstants.h
 CLEAN_FILES += includes/DerivedConstants.h
 CLEAN_FILES += includes/ghcautoconf.h
 CLEAN_FILES += includes/ghcplatform.h
+CLEAN_FILES += includes/ghcversion.h
 CLEAN_FILES += utils/ghc-pkg/Version.hs
-CLEAN_FILES += compiler/parser/Parser.y
 CLEAN_FILES += compiler/prelude/primops.txt
 CLEAN_FILES += $(wildcard compiler/primop*incl)
 
@@ -1237,6 +1276,11 @@ clean : clean_files clean_libraries
 .PHONY: clean_files
 clean_files :
 	$(call removeFiles,$(CLEAN_FILES))
+# this is here since CLEAN_FILES can't handle folders
+	$(call removeTrees,includes/dist-derivedconstants)
+	$(call removeTrees,inplace/bin)
+	$(call removeTrees,inplace/lib)
+	$(call removeTrees,libraries/bootstrapping.conf)
 
 .PHONY: clean_libraries
 clean_libraries: $(patsubst %,clean_libraries/%_dist-install,$(PACKAGES_STAGE1) $(PACKAGES_STAGE2))
@@ -1285,6 +1329,7 @@ distclean : clean
 	$(call removeFiles,docs/index.html)
 	$(call removeFiles,libraries/prologue.txt)
 	$(call removeFiles,distrib/configure.ac)
+	$(call removeFiles,ch01.html ch02.html index.html)
 
 # ./configure also makes these.
 	$(call removeFiles,mk/config.h)
@@ -1308,7 +1353,6 @@ distclean : clean
 	$(call removeFiles,libraries/process/include/HsProcessConfig.h)
 	$(call removeFiles,libraries/unix/include/HsUnixConfig.h)
 	$(call removeFiles,libraries/time/include/HsTimeConfig.h)
-	$(call removeFiles,libraries/old-time/include/HsTimeConfig.h)
 
 # The library configure scripts also like creating autom4te.cache
 # directories, so clean them all up.
@@ -1337,7 +1381,6 @@ maintainer-clean : distclean
 	$(call removeFiles,libraries/process/include/HsProcessConfig.h.in)
 	$(call removeFiles,libraries/unix/include/HsUnixConfig.h.in)
 	$(call removeFiles,libraries/time/include/HsTimeConfig.h.in)
-	$(call removeFiles,libraries/old-time/include/HsTimeConfig.h.in)
 
 .PHONY: all_libraries
 

@@ -19,15 +19,7 @@
 #
 # $(eval $(call build-prog,utils/genapply,dist-install,1))
 
-str-equal  = $(if $(findstring $1,$2),YES)
-cond-neg   = $(if $(call str-equal,$1,YES),,YES)
-
-build-cond = $(if $(call str-equal,$(Stage1Only),YES),$(if $(call str-equal,$1,0),YES,NO),YES)
-
 define build-prog
-
-ifeq "$$(call build-cond,$3)" "YES"
-
 $(call trace, build-prog($1,$2,$3))
 $(call profStart, build-prog($1,$2,$3))
 # $1 = dir
@@ -56,9 +48,6 @@ ifneq "$$($1_$2_NOT_NEEDED)" "YES"
 $$(eval $$(call build-prog-helper,$1,$2,$3))
 endif
 $(call profEnd, build-prog($1,$2,$3))
-
-endif
-
 endef
 
 
@@ -251,7 +240,7 @@ $1/$2/build/tmp/$$($1_$2_PROG)-wrapper.c: driver/utils/dynwrapper.c | $$$$(dir $
 	echo '#include <Windows.h>' >> $$@
 	echo '#include "Rts.h"' >> $$@
 	echo 'LPTSTR path_dirs[] = {' >> $$@
-	$$(foreach p,$$($1_$2_TRANSITIVE_DEPS),$$(call make-command,echo '    TEXT("/../lib/$$p")$$(comma)' >> $$@))
+	$$(foreach p,$$($1_$2_TRANSITIVE_DEP_KEYS),$$(call make-command,echo '    TEXT("/../lib/$$p")$$(comma)' >> $$@))
 	echo '    TEXT("/../lib/"),' >> $$@
 	echo '    NULL};' >> $$@
 	echo 'LPTSTR progDll = TEXT("../lib/$$($1_$2_PROG).dll");' >> $$@
@@ -297,7 +286,7 @@ endif
 ifeq "$(findstring clean,$(MAKECMDGOALS))" ""
 ifeq "$$($1_$2_INSTALL_INPLACE)" "YES"
 $$($1_$2_INPLACE) : $1/$2/build/tmp/$$($1_$2_PROG_INPLACE) | $$$$(dir $$$$@)/.
-	"$$(CP)" -p $$< $$@
+	$$(INSTALL) -m 755 $$< $$@
 endif
 endif
 

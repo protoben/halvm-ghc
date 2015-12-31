@@ -1,4 +1,6 @@
-{-# OPTIONS -cpp #-}
+{-# LANGUAGE CPP, MagicHash, UnboxedTuples #-}
+{-# LANGUAGE FlexibleInstances #-}
+
 {-# OPTIONS_GHC -O -funbox-strict-fields #-}
 -- We always optimise this, otherwise performance of a non-optimised
 -- compiler is severely affected
@@ -46,12 +48,9 @@ module Binary
    lazyGet,
    lazyPut,
 
-#ifdef __GLASGOW_HASKELL__
-   -- GHC only:
    ByteArray(..),
    getByteArray,
    putByteArray,
-#endif
 
    UserData(..), getUserData, setUserData,
    newReadState, newWriteState,
@@ -70,6 +69,7 @@ import UniqFM
 import FastMutInt
 import Fingerprint
 import BasicTypes
+import SrcLoc
 
 import Foreign
 import Data.Array
@@ -461,7 +461,6 @@ instance Binary DiffTime where
     get bh = do r <- get bh
                 return $ fromRational r
 
-#if defined(__GLASGOW_HASKELL__) || 1
 --to quote binary-0.3 on this code idea,
 --
 -- TODO  This instance is not architecture portable.  GMP stores numbers as
@@ -553,7 +552,6 @@ indexByteArray a# n# = W8# (indexWord8Array# a# n#)
 instance (Integral a, Binary a) => Binary (Ratio a) where
     put_ bh (a :% b) = do put_ bh a; put_ bh b
     get bh = do a <- get bh; b <- get bh; return (a :% b)
-#endif
 
 instance Binary (Bin a) where
   put_ bh (BinPtr i) = put_ bh (fromIntegral i :: Int32)
@@ -681,7 +679,7 @@ putFS bh fs = putBS bh $ fastStringToByteString fs
 
 getFS :: BinHandle -> IO FastString
 getFS bh = do bs <- getBS bh
-              mkFastStringByteString bs
+              return $! mkFastStringByteString bs
 
 putBS :: BinHandle -> ByteString -> IO ()
 putBS bh bs =
@@ -707,14 +705,13 @@ getBS bh = do
   l <- get bh
   fp <- mallocForeignPtrBytes l
   withForeignPtr fp $ \ptr -> do
-  let
-        go n | n == l = return $ BS.fromForeignPtr fp 0 l
+    let go n | n == l = return $ BS.fromForeignPtr fp 0 l
              | otherwise = do
                 b <- getByte bh
                 pokeElemOff ptr n b
                 go (n+1)
-  --
-  go 0
+    --
+    go 0
 
 instance Binary ByteString where
   put_ bh f = putBS bh f
@@ -778,18 +775,20 @@ instance Binary Activation where
                       return (ActiveAfter ab)
 
 instance Binary InlinePragma where
-    put_ bh (InlinePragma a b c d) = do
+    put_ bh (InlinePragma s a b c d) = do
+            put_ bh s
             put_ bh a
             put_ bh b
             put_ bh c
             put_ bh d
 
     get bh = do
+           s <- get bh
            a <- get bh
            b <- get bh
            c <- get bh
            d <- get bh
-           return (InlinePragma a b c d)
+           return (InlinePragma s a b c d)
 
 instance Binary RuleMatchInfo where
     put_ bh FunLike = putByte bh 0
@@ -834,18 +833,30 @@ instance Binary RecFlag where
               0 -> do return Recursive
               _ -> do return NonRecursive
 
-instance Binary OverlapFlag where
-    put_ bh (NoOverlap  b) = putByte bh 0 >> put_ bh b
-    put_ bh (OverlapOk  b) = putByte bh 1 >> put_ bh b
-    put_ bh (Incoherent b) = putByte bh 2 >> put_ bh b
+instance Binary OverlapMode where
+    put_ bh (NoOverlap    s) = putByte bh 0 >> put_ bh s
+    put_ bh (Overlaps     s) = putByte bh 1 >> put_ bh s
+    put_ bh (Incoherent   s) = putByte bh 2 >> put_ bh s
+    put_ bh (Overlapping  s) = putByte bh 3 >> put_ bh s
+    put_ bh (Overlappable s) = putByte bh 4 >> put_ bh s
     get bh = do
         h <- getByte bh
-        b <- get bh
         case h of
-            0 -> return $ NoOverlap b
-            1 -> return $ OverlapOk b
-            2 -> return $ Incoherent b
-            _ -> panic ("get OverlapFlag " ++ show h)
+            0 -> (get bh) >>= \s -> return $ NoOverlap s
+            1 -> (get bh) >>= \s -> return $ Overlaps s
+            2 -> (get bh) >>= \s -> return $ Incoherent s
+            3 -> (get bh) >>= \s -> return $ Overlapping s
+            4 -> (get bh) >>= \s -> return $ Overlappable s
+            _ -> panic ("get OverlapMode" ++ show h)
+
+
+instance Binary OverlapFlag where
+    put_ bh flag = do put_ bh (overlapMode flag)
+                      put_ bh (isSafeOverlap flag)
+    get bh = do
+        h <- get bh
+        b <- get bh
+        return OverlapFlag { overlapMode = h, isSafeOverlap = b }
 
 instance Binary FixityDirection where
     put_ bh InfixL = do
@@ -871,18 +882,57 @@ instance Binary Fixity where
           return (Fixity aa ab)
 
 instance Binary WarningTxt where
-    put_ bh (WarningTxt w) = do
+    put_ bh (WarningTxt s w) = do
             putByte bh 0
+            put_ bh s
             put_ bh w
-    put_ bh (DeprecatedTxt d) = do
+    put_ bh (DeprecatedTxt s d) = do
             putByte bh 1
+            put_ bh s
             put_ bh d
 
     get bh = do
             h <- getByte bh
             case h of
-              0 -> do w <- get bh
-                      return (WarningTxt w)
-              _ -> do d <- get bh
-                      return (DeprecatedTxt d)
+              0 -> do s <- get bh
+                      w <- get bh
+                      return (WarningTxt s w)
+              _ -> do s <- get bh
+                      d <- get bh
+                      return (DeprecatedTxt s d)
 
+instance Binary a => Binary (GenLocated SrcSpan a) where
+    put_ bh (L l x) = do
+            put_ bh l
+            put_ bh x
+
+    get bh = do
+            l <- get bh
+            x <- get bh
+            return (L l x)
+
+instance Binary SrcSpan where
+  put_ bh (RealSrcSpan ss) = do
+          putByte bh 0
+          put_ bh (srcSpanFile ss)
+          put_ bh (srcSpanStartLine ss)
+          put_ bh (srcSpanStartCol ss)
+          put_ bh (srcSpanEndLine ss)
+          put_ bh (srcSpanEndCol ss)
+
+  put_ bh (UnhelpfulSpan s) = do
+          putByte bh 1
+          put_ bh s
+
+  get bh = do
+          h <- getByte bh
+          case h of
+            0 -> do f <- get bh
+                    sl <- get bh
+                    sc <- get bh
+                    el <- get bh
+                    ec <- get bh
+                    return (mkSrcSpan (mkSrcLoc f sl sc)
+                                      (mkSrcLoc f el ec))
+            _ -> do s <- get bh
+                    return (UnhelpfulSpan s)

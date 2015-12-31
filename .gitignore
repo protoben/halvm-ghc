@@ -5,6 +5,7 @@ Thumbs.db
 .DS_Store
 
 *~
+*#
 #*#
 *.bak
 *.BAK
@@ -35,6 +36,7 @@ autom4te.cache
 config.log
 config.status
 configure
+missing-win32-tarballs
 
 # -----------------------------------------------------------------------------
 # Ignore any overlapped darcs repos and back up files
@@ -46,35 +48,6 @@ _darcs/
 # sub-repositories
 
 /ghc-tarballs/
-/libffi-tarballs/
-/libraries/array/
-/libraries/base/
-/libraries/deepseq/
-/libraries/directory/
-/libraries/dph/
-/libraries/extensible-exceptions/
-/libraries/filepath/
-/libraries/ghc-prim/
-/libraries/HaLVMCore
-/libraries/haskell2010/
-/libraries/haskell98/
-/libraries/hoopl/
-/libraries/hpc/
-/libraries/integer-gmp/
-/libraries/integer-simple/
-/libraries/mtl/
-/libraries/old-locale/
-/libraries/old-time/
-/libraries/parallel/
-/libraries/process/
-/libraries/stm/
-/libraries/template-haskell/
-/libraries/unix/
-/libraries/utf8-string/
-/libraries/XenDevice
-/nofib/
-/utils/haddock/
-/utils/hsc2hs/
 
 # -----------------------------------------------------------------------------
 # Cabal dist directories
@@ -106,6 +79,7 @@ _darcs/
 /bindisttest/
 /ch01.html
 /ch02.html
+/compiler/dist/
 /compiler/ghc.cabal
 /compiler/ghc.cabal.old
 /distrib/configure.ac
@@ -131,6 +105,7 @@ _darcs/
 /ghc/ghc-bin.cabal
 /includes/ghcautoconf.h
 /includes/ghcplatform.h
+/includes/ghcversion.h
 /index.html
 /inplace/
 /libffi/build/
@@ -175,14 +150,16 @@ _darcs/
 /utils/runghc/runghc.cabal
 
 /extra-gcc-opts
+/sdistprep
 
 .tm_properties
+VERSION
+GIT_COMMIT_ID
 
-rts/xen/include/xen
-
-.fixed-gmp
-.halvm-base
-.linked-gmp
-.linked-rts
-.linked-xen
-.sync
+# -------------------------------------------------------------------------------------
+# when using a docker image, one can mount the source code directory as the home folder
+# -------------------------------------------------------------------------------------
+.arcrc
+.ghc
+.bash_history
+.gitconfig

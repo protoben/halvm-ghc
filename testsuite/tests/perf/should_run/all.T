@@ -6,8 +6,9 @@
 test('T3586',
      [stats_num_field('peak_megabytes_allocated', (17, 1)),
                                  # expected value: 17 (amd64/Linux)
-      stats_num_field('bytes allocated', (16835544, 5)),
-                        # expected value: 16835544 (amd64/Linux)
+      stats_num_field('bytes allocated', (16102024, 5)),
+                        # prev:           16835544 (amd64/Linux)
+                        # 2014-07-17:     16102024 (amd64/Linux), general round of updates
       only_ways(['normal'])
       ],
      compile_and_run,
@@ -15,10 +16,11 @@ test('T3586',
 
 test('T4830',
      [stats_num_field('bytes allocated',
-          [(wordsize(64), 98248, 1),
+          [(wordsize(64), 98784, 1),
            #             127000 (amd64/Linux)
            # 2013-02-07:  99264 (amd64/Linux)
            # 2014-01-13:  98248 (amd64/Linux) due to #8647
+           # 2015-07-09:  98784 (amd64/Linux)
            (wordsize(32), 70646, 3)]),
            # 2013-02-10:  69744 (x86/Windows)
            # 2013-02-10:  71548 (x86/OSX)
@@ -57,9 +59,17 @@ test('lazy-bs-alloc',
 
 test('T876',
      [stats_num_field('bytes allocated',
-          [(wordsize(64), 1263712 , 5),
+          [(wordsize(64), 63216 , 5),
               # 2013-02-14: 1263712 (x86_64/Linux)
-           (wordsize(32), 663712, 5)]),
+              # 2014-02-10:   63216 (x86_64/Linux), call arity analysis
+
+           (wordsize(32), 53240, 5) ]),
+              # 2015-10-26:  53240  (x86_64/Linux)
+              # some date:  663712  (Windows, 64-bit machine)
+              # 2014-04-04:  56820  (Windows, 64-bit machine)
+              # 2014-06-29:  53024  (x86_64/Linux)
+              # 2014-12-01:  56796  (Windows)
+
       only_ways(['normal']),
       extra_run_opts('10000')
       ],
@@ -86,9 +96,11 @@ test('T3738',
                                  # expected value: 1 (amd64/Linux)
       stats_num_field('bytes allocated',
                       [(wordsize(32), 45648, 5),
-                    # expected value: 45648 (x86/Linux)
-                       (wordsize(64), 49400, 5)]),
-                    # expected value: 49400 (amd64/Linux)
+                    # expected value: 50520 (x86/Linux)
+                       (wordsize(64), 50592, 5)]),
+                    # prev:           49400 (amd64/Linux)
+                    # 2014-07-17:     50520 (amd64/Linux) general round of updates
+                    # 2014-09-10:     50592 (amd64/Linux) post-AMP-update
       only_ways(['normal'])
       ],
      compile_and_run,
@@ -150,8 +162,9 @@ test('T5205',
      [stats_num_field('bytes allocated',
                       [(wordsize(32), 47088, 5),
                     # expected value: 47088 (x86/Darwin)
-                       (wordsize(64), 51320, 5)]),
+                       (wordsize(64), 52600, 5)]),
                     # expected value: 51320 (amd64/Linux)
+                    # 2014-07-17:     52600 (amd64/Linux) general round of updates
       only_ways(['normal', 'optasm'])
       ],
      compile_and_run,
@@ -159,10 +172,13 @@ test('T5205',
 
 test('T5549',
      [stats_num_field('bytes allocated',
-                      [(wordsize(32), 3362958676, 5),
+                      [(wordsize(32), 4096606332, 5),
                     # expected value: 3362958676 (Windows)
-                       (wordsize(64), 6725846120, 5)]),
+                    # 2014-12-01:     4096606332 (Windows) integer-gmp2
+
+                       (wordsize(64), 8193140752, 5)]),
                     # expected value: 6725846120 (amd64/Linux)
+                    #                 8193140752 (amd64/Linux) integer-gmp2
       only_ways(['normal'])
       ],
      compile_and_run,
@@ -244,13 +260,16 @@ test('T7257',
 
 test('Conversions',
      [stats_num_field('bytes allocated',
-                      [(wordsize(32), 76768, 3),
+                      [(wordsize(32), 79568, 3),
                         # 2012-12-18: 55316 Guessed 64-bit value / 2
                         # 2013-02-10: 77472 (x86/OSX)
                         # 2013-02-10: 79276 (x86/Windows)
                         # 2014-01-13: 76768 (x86/Linux) due to #8647
-                       (wordsize(64), 110632, 5)]),
+                        # 2015-10-26: 79568 (x86_64/Linux)
+
+                       (wordsize(64), 107544, 5)]),
                         # 2012-12-18: 109608 (amd64/OS X)
+                        # 2014-07-17: 107544 (amd64/Linux)
 
       only_ways(['normal'])
      ],
@@ -261,12 +280,13 @@ test('T7507', omit_ways(['ghci']), compile_and_run, ['-O'])
 
 test('T7436',
      [stats_num_field('max_bytes_used',
-          [(wordsize(64), 60360, 1),
+          [(wordsize(64), 60296, 1),
            #             127000 (amd64/Linux)
            # 2013-02-07:  60360 (amd64/Linux)
+           # 2015-07-09:  60296 (amd64/Linux)
            (wordsize(32), 58434, 1)]),
-            # 2013-02-10: 58032 (x86/Windows)
-            # 2013-02-10: 58836 (x86/OSX)
+           # 2013-02-10: 58032 (x86/Windows)
+           # 2013-02-10: 58836 (x86/OSX)
       only_ways(['normal'])
       ],
      compile_and_run,
@@ -288,8 +308,11 @@ test('T7797',
 
 test('T7954',
       [stats_num_field('bytes allocated',
-                      [(wordsize(32), 1380051408, 10),
-                       (wordsize(64), 2720051528, 10)]),
+                      [(wordsize(32), 920045264, 10),
+              # some date:  1380051408    (64-bit Windows machine)
+              # 2014-04-04:  920045264    (64-bit Windows machine)
+                       (wordsize(64), 1680051336, 10)]),
+              # 2014-02-10: 1680051336 (x86_64/Linux), call arity analysis
       only_ways(['normal'])
       ],
      compile_and_run,
@@ -305,7 +328,8 @@ test('T7850',
 
 test('T5949',
      [stats_num_field('bytes allocated',
-                      [ (wordsize(64), 201008, 10)]),
+                      [ (wordsize(32), 116020, 10),
+                        (wordsize(64), 201008, 10)]),
                       # previously, it was >400000 bytes
       only_ways(['normal'])],
      compile_and_run,
@@ -313,17 +337,70 @@ test('T5949',
 
 test('T4267',
      [stats_num_field('bytes allocated',
-                      [ (wordsize(64), 130000, 10)]),
+                      [ (wordsize(32), 36012, 10)
+                      # 32-bit value close to 64 bit; c.f. T7619
+                      , (wordsize(64), 40992, 10) ]),
                       # previously, it was >170000 bytes
+                      # 2014-01-17: 130000
+                      # 2014-02-10: 40992 (x86_64/Linux), call arity analysis
       only_ways(['normal'])],
      compile_and_run,
      ['-O'])
 
 test('T7619',
      [stats_num_field('bytes allocated',
-                      [ (wordsize(64), 40992, 10)]),
+                      [ (wordsize(32), 36012, 10)
+                      # 32-bit close to 64-bit value; most of this very 
+                      # small number is standard start-up boilerplate I think
+                      , (wordsize(64), 40992, 10) ]),
                       # previously, it was >400000 bytes
       only_ways(['normal'])],
      compile_and_run,
      ['-O'])
 
+test('InlineArrayAlloc',
+     [stats_num_field('bytes allocated',
+                      [ (wordsize(32), 800040960, 5)
+                      , (wordsize(64), 1600040960, 5) ]),
+      only_ways(['normal'])],
+     compile_and_run,
+     ['-O2'])
+
+test('InlineByteArrayAlloc',
+     [stats_num_field('bytes allocated',
+                      [ (wordsize(32), 1360036012, 5)
+                      , (wordsize(64), 1440040960, 5) ]),
+         # 32 and 64 bit not so different, because 
+         # we are allocating *byte* arrays
+      only_ways(['normal'])],
+     compile_and_run,
+     ['-O2'])
+
+test('InlineCloneArrayAlloc',
+     [stats_num_field('bytes allocated',
+                      [ (wordsize(32), 800041120, 5) 
+                      , (wordsize(64), 1600041120, 5) ]),
+      only_ways(['normal'])],
+     compile_and_run,
+     ['-O2'])
+
+test('T9203',
+     [stats_num_field('bytes allocated',
+                      [ (wordsize(32), 85561300, 5)
+                      # 2015-10-26     85561300
+                      , (wordsize(64), 94547280, 5) ]),
+                      # was            95747304
+                      # 2019-09-10     94547280 post-AMP cleanup
+      only_ways(['normal'])],
+     compile_and_run,
+     ['-O2'])
+
+test('T9339',
+     [stats_num_field('bytes allocated',
+                      [ (wordsize(32),    40046844, 5)
+                      , (wordsize(64),    80050760, 5) ]),
+                      # w/o fusing last: 320005080
+                      # 2014-07-22:       80050760
+      only_ways(['normal'])],
+     compile_and_run,
+     ['-O2'])

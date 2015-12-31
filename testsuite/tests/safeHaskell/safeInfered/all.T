@@ -21,6 +21,11 @@ test('SafeInfered04',
      [ extra_clean(['SafeInfered04_A.hi', 'SafeInfered04_A.o']) ],
      multimod_compile, ['SafeInfered04', ''])
 
+# Test should fail, tests an earlier bug in 7.8
+# test('SafeInfered05',
+#      [ extra_clean(['SafeInfered05_A.hi', 'SafeInfered05_A.o']) ],
+#      multimod_compile_fail, ['SafeInfered05', ''])
+
 # Tests that should fail to compile as they should be infered unsafe
 test('UnsafeInfered01',
      [ extra_clean(['UnsafeInfered01_A.hi', 'UnsafeInfered01_A.o']) ],
@@ -37,9 +42,6 @@ test('UnsafeInfered05',
 test('UnsafeInfered06',
      [ extra_clean(['UnsafeInfered06_A.hi', 'UnsafeInfered06_A.o']) ],
      multimod_compile_fail, ['UnsafeInfered06', ''])
-test('UnsafeInfered07',
-     [ extra_clean(['UnsafeInfered07_A.hi', 'UnsafeInfered07_A.o']) ],
-     multimod_compile_fail, ['UnsafeInfered07', ''])
 test('UnsafeInfered08',
      [ extra_clean(['UnsafeInfered08_A.hi', 'UnsafeInfered08_A.o']) ],
      multimod_compile_fail, ['UnsafeInfered08', ''])
@@ -56,11 +58,36 @@ test('UnsafeInfered11',
      [ extra_clean(['UnsafeInfered11_A.hi', 'UnsafeInfered11_A.o']) ],
      multimod_compile_fail, ['UnsafeInfered11', ''])
 
-# test should fail as unsafe and we made warn unsafe + -Werror
+# Test should fail as unsafe and we made warn unsafe + -Werror
 test('UnsafeInfered12', normal, compile_fail, [''])
+test('UnsafeInfered13', normal, compile_fail, [''])
+test('UnsafeInfered14', normal, compile_fail, [''])
+test('UnsafeInfered15', normal, compile_fail, [''])
+test('UnsafeInfered16', normal, compile_fail, [''])
+test('UnsafeInfered17', normal, compile_fail, [''])
+test('UnsafeInfered18', normal, compile, [''])
+test('UnsafeInfered19', normal, compile_fail, [''])
 
 # Mixed tests
 test('Mixed01', normal, compile_fail, [''])
 test('Mixed02', normal, compile_fail, [''])
 test('Mixed03', normal, compile_fail, [''])
+
+# Trustworthy Safe modules
+test('TrustworthySafe01', normal, compile, [''])
+test('TrustworthySafe02', normal, compile, [''])
+test('TrustworthySafe03', normal, compile, [''])
+test('TrustworthySafe04', normal, compile, [''])
+
+# Check -fwarn-unsafe works
+test('UnsafeWarn01', normal, compile, [''])
+test('UnsafeWarn02', normal, compile, [''])
+test('UnsafeWarn03', normal, compile, [''])
+test('UnsafeWarn04', normal, compile, [''])
+test('UnsafeWarn05', normal, compile, [''])
+test('UnsafeWarn06', normal, compile, [''])
+test('UnsafeWarn07', normal, compile, [''])
+
+# Chck -fwa-safe works
+test('SafeWarn01', normal, compile, [''])
 

@@ -59,7 +59,6 @@ vectTyConDecl tycon name'
            -- NB: 'buildClass' attaches new quantifiers and dictionaries to the method types
        ; cls' <- liftDs $
                    buildClass
-                     False                      -- include unfoldings on dictionary selectors
                      name'                      -- new name: "V:Class"
                      (tyConTyVars tycon)        -- keep original type vars
                      (map (const Nominal) (tyConRoles tycon)) -- all role are N for safety
@@ -178,7 +177,7 @@ vectDataCon dc
        ; liftDs $ buildDataCon fam_envs
                     name'
                     (dataConIsInfix dc)            -- infix if the original is
-                    (dataConStrictMarks dc)        -- strictness as original constructor
+                    (dataConSrcBangs dc)           -- strictness as original constructor
                     []                             -- no labelled fields for now
                     univ_tvs                       -- universally quantified vars
                     []                             -- no existential tvs for now

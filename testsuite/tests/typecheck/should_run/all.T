@@ -12,13 +12,15 @@ test('tcrun003', normal, compile_and_run, [''])
 test('tcrun004', normal, compile_and_run, [''])
 test('tcrun005', normal, compile_and_run, [''])
 test('Defer01', normal, compile_and_run, [''])
+test('TcNullaryTC', when(compiler_lt('ghc', '7.7'), skip), compile_and_run, [''])
+test('TcCoercible', when(compiler_lt('ghc', '7.7'), skip), compile_and_run, [''])
 
 # -----------------------------------------------------------------------------
 # Skip everything else if fast is on
 
 def f(name, opts):
-  if config.fast:
-	opts.skip = 1
+    if config.fast:
+        opts.skip = 1
 setTestOpts(f)
 
 test('tcrun006', normal, compile_and_run, [''])
@@ -35,9 +37,7 @@ test('tcrun017', normal, compile_and_run, [''])
 test('tcrun018', normal, compile_and_run, [''])
 test('tcrun019', normal, compile_and_run, [''])
 test('tcrun020', normal, compile_and_run, [''])
-# Doesn't work with External Core due to datatype with no constructors
-test('tcrun021', expect_fail_for(['extcore','optextcore']),
-     compile_and_run, ['-package containers'])
+test('tcrun021', normal, compile_and_run, ['-package containers'])
 test('tcrun022', [omit_ways(['ghci']),only_compiler_types(['ghc'])],
      compile_and_run, ['-O'])
 test('tcrun023', normal, compile_and_run, ['-O'])
@@ -46,8 +46,7 @@ test('tcrun025', extra_clean(['TcRun025_B.hi', 'TcRun025_B.o']),
      multimod_compile_and_run, ['tcrun025',''])
 test('tcrun026', normal, compile_and_run, [''])
 test('tcrun027', normal, compile_and_run, [''])
-# Doesn't work with External Core due to datatype with no constructors
-test('tcrun028', expect_fail_for(['extcore','optextcore']), compile_and_run, [''])
+test('tcrun028', normal, compile_and_run, [''])
 test('tcrun029', normal, compile_and_run, [''])
 test('tcrun030', normal, compile_and_run, [''])
 test('tcrun031', only_compiler_types(['ghc']), compile_and_run, [''])
@@ -69,7 +68,7 @@ test('tcrun041', omit_ways(['ghci']), compile_and_run, [''])
 test('tcrun042', normal, compile_and_run, [''])
 test('tcrun043', normal, compile_and_run, [''])
 test('tcrun044', normal, compile_and_run, [''])
-test('tcrun045', normal, compile_and_run, [''])
+test('tcrun045', normal, compile_fail, [''])
 test('tcrun046', normal, compile_and_run, [''])
 test('tcrun047', [omit_ways(['ghci']), only_compiler_types(['ghc'])],
      compile_and_run, [''])
@@ -86,6 +85,7 @@ test('church', normal, compile_and_run, [''])
 test('testeq2', normal, compile_and_run, [''])
 test('T1624', normal, compile_and_run, [''])
 test('IPRun', normal, compile_and_run, [''])
+test('IPLocation', normal, compile_and_run, [''])
 
 # Support files for T1735 are in directory T1735_Help/
 test('T1735', normal, multimod_compile_and_run, ['T1735',''])
@@ -108,10 +108,13 @@ test('T6117', normal, compile_and_run, [''])
 test('T5751', normal, compile_and_run, [''])
 test('T5913', normal, compile_and_run, [''])
 test('T7748', normal, compile_and_run, [''])
-test('TcNullaryTC', when(compiler_lt('ghc', '7.7'), skip), compile_and_run, [''])
-test('T7861', exit_code(1), compile_and_run, [''])
+test('T7861', [omit_ways('debug'), exit_code(1)], compile_and_run, [''])
 test('TcTypeNatSimpleRun', normal, compile_and_run, [''])
-test('TcCoercible', when(compiler_lt('ghc', '7.7'), skip), compile_and_run, [''])
 test('T8119', normal, ghci_script, ['T8119.script'])
 test('T8492', normal, compile_and_run, [''])
 test('T8739', normal, compile_and_run, [''])
+test('T9497a-run', [exit_code(1)], compile_and_run, ['-fdefer-typed-holes'])
+test('T9497b-run', [exit_code(1)], compile_and_run, ['-fdefer-typed-holes -fno-warn-typed-holes'])
+test('T9497c-run', [exit_code(1)], compile_and_run, ['-fdefer-type-errors -fno-warn-typed-holes'])
+test('T9858c', normal, compile_and_run, [''])
+test('T9858d', normal, compile_and_run, [''])

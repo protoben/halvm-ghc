@@ -98,7 +98,8 @@ shutdownThread()
 }
 
 int
-createOSThread (OSThreadId* pId, OSThreadProc *startProc, void *param)
+createOSThread (OSThreadId* pId, char *name STG_UNUSED,
+                OSThreadProc *startProc, void *param)
 {
     HANDLE h;
     h = CreateThread ( NULL,  /* default security attributes */
@@ -291,7 +292,8 @@ interruptOSThread (OSThreadId id)
         sysErrorBelch("interruptOSThread: OpenThread");
         stg_exit(EXIT_FAILURE);
     }
-    pCSIO = (PCSIO) GetProcAddress(GetModuleHandle(TEXT("Kernel32.dll")), "CancelSynchronousIo");
+    pCSIO = (PCSIO) GetProcAddress(GetModuleHandle(TEXT("Kernel32.dll")),
+                                   "CancelSynchronousIo");
     if ( NULL != pCSIO ) {
         pCSIO(hdl);
     } else {

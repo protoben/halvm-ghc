@@ -23,7 +23,7 @@ test('conc073', normal, compile_and_run, [''])
 
 # vector code must get inlined to become non-allocating
 test('T367', [reqlib('vector'), omit_ways(['ghci']), timeout_multiplier(0.001)], compile_and_run, ['-O2 -fno-omit-yields'])
-test('T367_letnoescape', [timeout_multiplier(0.02)], compile_and_run, ['-fno-omit-yields'])
+test('T367_letnoescape', [timeout_multiplier(0.02), expect_broken_for(7297,['optllvm'])], compile_and_run, ['-fno-omit-yields'])
 
 test('T1980', normal, compile_and_run, [''])
 test('T2910', normal, compile_and_run, [''])
@@ -81,15 +81,34 @@ test('tryReadMVar1', normal, compile_and_run, [''])
 test('tryReadMVar2', normal, compile_and_run, [''])
 
 test('T7970', normal, compile_and_run, [''])
+test('AtomicPrimops', normal, compile_and_run, [''])
+
+# test uses 2 threads and yield, scheduling can vary with threaded2
+test('threadstatus-9333', [omit_ways(['threaded2'])], compile_and_run, [''])
 
 test('T9379', normal, compile_and_run, [''])
+
+test('allocLimit1', exit_code(1), compile_and_run, [''])
+test('allocLimit2', normal, compile_and_run, [''])
+
+# The non-threaded RTS on Windows doesn't handle throwing exceptions at I/O
+# operations very well, and ends up duplicating the I/O, giving wrong results.
+test('allocLimit3', [ when(opsys('mingw32'), only_ways(threaded_ways)),
+                      exit_code(1) ], compile_and_run, [''])
+
+test('allocLimit4', [ extra_run_opts('+RTS -xq300k -RTS') ],
+                    compile_and_run, [''])
+
+test('performGC', [ only_ways(['threaded1','threaded2'])
+                  , extra_run_opts('400 +RTS -qg -RTS') ],
+                    compile_and_run, [''])
 
 # -----------------------------------------------------------------------------
 # These tests we only do for a full run
 
 def f( name, opts ):
   if config.fast:
-  	opts.skip = 1
+     opts.skip = 1
 
 setTestOpts(f)
 
@@ -248,3 +267,4 @@ test('setnumcapabilities001',
 
 # omit ghci, which can't handle unboxed tuples:
 test('compareAndSwap', [omit_ways(['ghci','hpc']), reqlib('primitive')], compile_and_run, [''])
+

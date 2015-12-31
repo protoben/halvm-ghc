@@ -31,7 +31,8 @@ data Platform
               platformUnregisterised           :: Bool,
               platformHasGnuNonexecStack       :: Bool,
               platformHasIdentDirective        :: Bool,
-              platformHasSubsectionsViaSymbols :: Bool
+              platformHasSubsectionsViaSymbols :: Bool,
+              platformIsCrossCompiling         :: Bool
           }
         deriving (Read, Show, Eq)
 
@@ -52,6 +53,7 @@ data Arch
           , armISAExt :: [ArmISAExt]
           , armABI    :: ArmABI
           }
+        | ArchARM64
         | ArchAlpha
         | ArchMipseb
         | ArchMipsel
@@ -60,6 +62,7 @@ data Arch
 
 isARM :: Arch -> Bool
 isARM (ArchARM {}) = True
+isARM ArchARM64    = True
 isARM _ = False
 
 -- | Operating systems that the native code generator knows about.

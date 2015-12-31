@@ -1,5 +1,6 @@
-#!/usr/bin/perl -w
+#!/usr/bin/env perl
 
+use warnings;
 use strict;
 
 use Cwd;
@@ -71,7 +72,7 @@ sub sanity_check_tree {
                 # has a LICENSE file instead.
                 if (! -f "$dir/LICENSE") {
                     print STDERR "Error: $dir/LICENSE doesn't exist.\n";
-                    die "Maybe you haven't done './sync-all get'?";
+                    die "Maybe you haven't done 'git submodule update --init'?";
                 }
             }
         }

@@ -39,20 +39,19 @@ test('SafeLang11',
      multimod_compile_and_run,
      ['SafeLang11', config.ghc_th_way_flags])
 test('SafeLang12', normal, multimod_compile_fail, ['SafeLang12', ''])
-test('SafeLang13',
-     extra_clean(['SafeLang13_A.o', 'SafeLang13_A.hi']),
-     multimod_compile_and_run,
-     ['SafeLang13', ''])
-test('SafeLang14',
-     extra_clean(['SafeLang14_A.o', 'SafeLang14_A.hi']),
-     multimod_compile_fail,
-     ['SafeLang14', '-XSafe'])
 test('SafeLang15',
      [exit_code(1),
       extra_clean(['SafeLang15_A.o', 'SafeLang15_A.hi'])],
      multimod_compile_and_run,
      ['SafeLang15', '-XSafe'])
 test('SafeLang16', normal, compile, [''])
+test('SafeLang17',
+     extra_clean(['SafeLang17_A.o', 'SafeLang17_A.hi',
+                  'SafeLang17_B.o', 'SafeLang17_B.hi']),
+     multimod_compile_fail,
+     ['SafeLang17', ''])
+
+test('SafeLang18', normal, compile, [''])
 
 # Test building a package, that trust values are set correctly
 # and can be changed correctly

@@ -15,7 +15,10 @@ ifneq "$(GccIsClang)" "YES"
 # Debian doesn't turn -Werror=unused-but-set-variable on by default, so
 # we turn it on explicitly for consistency with other users
 ifeq "$(GccLT46)" "NO"
+# Never set the flag on Windows as the host gcc may be too old.
+ifneq "$(HostOS_CPP)" "mingw32"
 SRC_CC_WARNING_OPTS += -Werror=unused-but-set-variable
+endif
 # gcc 4.6 gives 3 warning for giveCapabilityToTask not being inlined
 SRC_CC_WARNING_OPTS += -Wno-error=inline
 endif
@@ -28,11 +31,10 @@ SRC_CC_WARNING_OPTS += -Wno-unknown-pragmas
 endif
 
 SRC_CC_OPTS     += $(WERROR) -Wall
-SRC_HC_OPTS     += $(WERROR) -Wall
-
+SRC_HC_OPTS     += -Wall
 GhcStage1HcOpts += -fwarn-tabs
-GhcStage2HcOpts += -fwarn-tabs
-GhcStage2HcOpts += -fno-warn-amp # Temporary sledgehammer until we sync upstream.
+GhcStage2HcOpts += -fwarn-tabs $(WERROR)
+GhcLibHcOpts    += $(WERROR)
 
 utils/hpc_dist-install_EXTRA_HC_OPTS += -fwarn-tabs
 
@@ -46,7 +48,6 @@ GhcStage2HcOpts += -O -dcore-lint
 # running of the tests, and faster building of the utils to be installed
 
 GhcLibHcOpts    += -O -dcore-lint
-GhcLibHcOpts    += -fno-warn-amp # Temporary sledgehammer until we sync upstream.
 
 # We define DefaultFastGhcLibWays in this style so that the value is
 # correct even if the user alters DYNAMIC_GHC_PROGRAMS.
@@ -98,6 +99,18 @@ libraries/containers_dist-install_EXTRA_HC_OPTS += -fno-warn-incomplete-patterns
 # Temporarily turn off pointless-pragma warnings for containers
 libraries/containers_dist-install_EXTRA_HC_OPTS += -fno-warn-pointless-pragmas
 
+# Turn off import warnings for bad unused imports
+libraries/containers_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-imports
+libraries/hoopl_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-imports
+libraries/bytestring_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-imports
+utils/haddock_dist_EXTRA_HC_OPTS += -fno-warn-unused-imports
+libraries/stm_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-imports
+libraries/parallel_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-imports
+libraries/vector_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-imports
+
+# haddock's attoparsec uses deprecated `inlinePerformIO`
+utils/haddock_dist_EXTRA_HC_OPTS += -fno-warn-deprecations
+
 # bytestring has identities at the moment
 libraries/bytestring_dist-install_EXTRA_HC_OPTS += -fno-warn-identities
 
@@ -119,13 +132,20 @@ libraries/haskeline_dist-install_EXTRA_HC_OPTS += -fno-warn-deprecations
 libraries/haskeline_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-imports
 
 # binary upstream has some warnings, so don't use -Werror for it
+libraries/binary_dist-boot_EXTRA_HC_OPTS += -Wwarn
 libraries/binary_dist-install_EXTRA_HC_OPTS += -Wwarn
 
 # temporarily turn off -Werror for mtl
 libraries/mtl_dist-install_EXTRA_HC_OPTS += -Wwarn
 
+# temporarily turn off unused-imports warnings for pretty
+libraries/pretty_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-imports
+
 # primitive has a warning about deprecated use of GHC.IOBase
 libraries/primitive_dist-install_EXTRA_HC_OPTS += -Wwarn
+
+# temporarily turn off unused-imports warnings for terminfo
+libraries/terminfo_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-imports
 
 # temporarily turn off -Werror for transformers
 libraries/transformers_dist-boot_EXTRA_HC_OPTS += -Wwarn
@@ -133,6 +153,9 @@ libraries/transformers_dist-install_EXTRA_HC_OPTS += -Wwarn
 
 # vector has some unused match warnings
 libraries/vector_dist-install_EXTRA_HC_OPTS += -Wwarn
+
+# temporarily turn off unused-imports warnings for xhtml
+libraries/xhtml_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-imports
 
 libraries/dph/dph-base_dist-install_EXTRA_HC_OPTS += -Wwarn
 libraries/dph/dph-prim-interface_dist-install_EXTRA_HC_OPTS += -Wwarn
@@ -143,6 +166,12 @@ libraries/dph/dph-lifted-common-install_EXTRA_HC_OPTS += -Wwarn
 # We need to turn of deprecated warnings for SafeHaskell transition
 libraries/array_dist-install_EXTRA_HC_OPTS += -fno-warn-warnings-deprecations
 
+# Turn of trustworthy-safe warning
+libraries/base_dist-install_EXTRA_HC_OPTS += -fno-warn-trustworthy-safe
+libraries/ghc-prim_dist-install_EXTRA_HC_OPTS += -fno-warn-trustworthy-safe
+libraries/unix_dist-install_EXTRA_HC_OPTS += -fno-warn-trustworthy-safe
+libraries/Win32_dist-install_EXTRA_HC_OPTS += -fno-warn-trustworthy-safe
+
 # Temporarely disable inline rule shadowing warning
 libraries/bytestring_dist-install_EXTRA_HC_OPTS += -fno-warn-inline-rule-shadowing
 libraries/template-haskell_dist-install_EXTRA_HC_OPTS += -fno-warn-inline-rule-shadowing
@@ -150,3 +179,12 @@ libraries/template-haskell_dist-install_EXTRA_HC_OPTS += -fno-warn-inline-rule-s
 # We need -fno-warn-deprecated-flags to avoid failure with -Werror
 GhcLibHcOpts += -fno-warn-deprecated-flags
 GhcBootLibHcOpts += -fno-warn-deprecated-flags
+
+# The warning suppression flag below is a temporary kludge. While working with
+# modules that contain tabs, please de-tab them so this flag can be eventually
+# removed. See
+# http://ghc.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
+# for details
+#
+GhcLibHcOpts += -fno-warn-tabs
+utils/hsc2hs_dist-install_EXTRA_HC_OPTS += -fno-warn-tabs

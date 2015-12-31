@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 -----------------------------------------------------------------------------
 --
 -- Machine-dependent assembly language
@@ -72,15 +74,13 @@ instance Instruction Instr where
 ppc_mkStackAllocInstr :: Platform -> Int -> Instr
 ppc_mkStackAllocInstr platform amount
   = case platformArch platform of
-      ArchPPC -> -- SUB II32 (OpImm (ImmInt amount)) (OpReg esp)
-                 ADD sp sp (RIImm (ImmInt (-amount)))
+      ArchPPC -> UPDATE_SP II32 (ImmInt (-amount))
       arch -> panic $ "ppc_mkStackAllocInstr " ++ show arch
 
 ppc_mkStackDeallocInstr :: Platform -> Int -> Instr
 ppc_mkStackDeallocInstr platform amount
   = case platformArch platform of
-      ArchPPC -> -- ADD II32 (OpImm (ImmInt amount)) (OpReg esp)
-                 ADD sp sp (RIImm (ImmInt amount))
+      ArchPPC -> UPDATE_SP II32 (ImmInt amount)
       arch -> panic $ "ppc_mkStackDeallocInstr " ++ show arch
 
 --
@@ -102,7 +102,7 @@ allocMoreStack platform slots (CmmProc info lbl live (ListGraph code)) = do
                         | entry `elem` infos -> infos
                         | otherwise          -> entry : infos
 
-    uniqs <- replicateM (length entries) getUniqueUs
+    uniqs <- replicateM (length entries) getUniqueM
 
     let
         delta = ((x + stackAlign - 1) `quot` stackAlign) * stackAlign -- round up
@@ -181,8 +181,10 @@ data Instr
 
     -- Loads and stores.
     | LD      Size Reg AddrMode     -- Load size, dst, src
+    | LDFAR   Size Reg AddrMode     -- Load format, dst, src 32 bit offset
     | LA      Size Reg AddrMode     -- Load arithmetic size, dst, src
     | ST      Size Reg AddrMode     -- Store size, src, dst
+    | STFAR   Size Reg AddrMode     -- Store format, src, dst 32 bit offset
     | STU     Size Reg AddrMode     -- Store with Update size, src, dst
     | LIS     Reg Imm               -- Load Immediate Shifted dst, src
     | LI      Reg Imm               -- Load Immediate dst, src
@@ -203,8 +205,11 @@ data Instr
     | ADD     Reg Reg RI            -- dst, src1, src2
     | ADDC    Reg Reg Reg           -- (carrying) dst, src1, src2
     | ADDE    Reg Reg Reg           -- (extend) dst, src1, src2
+    | ADDI    Reg Reg Imm           -- Add Immediate dst, src1, src2
     | ADDIS   Reg Reg Imm           -- Add Immediate Shifted dst, src1, src2
     | SUBF    Reg Reg Reg           -- dst, src1, src2 ; dst = src2 - src1
+    | SUBFC   Reg Reg Reg           -- (carrying) dst, src1, src2 ; dst = src2 - src1
+    | SUBFE   Reg Reg Reg           -- (extend) dst, src1, src2 ; dst = src2 - src1
     | MULLW   Reg Reg RI
     | DIVW    Reg Reg Reg
     | DIVWU   Reg Reg Reg
@@ -253,6 +258,9 @@ data Instr
 
     | LWSYNC                    -- memory barrier
 
+    | UPDATE_SP Size Imm        -- expand/shrink spill area on C stack
+                                -- pseudo-instruction
+
 
 -- | Get the registers that are being used by this instruction.
 -- regUsage doesn't need to do any trickery for jumps and such.
@@ -264,8 +272,10 @@ ppc_regUsageOfInstr :: Platform -> Instr -> RegUsage
 ppc_regUsageOfInstr platform instr
  = case instr of
     LD      _ reg addr       -> usage (regAddr addr, [reg])
+    LDFAR   _ reg addr       -> usage (regAddr addr, [reg])
     LA      _ reg addr       -> usage (regAddr addr, [reg])
     ST      _ reg addr       -> usage (reg : regAddr addr, [])
+    STFAR   _ reg addr       -> usage (reg : regAddr addr, [])
     STU     _ reg addr       -> usage (reg : regAddr addr, [])
     LIS     reg _            -> usage ([], [reg])
     LI      reg _            -> usage ([], [reg])
@@ -282,8 +292,11 @@ ppc_regUsageOfInstr platform instr
     ADD     reg1 reg2 ri     -> usage (reg2 : regRI ri, [reg1])
     ADDC    reg1 reg2 reg3   -> usage ([reg2,reg3], [reg1])
     ADDE    reg1 reg2 reg3   -> usage ([reg2,reg3], [reg1])
+    ADDI    reg1 reg2 _      -> usage ([reg2], [reg1])
     ADDIS   reg1 reg2 _      -> usage ([reg2], [reg1])
     SUBF    reg1 reg2 reg3   -> usage ([reg2,reg3], [reg1])
+    SUBFC   reg1 reg2 reg3   -> usage ([reg2,reg3], [reg1])
+    SUBFE   reg1 reg2 reg3   -> usage ([reg2,reg3], [reg1])
     MULLW   reg1 reg2 ri     -> usage (reg2 : regRI ri, [reg1])
     DIVW    reg1 reg2 reg3   -> usage ([reg2,reg3], [reg1])
     DIVWU   reg1 reg2 reg3   -> usage ([reg2,reg3], [reg1])
@@ -313,6 +326,7 @@ ppc_regUsageOfInstr platform instr
     MFCR    reg             -> usage ([], [reg])
     MFLR    reg             -> usage ([], [reg])
     FETCHPC reg             -> usage ([], [reg])
+    UPDATE_SP _ _           -> usage ([], [sp])
     _                       -> noUsage
   where
     usage (src, dst) = RU (filter (interesting platform) src)
@@ -339,8 +353,10 @@ ppc_patchRegsOfInstr :: Instr -> (Reg -> Reg) -> Instr
 ppc_patchRegsOfInstr instr env
  = case instr of
     LD      sz reg addr     -> LD sz (env reg) (fixAddr addr)
+    LDFAR   fmt reg addr    -> LDFAR fmt (env reg) (fixAddr addr)
     LA      sz reg addr     -> LA sz (env reg) (fixAddr addr)
     ST      sz reg addr     -> ST sz (env reg) (fixAddr addr)
+    STFAR   fmt reg addr    -> STFAR fmt (env reg) (fixAddr addr)
     STU     sz reg addr     -> STU sz (env reg) (fixAddr addr)
     LIS     reg imm         -> LIS (env reg) imm
     LI      reg imm         -> LI (env reg) imm
@@ -356,8 +372,11 @@ ppc_patchRegsOfInstr instr env
     ADD     reg1 reg2 ri    -> ADD (env reg1) (env reg2) (fixRI ri)
     ADDC    reg1 reg2 reg3  -> ADDC (env reg1) (env reg2) (env reg3)
     ADDE    reg1 reg2 reg3  -> ADDE (env reg1) (env reg2) (env reg3)
+    ADDI    reg1 reg2 imm   -> ADDI (env reg1) (env reg2) imm
     ADDIS   reg1 reg2 imm   -> ADDIS (env reg1) (env reg2) imm
     SUBF    reg1 reg2 reg3  -> SUBF (env reg1) (env reg2) (env reg3)
+    SUBFC   reg1 reg2 reg3  -> SUBFC (env reg1) (env reg2) (env reg3)
+    SUBFE   reg1 reg2 reg3  -> SUBFE (env reg1) (env reg2) (env reg3)
     MULLW   reg1 reg2 ri    -> MULLW (env reg1) (env reg2) (fixRI ri)
     DIVW    reg1 reg2 reg3  -> DIVW (env reg1) (env reg2) (env reg3)
     DIVWU   reg1 reg2 reg3  -> DIVWU (env reg1) (env reg2) (env reg3)
@@ -453,8 +472,10 @@ ppc_mkSpillInstr dflags reg delta slot
                 RcInteger -> II32
                 RcDouble  -> FF64
                 _      -> panic "PPC.Instr.mkSpillInstr: no match"
-    in ST sz reg (AddrRegImm sp (ImmInt (off-delta)))
-
+        instr = case makeImmediate W32 True (off-delta) of
+                   Just _  -> ST
+                   Nothing -> STFAR -- pseudo instruction: 32 bit offsets
+    in instr sz reg (AddrRegImm sp (ImmInt (off-delta)))
 
 ppc_mkLoadInstr
    :: DynFlags
@@ -471,7 +492,10 @@ ppc_mkLoadInstr dflags reg delta slot
                 RcInteger -> II32
                 RcDouble  -> FF64
                 _         -> panic "PPC.Instr.mkLoadInstr: no match"
-    in LD sz reg (AddrRegImm sp (ImmInt (off-delta)))
+        instr = case makeImmediate W32 True (off-delta) of
+                Just _  -> LD
+                Nothing -> LDFAR -- pseudo instruction: 32 bit offsets
+    in instr sz reg (AddrRegImm sp (ImmInt (off-delta)))
 
 
 -- | The maximum number of bytes required to spill a register. PPC32

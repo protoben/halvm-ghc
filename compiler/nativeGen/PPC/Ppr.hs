@@ -73,12 +73,7 @@ pprNatCmmDecl proc@(CmmProc top_info lbl _ (ListGraph blocks)) =
          -- elimination, it might be the target of a goto.
             (if platformHasSubsectionsViaSymbols platform
              then
-             -- If we are using the .subsections_via_symbols directive
-             -- (available on recent versions of Darwin),
-             -- we have to make sure that there is some kind of reference
-             -- from the entry code to a label on the _top_ of of the info table,
-             -- so that the linker will not think it is unreferenced and dead-strip
-             -- it. That's why the label is called a DeadStripPreventer (_dsp).
+             -- See Note [Subsections Via Symbols]
                       text "\t.long "
                   <+> ppr info_lbl
                   <+> char '-'
@@ -273,26 +268,26 @@ pprAddr (AddrRegImm r1 imm) = hcat [ pprImm imm, char '(', pprReg r1, char ')' ]
 
 
 pprSectionHeader :: Section -> SDoc
-pprSectionHeader seg
- = sdocWithPlatform $ \platform ->
-   let osDarwin = platformOS platform == OSDarwin
-   in   case seg of
-        Text                    -> ptext (sLit ".text\n.align 2")
-        Data                    -> ptext (sLit ".data\n.align 2")
-        ReadOnlyData
-         | osDarwin             -> ptext (sLit ".const\n.align 2")
-         | otherwise            -> ptext (sLit ".section .rodata\n\t.align 2")
-        RelocatableReadOnlyData
-         | osDarwin             -> ptext (sLit ".const_data\n.align 2")
-         | otherwise            -> ptext (sLit ".data\n\t.align 2")
-        UninitialisedData
-         | osDarwin             -> ptext (sLit ".const_data\n.align 2")
-         | otherwise            -> ptext (sLit ".section .bss\n\t.align 2")
-        ReadOnlyData16
-         | osDarwin             -> ptext (sLit ".const\n.align 4")
-         | otherwise            -> ptext (sLit ".section .rodata\n\t.align 4")
-        OtherSection _          ->
-            panic "PprMach.pprSectionHeader: unknown section"
+pprSectionHeader seg =
+ sdocWithPlatform $ \platform ->
+ let osDarwin = platformOS platform == OSDarwin in
+ case seg of
+  Text              -> text ".text\n\t.align 2"
+  Data              -> text ".data\n\t.align 2"
+  ReadOnlyData
+   | osDarwin       -> text ".const\n\t.align 2"
+   | otherwise      -> text ".section .rodata\n\t.align 2"
+  RelocatableReadOnlyData
+   | osDarwin       -> text ".const_data\n\t.align 2"
+   | otherwise      -> text ".data\n\t.align 2"
+  UninitialisedData
+   | osDarwin       -> text ".const_data\n\t.align 2"
+   | otherwise      -> text ".section .bss\n\t.align 2"
+  ReadOnlyData16
+   | osDarwin       -> text ".const\n\t.align 4"
+   | otherwise      -> text ".section .rodata\n\t.align 4"
+  OtherSection _ ->
+      panic "PprMach.pprSectionHeader: unknown section"
 
 
 pprDataItem :: CmmLit -> SDoc
@@ -381,6 +376,16 @@ pprInstr (LD sz reg addr) = hcat [
         ptext (sLit ", "),
         pprAddr addr
     ]
+
+pprInstr (LDFAR fmt reg (AddrRegImm source off)) =
+   sdocWithPlatform $ \platform -> vcat [
+         pprInstr (ADDIS (tmpReg platform) source (HA off)),
+         pprInstr (LD fmt reg (AddrRegImm (tmpReg platform) (LO off)))
+    ]
+
+pprInstr (LDFAR _ _ _) =
+   panic "PPC.Ppr.pprInstr LDFAR: no match"
+
 pprInstr (LA sz reg addr) = hcat [
         char '\t',
         ptext (sLit "l"),
@@ -410,6 +415,13 @@ pprInstr (ST sz reg addr) = hcat [
         ptext (sLit ", "),
         pprAddr addr
     ]
+pprInstr (STFAR fmt reg (AddrRegImm source off)) =
+   sdocWithPlatform $ \platform -> vcat [
+         pprInstr (ADDIS (tmpReg platform) source (HA off)),
+         pprInstr (ST fmt reg (AddrRegImm (tmpReg platform) (LO off)))
+    ]
+pprInstr (STFAR _ _ _) =
+   panic "PPC.Ppr.pprInstr STFAR: no match"
 pprInstr (STU sz reg addr) = hcat [
         char '\t',
         ptext (sLit "st"),
@@ -530,6 +542,16 @@ pprInstr (BCTRL _) = hcat [
         ptext (sLit "bctrl")
     ]
 pprInstr (ADD reg1 reg2 ri) = pprLogic (sLit "add") reg1 reg2 ri
+pprInstr (ADDI reg1 reg2 imm) = hcat [
+        char '\t',
+        ptext (sLit "addi"),
+        char '\t',
+        pprReg reg1,
+        ptext (sLit ", "),
+        pprReg reg2,
+        ptext (sLit ", "),
+        pprImm imm
+    ]
 pprInstr (ADDIS reg1 reg2 imm) = hcat [
         char '\t',
         ptext (sLit "addis"),
@@ -544,6 +566,8 @@ pprInstr (ADDIS reg1 reg2 imm) = hcat [
 pprInstr (ADDC reg1 reg2 reg3) = pprLogic (sLit "addc") reg1 reg2 (RIReg reg3)
 pprInstr (ADDE reg1 reg2 reg3) = pprLogic (sLit "adde") reg1 reg2 (RIReg reg3)
 pprInstr (SUBF reg1 reg2 reg3) = pprLogic (sLit "subf") reg1 reg2 (RIReg reg3)
+pprInstr (SUBFC reg1 reg2 reg3) = pprLogic (sLit "subfc") reg1 reg2 (RIReg reg3)
+pprInstr (SUBFE reg1 reg2 reg3) = pprLogic (sLit "subfe") reg1 reg2 (RIReg reg3)
 pprInstr (MULLW reg1 reg2 ri@(RIReg _)) = pprLogic (sLit "mullw") reg1 reg2 ri
 pprInstr (MULLW reg1 reg2 ri@(RIImm _)) = pprLogic (sLit "mull") reg1 reg2 ri
 pprInstr (DIVW reg1 reg2 reg3) = pprLogic (sLit "divw") reg1 reg2 (RIReg reg3)
@@ -600,14 +624,24 @@ pprInstr (EXTS sz reg1 reg2) = hcat [
 pprInstr (NEG reg1 reg2) = pprUnary (sLit "neg") reg1 reg2
 pprInstr (NOT reg1 reg2) = pprUnary (sLit "not") reg1 reg2
 
-pprInstr (SLW reg1 reg2 ri) = pprLogic (sLit "slw") reg1 reg2 (limitShiftRI ri)
 
-pprInstr (SRW reg1 reg2 (RIImm (ImmInt i))) | i > 31 || i < 0 =
+pprInstr (SRW reg1 reg2 (RIImm (ImmInt i))) | i < 0  || i > 31 =
     -- Handle the case where we are asked to shift a 32 bit register by
     -- less than zero or more than 31 bits. We convert this into a clear
     -- of the destination register.
     -- Fixes ticket http://ghc.haskell.org/trac/ghc/ticket/5900
     pprInstr (XOR reg1 reg2 (RIReg reg2))
+
+pprInstr (SLW reg1 reg2 (RIImm (ImmInt i))) | i < 0  || i > 31 =
+    -- As aboce for SR, but for left shifts.
+    -- Fixes ticket http://ghc.haskell.org/trac/ghc/ticket/10870
+    pprInstr (XOR reg1 reg2 (RIReg reg2))
+
+pprInstr (SRAW reg1 reg2 (RIImm (ImmInt i))) | i > 31 =
+    pprInstr (SRAW reg1 reg2 (RIImm (ImmInt 31)))
+
+pprInstr (SLW reg1 reg2 ri) = pprLogic (sLit "slw") reg1 reg2 (limitShiftRI ri)
+
 pprInstr (SRW reg1 reg2 ri) = pprLogic (sLit "srw") reg1 reg2 (limitShiftRI ri)
 
 pprInstr (SRAW reg1 reg2 ri) = pprLogic (sLit "sraw") reg1 reg2 (limitShiftRI ri)
@@ -673,6 +707,22 @@ pprInstr (FETCHPC reg) = vcat [
     ]
 
 pprInstr LWSYNC = ptext (sLit "\tlwsync")
+
+pprInstr (UPDATE_SP fmt amount@(ImmInt offset))
+   | fits16Bits offset = vcat [
+       pprInstr (LD fmt r0 (AddrRegImm sp (ImmInt 0))),
+       pprInstr (STU fmt r0 (AddrRegImm sp amount))
+     ]
+
+pprInstr (UPDATE_SP fmt amount)
+   = sdocWithPlatform $ \platform ->
+       let tmp = tmpReg platform in
+         vcat [
+           pprInstr (LD fmt r0 (AddrRegImm sp (ImmInt 0))),
+           pprInstr (ADDIS tmp sp (HA amount)),
+           pprInstr (ADD tmp tmp (RIImm (LO amount))),
+           pprInstr (STU fmt r0 (AddrRegReg sp tmp))
+         ]
 
 -- pprInstr _ = panic "pprInstr (ppc)"
 

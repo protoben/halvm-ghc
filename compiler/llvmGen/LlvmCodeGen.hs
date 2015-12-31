@@ -1,7 +1,8 @@
+{-# LANGUAGE CPP, TypeFamilies #-}
+
 -- -----------------------------------------------------------------------------
 -- | This is the top-level module in the LLVM code generator.
 --
-
 module LlvmCodeGen ( llvmCodeGen, llvmFixupAsm ) where
 
 #include "HsVersions.h"
@@ -80,7 +81,7 @@ llvmCodeGen' cmm_stream
         _ <- Stream.collect llvmStream
 
         -- Declare aliases for forward references
-        renderLlvm . pprLlvmData =<< generateAliases
+        renderLlvm . pprLlvmData =<< generateExternDecls
 
         -- Postamble
         cmmUsedLlvmGens
@@ -119,8 +120,9 @@ cmmDataLlvmGens statics
                         = funInsert l ty
            regGlobal _  = return ()
        mapM_ regGlobal (concat gss)
+       gss' <- mapM aliasify $ concat gss
 
-       renderLlvm $ pprLlvmData (concat gss, concat tss)
+       renderLlvm $ pprLlvmData (concat gss', concat tss)
 
 -- | Complete LLVM code generation phase for a single top-level chunk of Cmm.
 cmmLlvmGen ::RawCmmDecl -> LlvmM ()

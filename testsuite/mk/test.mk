@@ -36,6 +36,14 @@ endif
 # in nested Makefiles
 TEST_HC_OPTS = -fforce-recomp -dcore-lint -dcmm-lint -dno-debug-output -no-user-$(GhcPackageDbFlag) -rtsopts $(EXTRA_HC_OPTS)
 
+# The warning suppression flag below is a temporary kludge. While working with
+# tests that contain tabs, please de-tab them so this flag can be eventually
+# removed. See
+# http://ghc.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
+# for details
+#
+TEST_HC_OPTS += -fno-warn-tabs
+
 RUNTEST_OPTS =
 
 ifeq "$(filter $(TargetOS_CPP), cygwin32 mingw32)" ""
@@ -62,7 +70,7 @@ else
 RUNTEST_OPTS += -e ghc_with_native_codegen=0
 endif
 
-GHC_PRIM_LIBDIR := $(shell "$(GHC_PKG)" field ghc-prim library-dirs --simple-output)
+GHC_PRIM_LIBDIR := $(subst library-dirs: ,,$(shell "$(GHC_PKG)" field ghc-prim library-dirs --simple-output))
 HAVE_VANILLA := $(shell if [ -f $(subst \,/,$(GHC_PRIM_LIBDIR))/GHC/PrimopWrappers.hi ]; then echo YES; else echo NO; fi)
 HAVE_DYNAMIC := $(shell if [ -f $(subst \,/,$(GHC_PRIM_LIBDIR))/GHC/PrimopWrappers.dyn_hi ]; then echo YES; else echo NO; fi)
 HAVE_PROFILING := $(shell if [ -f $(subst \,/,$(GHC_PRIM_LIBDIR))/GHC/PrimopWrappers.p_hi ]; then echo YES; else echo NO; fi)
@@ -186,22 +194,36 @@ endif
 
 RUNTEST_OPTS +=  \
 	--rootdir=. \
-	--config=$(CONFIG) \
+	--configfile=$(CONFIG) \
 	-e 'config.confdir="$(CONFIGDIR)"' \
-	-e 'config.compiler="$(TEST_HC)"' \
-	-e 'config.ghc_pkg="$(GHC_PKG)"' \
-	-e 'config.hp2ps="$(HP2PS_ABS)"' \
-	-e 'config.hpc="$(HPC)"' \
-	-e 'config.gs="$(GS)"' \
 	-e 'config.platform="$(TARGETPLATFORM)"' \
 	-e 'config.os="$(TargetOS_CPP)"' \
 	-e 'config.arch="$(TargetARCH_CPP)"' \
 	-e 'config.wordsize="$(WORDSIZE)"' \
 	-e 'default_testopts.cleanup="$(CLEANUP)"' \
 	-e 'config.timeout=int($(TIMEOUT)) or config.timeout' \
-	-e 'config.timeout_prog="$(TIMEOUT_PROGRAM)"' \
 	-e 'config.exeext="$(exeext)"' \
 	-e 'config.top="$(TOP_ABS)"'
+
+# Wrap non-empty program paths in quotes, because they may contain spaces. Do
+# it here, so we don't have to (and don't forget to do it) in the .T test
+# scripts (search for '{compiler}' or '{hpc}'). This may or may not be a good
+# idea.
+# Use `--config` instead of `-e`, because `-e` (which calls Python's `eval`
+# function) would require another pair of (escaped) quotes, which interfers
+# with MinGW's magic path handling (see #10449, and
+# http://www.mingw.org/wiki/Posix_path_conversion).
+# We use double instead of single quotes, which may or may not be important
+# when using msys2 (#9626, #10441).
+quote_path = $(if $1,"$1")
+RUNTEST_OPTS +=  \
+	--config 'compiler=$(call quote_path,$(TEST_HC))' \
+	--config 'ghc_pkg=$(call quote_path,$(GHC_PKG))' \
+	--config 'haddock=$(call quote_path,$(HADDOCK))' \
+	--config 'hp2ps=$(call quote_path,$(HP2PS_ABS))' \
+	--config 'hpc=$(call quote_path,$(HPC))' \
+	--config 'gs=$(call quote_path,$(GS))' \
+	--config 'timeout_prog=$(call quote_path,$(TIMEOUT_PROGRAM))'
 
 ifneq "$(OUTPUT_SUMMARY)" ""
 RUNTEST_OPTS +=  \

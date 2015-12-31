@@ -625,7 +625,7 @@ MAIN            MAIN                    102           0    0.0    0.0   100.0  1
            other than making the PS file generation work, rather than
            falling over.  The result seems to be broken PS on the page
            with the image. -->
-      <imagedata fileref="prof_scc" contentwidth="645px"
+      <imagedata fileref="prof_scc.eps" contentwidth="645px"
       contentdepth="428px"/>
 
     <para>You might also want to take a look
@@ -1771,7 +1771,7 @@ Options:
 
     <para>Because ticky-ticky profiling requires a certain familiarity
     with GHC internals, we have moved the documentation to the
-    wiki. Take a look at its <ulink
+    GHC developers wiki. Take a look at its <ulink
     url="http://ghc.haskell.org/trac/ghc/wiki/Commentary/Profiling">overview
     of the profiling options</ulink>, which includeds a link to the
     ticky-ticky profiling page.</para>

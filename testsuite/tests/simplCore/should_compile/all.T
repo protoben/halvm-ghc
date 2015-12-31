@@ -15,8 +15,7 @@ test('simpl011', normal, compile, [''])
 test('simpl012', normal, compile, [''])
 test('simpl013', normal, compile, [''])
 test('simpl014', normal, compile, [''])
-test('simpl015', only_ways(['optasm']), compile, [''])
-test('simpl016', normal, compile, [''])
+test('simpl016', normal, compile, ['-dsuppress-uniques'])
 test('simpl017', normal, compile_fail, [''])
 test('simpl018', normal, compile, [''])
 test('simpl019', normal, compile, [''])
@@ -96,7 +95,7 @@ test('EvalTest',
 
 test('T3831', normal, compile, [''])
 test('T4345', normal, compile, [''])
-test('T4398', normal, compile, [''])
+test('T4398', normal, compile, ['-dsuppress-uniques'])
 
 test('T4903',
      extra_clean(['T4903a.hi', 'T4903a.o']),
@@ -109,7 +108,7 @@ test('T4918',
      ['$MAKE -s --no-print-directory T4918'])
 
 test('T4945',
-     when(compiler_lt('ghc', '7.1'), expect_fail),
+     normal,
      run_command,
      ['$MAKE -s --no-print-directory T4945'])
 
@@ -198,4 +197,23 @@ test('T5996',
      run_command,
      ['$MAKE -s --no-print-directory T5996'])
 test('T8537', normal, compile, [''])
-test('T8714', normal, compile, [''])
+test('T8832',
+     normal,
+     run_command,
+     ['$MAKE -s --no-print-directory T8832 T8832_WORDSIZE_OPTS=' +
+      ('-DT8832_WORDSIZE_64' if wordsize(64) else '')])
+test('T8848', only_ways(['optasm']), compile, ['-ddump-rule-firings -dsuppress-uniques'])
+test('T8848a', only_ways(['optasm']), compile, ['-ddump-rules'])
+test('T8331', only_ways(['optasm']), compile, ['-ddump-rules'])
+test('T6056', only_ways(['optasm']), multimod_compile, ['T6056', '-v0 -ddump-rule-firings'])
+test('T9400', only_ways(['optasm']), compile, ['-O0 -ddump-simpl -dsuppress-uniques'])
+test('T9583', only_ways(['optasm']), compile, [''])
+test('T9565', only_ways(['optasm']), compile, [''])
+test('T10176', only_ways(['optasm']), compile, [''])
+test('T10602', only_ways(['optasm']), multimod_compile, ['T10602','-v0'])
+test('T10627', only_ways(['optasm']), compile, [''])
+test('T10689', normal, compile, [''])
+# T10698a was introduced by 3772c67f56c05cd5130c793376a9e09d5cc0e78a for 7.10.3
+# which was backported 8.0 from but the testcase relies on a parser change that
+# isn't present in 7.10.3
+test('T10689a', expect_broken(None), compile, [''])

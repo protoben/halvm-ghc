@@ -36,8 +36,7 @@ test('ghcpkg05',
                     'local05a.package.conf.old',
                     'local05b.package.conf',
                     'local05b.package.conf.old']),
-       normalise_errmsg_fun(two_normalisers(normalise_haddock_junk,
-                                            normaliseDynlibNames))
+       normalise_errmsg_fun(normalise_haddock_junk, normaliseDynlibNames)
        ],
      run_command,
      ['$MAKE -s --no-print-directory ghcpkg05'])
@@ -46,6 +45,12 @@ test('ghcpkg06',
                    'local06.package.conf.old'])],
      run_command,
      ['$MAKE -s --no-print-directory ghcpkg06'])
+
+test('ghcpkg07',
+     extra_clean(['local07.package.conf',
+                  'local07.package.conf.old']),
+     run_command,
+     ['$MAKE -s --no-print-directory ghcpkg07'])
 
 # Test that we *can* compile a module that also belongs to a package
 # (this was disallowed in GHC 6.4 and earlier)
@@ -56,6 +61,28 @@ test('T1750',
                   'localT1750.package.conf',
                   'localT1750.package.conf.old']),
      run_command, ['$MAKE -s --no-print-directory T1750'])
+
+test('T5442a',
+     [extra_clean(['package.conf.T5442a.global', 'package.conf.T5442a.user'])],
+     run_command,
+     ['$MAKE -s --no-print-directory T5442a'])
+
+test('T5442b',
+     [extra_clean(['package.conf.T5442b.global', 'package.conf.T5442b.user'])],
+     run_command,
+     ['$MAKE -s --no-print-directory T5442b'])
+
+test('T5442c',
+     [extra_clean(['package.conf.T5442c.global', 'package.conf.T5442c.user',
+                   'package.conf.T5442c.extra'])],
+     run_command,
+     ['$MAKE -s --no-print-directory T5442c'])
+
+test('T5442d',
+     [extra_clean(['package.conf.T5442d.global', 'package.conf.T5442d.user',
+                   'package.conf.T5442d.extra'])],
+     run_command,
+     ['$MAKE -s --no-print-directory T5442d'])
 
 test('shadow',
      extra_clean(['shadow.out', 'shadow.hs', 'shadow.hi',

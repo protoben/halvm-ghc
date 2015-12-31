@@ -6,12 +6,15 @@ import Distribution.PackageDescription
 import Distribution.PackageDescription.Check hiding (doesFileExist)
 import Distribution.PackageDescription.Configuration
 import Distribution.PackageDescription.Parse
+import Distribution.Package
 import Distribution.System
 import Distribution.Simple
 import Distribution.Simple.Configure
 import Distribution.Simple.LocalBuildInfo
+import Distribution.Simple.GHC
 import Distribution.Simple.Program
 import Distribution.Simple.Program.HcPkg
+import Distribution.Simple.Setup (ConfigFlags(configStripLibs), fromFlag, toFlag)
 import Distribution.Simple.Utils (defaultPackageDesc, writeFileAtomic, toUTF8)
 import Distribution.Simple.Build (writeAutogenFiles)
 import Distribution.Simple.Register
@@ -20,6 +23,7 @@ import Distribution.Verbosity
 import qualified Distribution.InstalledPackageInfo as Installed
 import qualified Distribution.Simple.PackageIndex as PackageIndex
 
+import Control.Exception (bracket)
 import Control.Monad
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.List
@@ -27,7 +31,7 @@ import Data.Maybe
 import System.IO
 import System.Directory
 import System.Environment
-import System.Exit
+import System.Exit      (exitWith, ExitCode(..))
 import System.FilePath
 
 main :: IO ()
@@ -69,14 +73,10 @@ die :: [String] -> IO a
 die errs = do mapM_ (hPutStrLn stderr) errs
               exitWith (ExitFailure 1)
 
--- XXX Should use bracket
 withCurrentDirectory :: FilePath -> IO a -> IO a
 withCurrentDirectory directory io
- = do curDirectory <- getCurrentDirectory
-      setCurrentDirectory directory
-      r <- io
-      setCurrentDirectory curDirectory
-      return r
+ = bracket (getCurrentDirectory) (setCurrentDirectory)
+           (const (setCurrentDirectory directory >> io))
 
 -- We need to use the autoconfUserHooks, as the packages that use
 -- configure can create a .buildinfo file, and we need any info that
@@ -174,8 +174,17 @@ doCopy directory distDir
             let lbi' = lbi {
                                withPrograms = progs',
                                installDirTemplates = idts,
+                               configFlags = cfg,
+                               stripLibs = fromFlag (configStripLibs cfg),
                                withSharedLib = withSharedLibs
                            }
+
+                -- This hack allows to interpret the "strip"
+                -- command-line argument being set to ':' to signify
+                -- disabled library stripping
+                cfg | strip == ":" = (configFlags lbi) { configStripLibs = toFlag False }
+                    | otherwise    = configFlags lbi
+
             f pd lbi' us flags
 
 doRegister :: FilePath -> FilePath -> FilePath -> FilePath
@@ -217,8 +226,7 @@ doRegister directory distDir ghc ghcpkg topdir
                 configurePrograms ps conf = foldM (flip (configureProgram verbosity)) conf ps
 
             progs' <- configurePrograms [ghcProgram', ghcPkgProgram'] progs
-            let Just ghcPkgProg = lookupProgram ghcPkgProgram' progs'
-            instInfos <- dump verbosity ghcPkgProg GlobalPackageDB
+            instInfos <- dump (hcPkgInfo progs') verbosity GlobalPackageDB
             let installedPkgs' = PackageIndex.fromList instInfos
             let updateComponentConfig (cn, clbi, deps)
                     = (cn, updateComponentLocalBuildInfo clbi, deps)
@@ -250,7 +258,7 @@ updateInstallDirTemplates relocatableBuild myPrefix myLibdir myDocdir idts
                           if relocatableBuild
                           then "$topdir"
                           else myLibdir,
-          libsubdir = toPathTemplate "$pkgid",
+          libsubdir = toPathTemplate "$pkgkey",
           docdir    = toPathTemplate $
                           if relocatableBuild
                           then "$topdir/../doc/html/libraries/$pkgid"
@@ -337,7 +345,7 @@ generate directory distdir dll0Modules config_args
           do cwd <- getCurrentDirectory
              let ipid = InstalledPackageId (display (packageId pd) ++ "-inplace")
              let installedPkgInfo = inplaceInstalledPackageInfo cwd distdir
-                                        pd lib lbi clbi
+                                        pd ipid lib lbi clbi
                  final_ipi = installedPkgInfo {
                                  Installed.installedPackageId = ipid,
                                  Installed.haddockHTMLs = []
@@ -346,6 +354,7 @@ generate directory distdir dll0Modules config_args
              writeFileAtomic (distdir </> "inplace-pkg-config") (BS.pack $ toUTF8 content)
 
       let
+          comp = compiler lbi
           libBiModules lib = (libBuildInfo lib, libModules lib)
           exeBiModules exe = (buildInfo exe, ModuleName.main : exeModules exe)
           biModuless = (maybeToList $ fmap libBiModules $ library pd)
@@ -388,18 +397,37 @@ generate directory distdir dll0Modules config_args
 
           dep_ids  = map snd (externalPackageDeps lbi)
           deps     = map display dep_ids
+          dep_keys
+            | packageKeySupported comp
+                   = map (display
+                        . Installed.packageKey
+                        . fromMaybe (error "ghc-cabal: dep_keys failed")
+                        . PackageIndex.lookupInstalledPackageId
+                                                           (installedPkgs lbi)
+                        . fst)
+                   . externalPackageDeps
+                   $ lbi
+            | otherwise = deps
           depNames = map (display . packageName) dep_ids
 
           transitive_dep_ids = map Installed.sourcePackageId dep_pkgs
           transitiveDeps = map display transitive_dep_ids
+          transitiveDepKeys
+            | packageKeySupported comp
+                   = map (display . Installed.packageKey) dep_pkgs
+            | otherwise = transitiveDeps
           transitiveDepNames = map (display . packageName) transitive_dep_ids
 
           libraryDirs = forDeps Installed.libraryDirs
+          -- temporary hack to support two in-tree versions of `integer-gmp`
+          isIntegerGmp2 = any ("integer-gmp2" `isInfixOf`) libraryDirs
           -- The mkLibraryRelDir function is a bit of a hack.
           -- Ideally it should be handled in the makefiles instead.
           mkLibraryRelDir "rts"   = "rts/dist/build"
           mkLibraryRelDir "ghc"   = "compiler/stage2/build"
           mkLibraryRelDir "Cabal" = "libraries/Cabal/Cabal/dist-install/build"
+          mkLibraryRelDir "integer-gmp"
+                  | isIntegerGmp2 = mkLibraryRelDir "integer-gmp2"
           mkLibraryRelDir l       = "libraries/" ++ l ++ "/dist-install/build"
           libraryRelDirs = map mkLibraryRelDir transitiveDepNames
       wrappedIncludeDirs <- wrap $ forDeps Installed.includeDirs
@@ -410,13 +438,18 @@ generate directory distdir dll0Modules config_args
           otherMods = map display (otherModules bi)
           allMods = mods ++ otherMods
       let xs = [variablePrefix ++ "_VERSION = " ++ display (pkgVersion (package pd)),
+                variablePrefix ++ "_PACKAGE_KEY = " ++ display (pkgKey lbi),
+                -- copied from mkComponentsLocalBuildInfo
+                variablePrefix ++ "_LIB_NAME = " ++ packageKeyLibraryName (package pd) (pkgKey lbi),
                 variablePrefix ++ "_MODULES = " ++ unwords mods,
                 variablePrefix ++ "_HIDDEN_MODULES = " ++ unwords otherMods,
                 variablePrefix ++ "_SYNOPSIS =" ++ synopsis pd,
                 variablePrefix ++ "_HS_SRC_DIRS = " ++ unwords (hsSourceDirs bi),
                 variablePrefix ++ "_DEPS = " ++ unwords deps,
+                variablePrefix ++ "_DEP_KEYS = " ++ unwords dep_keys,
                 variablePrefix ++ "_DEP_NAMES = " ++ unwords depNames,
                 variablePrefix ++ "_TRANSITIVE_DEPS = " ++ unwords transitiveDeps,
+                variablePrefix ++ "_TRANSITIVE_DEP_KEYS = " ++ unwords transitiveDepKeys,
                 variablePrefix ++ "_TRANSITIVE_DEP_NAMES = " ++ unwords transitiveDepNames,
                 variablePrefix ++ "_INCLUDE_DIRS = " ++ unwords (includeDirs bi),
                 variablePrefix ++ "_INCLUDES = " ++ unwords (includes bi),
@@ -452,7 +485,8 @@ generate directory distdir dll0Modules config_args
                 "$(eval $(" ++ directory ++ "_PACKAGE_MAGIC))"
                 ]
       writeFile (distdir ++ "/package-data.mk") $ unlines xs
-      writeFile (distdir ++ "/haddock-prologue.txt") $
+
+      writeFileUtf8 (distdir ++ "/haddock-prologue.txt") $
           if null (description pd) then synopsis pd
                                    else description pd
       unless (null dll0Modules) $
@@ -475,3 +509,8 @@ generate directory distdir dll0Modules config_args
      mkSearchPath = intercalate [searchPathSeparator]
      boolToYesNo True = "YES"
      boolToYesNo False = "NO"
+
+     -- | Version of 'writeFile' that always uses UTF8 encoding
+     writeFileUtf8 f txt = withFile f WriteMode $ \hdl -> do
+         hSetEncoding hdl utf8
+         hPutStr hdl txt

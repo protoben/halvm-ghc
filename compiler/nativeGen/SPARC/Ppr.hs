@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 -----------------------------------------------------------------------------
 --
 -- Pretty-printing assembly language
@@ -75,12 +77,7 @@ pprNatCmmDecl proc@(CmmProc top_info lbl _ (ListGraph blocks)) =
          -- elimination, it might be the target of a goto.
             (if platformHasSubsectionsViaSymbols platform
              then
-             -- If we are using the .subsections_via_symbols directive
-             -- (available on recent versions of Darwin),
-             -- we have to make sure that there is some kind of reference
-             -- from the entry code to a label on the _top_ of of the info table,
-             -- so that the linker will not think it is unreferenced and dead-strip
-             -- it. That's why the label is called a DeadStripPreventer (_dsp).
+             -- See Note [Subsections Via Symbols]
                       text "\t.long "
                   <+> ppr info_lbl
                   <+> char '-'
@@ -324,15 +321,15 @@ pprImm imm
 --      incase we store doubles in them.
 --
 pprSectionHeader :: Section -> SDoc
-pprSectionHeader seg
- = case seg of
-        Text                    -> ptext (sLit ".text\n\t.align 4")
-        Data                    -> ptext (sLit ".data\n\t.align 8")
-        ReadOnlyData            -> ptext (sLit ".text\n\t.align 8")
-        RelocatableReadOnlyData -> ptext (sLit ".text\n\t.align 8")
-        UninitialisedData       -> ptext (sLit ".bss\n\t.align 8")
-        ReadOnlyData16          -> ptext (sLit ".data\n\t.align 16")
-        OtherSection _          -> panic "PprMach.pprSectionHeader: unknown section"
+pprSectionHeader seg = case seg of
+  Text              -> text ".text\n\t.align 4"
+  Data              -> text ".data\n\t.align 8"
+  ReadOnlyData      -> text ".text\n\t.align 8"
+  RelocatableReadOnlyData
+                    -> text ".text\n\t.align 8"
+  UninitialisedData -> text ".bss\n\t.align 8"
+  ReadOnlyData16    -> text ".data\n\t.align 16"
+  OtherSection _    -> panic "PprMach.pprSectionHeader: unknown section"
 
 
 -- | Pretty print a data item.

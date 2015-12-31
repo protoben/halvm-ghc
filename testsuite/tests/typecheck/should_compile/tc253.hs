@@ -1,11 +1,16 @@
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
+  -- this is needed because |FamHelper a x| /< |Fam a x|
 module ShouldCompile where
 
 class Cls a where
     type Fam a b :: *
     -- Multiple defaults!
-    type Fam a Bool = Maybe a
-    type Fam a Int = (String, a)
+    type Fam a x = FamHelper a x
+
+type family FamHelper a x
+type instance FamHelper a Bool = Maybe a
+type instance FamHelper a Int  = (String, a)
 
 instance Cls Int where
     -- Gets type family from default

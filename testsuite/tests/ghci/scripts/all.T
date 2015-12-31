@@ -1,5 +1,8 @@
 # coding=utf8
 
+def normaliseTransformersPackageKey(str):
+    return re.sub('trans_[A-Za-z0-9]+', 'trans_<HASH>', str)
+
 setTestOpts(when(compiler_profiled(), skip))
 
 test('ghci001', combined_output, ghci_script, ['ghci001.script'])
@@ -40,6 +43,10 @@ test('ghci024',
      when(fast(), skip),
      run_command,
      ['$MAKE -s --no-print-directory ghci024'])
+test('T9367',
+     when(fast() or config.os != 'mingw32', skip),
+     run_command,
+     ['$MAKE -s --no-print-directory T9367'])
 test('ghci025', normal, ghci_script, ['ghci025.script'])
 test('ghci026', normal, ghci_script, ['ghci026.script'])
 
@@ -61,6 +68,7 @@ test('ghci041', normal, ghci_script, ['ghci041.script'])
 test('ghci042', normal, ghci_script, ['ghci042.script'])
 test('ghci043', normal, ghci_script, ['ghci043.script'])
 test('ghci044', normal, ghci_script, ['ghci044.script'])
+test('ghci044a', normal, ghci_script, ['ghci044a.script'])
 test('ghci045', normal, ghci_script, ['ghci045.script'])
 test('ghci046', normal, ghci_script, ['ghci046.script'])
 test('ghci047', normal, ghci_script, ['ghci047.script'])
@@ -81,7 +89,7 @@ test('ghci056',
      ],
      ghci_script, ['ghci056.script'])
 
-test('ghci057', normal, ghci_script, ['ghci057.script'])
+test('ghci057', normal, ghci_script_without_flag('-fno-warn-tabs'), ['ghci057.script'])
 
 test('T2452', normal, ghci_script, ['T2452.script'])
 test('T2766', normal, ghci_script, ['T2766.script'])
@@ -91,6 +99,8 @@ test('T1914',
      ghci_script,
      ['T1914.script'])
 
+test('T2182ghci', normal, ghci_script, ['T2182ghci.script'])
+test('T2182ghci2', [extra_hc_opts("-XNoImplicitPrelude")], ghci_script, ['T2182ghci2.script'])
 test('T2976', normal, ghci_script, ['T2976.script'])
 test('T2816', normal, ghci_script, ['T2816.script'])
 test('T789', normal, ghci_script, ['T789.script'])
@@ -113,7 +123,11 @@ test('T5564', normal, ghci_script, ['T5564.script'])
 test('Defer02', normal, ghci_script, ['Defer02.script'])
 test('T5820', normal, ghci_script, ['T5820.script'])
 test('T5836', normal, ghci_script, ['T5836.script'])
-test('T5979', normalise_slashes, ghci_script, ['T5979.script'])
+test('T5979',
+    [reqlib('transformers'),
+     normalise_slashes,
+     normalise_errmsg_fun(normaliseTransformersPackageKey)],
+    ghci_script, ['T5979.script'])
 test('T5975a',
      [pre_cmd('touch föøbàr1.hs'),
       clean_cmd('rm föøbàr1.hs')],
@@ -147,6 +161,7 @@ test('T7627', normal, ghci_script, ['T7627.script'])
 test('T7627b', normal, ghci_script, ['T7627b.script'])
 test('T7586', normal, ghci_script, ['T7586.script'])
 test('T4175', normal, ghci_script, ['T4175.script'])
+test('T7730', combined_output, ghci_script, ['T7730.script'])
 test('T7872', normal, ghci_script, ['T7872.script'])
 test('T7873', normal, ghci_script, ['T7873.script'])
 test('T7939', normal, ghci_script, ['T7939.script'])
@@ -167,6 +182,32 @@ test('T8649', normal, ghci_script, ['T8649.script'])
 test('T8674', normal, ghci_script, ['T8674.script'])
 test('T8696', normal, ghci_script, ['T8696.script'])
 test('T8776', normal, ghci_script, ['T8776.script'])
+test('ghci059', normal, ghci_script, ['ghci059.script'])
 test('T8831', normal, ghci_script, ['T8831.script'])
 test('T8917', normal, ghci_script, ['T8917.script'])
 test('T8931', normal, ghci_script, ['T8931.script'])
+test('T8959', normal, ghci_script, ['T8959.script'])
+test('T8959b', expect_broken(8959), ghci_script, ['T8959b.script'])
+test('T9181', normal, ghci_script, ['T9181.script'])
+test('T9086b', normal, ghci_script, ['T9086b.script'])
+test('T9140', combined_output, ghci_script, ['T9140.script'])
+test('T9658', normal, ghci_script, ['T9658.script'])
+test('T9293', normal, ghci_script_without_flag('-fno-warn-tabs'), ['T9293.script'])
+test('T9762',
+ [ unless(have_dynamic(),skip)
+ , pre_cmd('$MAKE -s --no-print-directory T9762_prep')
+ ],
+ ghci_script, ['T9762.script'])
+test('T9881', normal, ghci_script, ['T9881.script'])
+test('T9878',
+    [extra_clean(['T9878.hi','T9878.o'])],
+    ghci_script, ['T9878.script'])
+test('T9878b',
+    [ extra_run_opts('-fobject-code'),
+      extra_clean(['T9878b.hi','T9878b.o'])],
+    ghci_script, ['T9878b.script'])
+
+test('T10321', normal, ghci_script, ['T10321.script'])
+test('T10110', normal, ghci_script, ['T10110.script'])
+test('T10322', normal, ghci_script, ['T10322.script'])
+test('T10501', normal, ghci_script, ['T10501.script'])

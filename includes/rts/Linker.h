@@ -43,13 +43,16 @@ void initLinker (void);
 void initLinker_ (int retain_cafs);
 
 /* insert a symbol in the hash table */
-void insertSymbol(pathchar* obj_name, char* key, void* data);
+HsInt insertSymbol(pathchar* obj_name, char* key, void* data);
 
 /* lookup a symbol in the hash table */
 void *lookupSymbol( char *lbl );
 
 /* delete an object from the pool */
 HsInt unloadObj( pathchar *path );
+
+/* purge an object's symbols from the symbol table, but don't unload it */
+HsInt purgeObj( pathchar *path );
 
 /* add an obj (populate the global symbol table, but don't resolve yet) */
 HsInt loadObj( pathchar *path );

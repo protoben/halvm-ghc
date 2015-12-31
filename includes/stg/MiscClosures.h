@@ -112,6 +112,10 @@ RTS_ENTRY(stg_MUT_ARR_PTRS_CLEAN);
 RTS_ENTRY(stg_MUT_ARR_PTRS_DIRTY);
 RTS_ENTRY(stg_MUT_ARR_PTRS_FROZEN);
 RTS_ENTRY(stg_MUT_ARR_PTRS_FROZEN0);
+RTS_ENTRY(stg_SMALL_MUT_ARR_PTRS_CLEAN);
+RTS_ENTRY(stg_SMALL_MUT_ARR_PTRS_DIRTY);
+RTS_ENTRY(stg_SMALL_MUT_ARR_PTRS_FROZEN);
+RTS_ENTRY(stg_SMALL_MUT_ARR_PTRS_FROZEN0);
 RTS_ENTRY(stg_MUT_VAR_CLEAN);
 RTS_ENTRY(stg_MUT_VAR_DIRTY);
 RTS_ENTRY(stg_END_TSO_QUEUE);
@@ -218,7 +222,7 @@ RTS_THUNK(stg_ap_5_upd);
 RTS_THUNK(stg_ap_6_upd);
 RTS_THUNK(stg_ap_7_upd);
 
-/* standard application routines (see also utils/genapply, 
+/* standard application routines (see also utils/genapply,
  * and compiler/codeGen/CgStackery.lhs).
  */
 RTS_RET(stg_ap_v);
@@ -337,16 +341,36 @@ RTS_FUN_DECL(StgReturn);
 
 RTS_FUN_DECL(stg_decodeFloatzuIntzh);
 RTS_FUN_DECL(stg_decodeDoublezu2Intzh);
+RTS_FUN_DECL(stg_decodeDoublezuInt64zh);
 
 RTS_FUN_DECL(stg_unsafeThawArrayzh);
 RTS_FUN_DECL(stg_casArrayzh);
 RTS_FUN_DECL(stg_newByteArrayzh);
 RTS_FUN_DECL(stg_newPinnedByteArrayzh);
 RTS_FUN_DECL(stg_newAlignedPinnedByteArrayzh);
+RTS_FUN_DECL(stg_shrinkMutableByteArrayzh);
+RTS_FUN_DECL(stg_resizzeMutableByteArrayzh);
 RTS_FUN_DECL(stg_casIntArrayzh);
-RTS_FUN_DECL(stg_fetchAddIntArrayzh);
 RTS_FUN_DECL(stg_newArrayzh);
 RTS_FUN_DECL(stg_newArrayArrayzh);
+RTS_FUN_DECL(stg_copyArrayzh);
+RTS_FUN_DECL(stg_copyMutableArrayzh);
+RTS_FUN_DECL(stg_copyArrayArrayzh);
+RTS_FUN_DECL(stg_copyMutableArrayArrayzh);
+RTS_FUN_DECL(stg_cloneArrayzh);
+RTS_FUN_DECL(stg_cloneMutableArrayzh);
+RTS_FUN_DECL(stg_freezzeArrayzh);
+RTS_FUN_DECL(stg_thawArrayzh);
+
+RTS_FUN_DECL(stg_newSmallArrayzh);
+RTS_FUN_DECL(stg_unsafeThawSmallArrayzh);
+RTS_FUN_DECL(stg_cloneSmallArrayzh);
+RTS_FUN_DECL(stg_cloneSmallMutableArrayzh);
+RTS_FUN_DECL(stg_freezzeSmallArrayzh);
+RTS_FUN_DECL(stg_thawSmallArrayzh);
+RTS_FUN_DECL(stg_copySmallArrayzh);
+RTS_FUN_DECL(stg_copySmallMutableArrayzh);
+RTS_FUN_DECL(stg_casSmallArrayzh);
 
 RTS_FUN_DECL(stg_newMutVarzh);
 RTS_FUN_DECL(stg_atomicModifyMutVarzh);

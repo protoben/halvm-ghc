@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 -----------------------------------------------------------------------------
 --
 -- Code generator utilities; mostly monadic
@@ -142,7 +144,8 @@ addToMemE rep ptr n
 --
 -------------------------------------------------------------------------
 
-mkTaggedObjectLoad :: DynFlags -> LocalReg -> LocalReg -> WordOff -> DynTag -> CmmAGraph
+mkTaggedObjectLoad
+  :: DynFlags -> LocalReg -> LocalReg -> ByteOff -> DynTag -> CmmAGraph
 -- (loadTaggedObjectField reg base off tag) generates assignment
 --      reg = bitsK[ base + off - tag ]
 -- where K is fixed by 'reg'
@@ -150,7 +153,7 @@ mkTaggedObjectLoad dflags reg base offset tag
   = mkAssign (CmmLocal reg)
              (CmmLoad (cmmOffsetB dflags
                                   (CmmReg (CmmLocal base))
-                                  (wORD_SIZE dflags * offset - tag))
+                                  (offset - tag))
                       (localRegType reg))
 
 -------------------------------------------------------------------------
@@ -172,10 +175,10 @@ tagToClosure dflags tycon tag
 --
 -------------------------------------------------------------------------
 
-emitRtsCall :: PackageId -> FastString -> [(CmmExpr,ForeignHint)] -> Bool -> FCode ()
+emitRtsCall :: PackageKey -> FastString -> [(CmmExpr,ForeignHint)] -> Bool -> FCode ()
 emitRtsCall pkg fun args safe = emitRtsCallGen [] (mkCmmCodeLabel pkg fun) args safe
 
-emitRtsCallWithResult :: LocalReg -> ForeignHint -> PackageId -> FastString
+emitRtsCallWithResult :: LocalReg -> ForeignHint -> PackageKey -> FastString
         -> [(CmmExpr,ForeignHint)] -> Bool -> FCode ()
 emitRtsCallWithResult res hint pkg fun args safe
    = emitRtsCallGen [(res,hint)] (mkCmmCodeLabel pkg fun) args safe
@@ -398,11 +401,13 @@ type Stmt = (LocalReg, CmmExpr) -- r := e
 
 emitMultiAssign []    []    = return ()
 emitMultiAssign [reg] [rhs] = emitAssign (CmmLocal reg) rhs
-emitMultiAssign regs  rhss  = ASSERT( equalLength regs rhss )
-                              unscramble ([1..] `zip` (regs `zip` rhss))
+emitMultiAssign regs rhss   = do
+  dflags <- getDynFlags
+  ASSERT( equalLength regs rhss )
+    unscramble dflags ([1..] `zip` (regs `zip` rhss))
 
-unscramble :: [Vrtx] -> FCode ()
-unscramble vertices = mapM_ do_component components
+unscramble :: DynFlags -> [Vrtx] -> FCode ()
+unscramble dflags vertices = mapM_ do_component components
   where
         edges :: [ (Vrtx, Key, [Key]) ]
         edges = [ (vertex, key1, edges_from stmt1)
@@ -429,7 +434,7 @@ unscramble vertices = mapM_ do_component components
             u <- newUnique
             let (to_tmp, from_tmp) = split dflags u first_stmt
             mk_graph to_tmp
-            unscramble rest
+            unscramble dflags rest
             mk_graph from_tmp
 
         split :: DynFlags -> Unique -> Stmt -> (Stmt, Stmt)
@@ -442,19 +447,20 @@ unscramble vertices = mapM_ do_component components
         mk_graph :: Stmt -> FCode ()
         mk_graph (reg, rhs) = emitAssign (CmmLocal reg) rhs
 
-mustFollow :: Stmt -> Stmt -> Bool
-(reg, _) `mustFollow` (_, rhs) = CmmLocal reg `regUsedIn` rhs
+        mustFollow :: Stmt -> Stmt -> Bool
+        (reg, _) `mustFollow` (_, rhs) = regUsedIn dflags (CmmLocal reg) rhs
 
 -------------------------------------------------------------------------
 --      mkSwitch
 -------------------------------------------------------------------------
 
 
-emitSwitch :: CmmExpr                -- Tag to switch on
-           -> [(ConTagZ, CmmAGraph)] -- Tagged branches
-           -> Maybe CmmAGraph        -- Default branch (if any)
-           -> ConTagZ -> ConTagZ     -- Min and Max possible values; behaviour
-                                     -- outside this range is undefined
+emitSwitch :: CmmExpr                      -- Tag to switch on
+           -> [(ConTagZ, CmmAGraphScoped)] -- Tagged branches
+           -> Maybe CmmAGraphScoped        -- Default branch (if any)
+           -> ConTagZ -> ConTagZ           -- Min and Max possible values;
+                                           -- behaviour outside this range is
+                                           -- undefined
            -> FCode ()
 emitSwitch tag_expr branches mb_deflt lo_tag hi_tag
   = do  { dflags <- getDynFlags
@@ -464,18 +470,19 @@ emitSwitch tag_expr branches mb_deflt lo_tag hi_tag
                  | otherwise                = False
 
 
-mkCmmSwitch :: Bool                   -- True <=> never generate a
-                                      -- conditional tree
-            -> CmmExpr                -- Tag to switch on
-            -> [(ConTagZ, CmmAGraph)] -- Tagged branches
-            -> Maybe CmmAGraph        -- Default branch (if any)
-            -> ConTagZ -> ConTagZ     -- Min and Max possible values; behaviour
-                                      -- outside this range is undefined
+mkCmmSwitch :: Bool                         -- True <=> never generate a
+                                            -- conditional tree
+            -> CmmExpr                      -- Tag to switch on
+            -> [(ConTagZ, CmmAGraphScoped)] -- Tagged branches
+            -> Maybe CmmAGraphScoped        -- Default branch (if any)
+            -> ConTagZ -> ConTagZ           -- Min and Max possible values;
+                                            -- behaviour outside this range is
+                                            -- undefined
             -> FCode ()
 
 -- First, two rather common cases in which there is no work to do
-mkCmmSwitch _ _ []         (Just code) _ _ = emit code
-mkCmmSwitch _ _ [(_,code)] Nothing     _ _ = emit code
+mkCmmSwitch _ _ []         (Just code) _ _ = emit (fst code)
+mkCmmSwitch _ _ [(_,code)] Nothing     _ _ = emit (fst code)
 
 -- Right, off we go
 mkCmmSwitch via_C tag_expr branches mb_deflt lo_tag hi_tag = do
@@ -631,17 +638,17 @@ mk_switch tag_expr branches mb_deflt lo_tag hi_tag via_C
     is_lo (t,_) = t < mid_tag
 
 --------------
-emitCmmLitSwitch :: CmmExpr               -- Tag to switch on
-               -> [(Literal, CmmAGraph)]  -- Tagged branches
-               -> CmmAGraph               -- Default branch (always)
-               -> FCode ()                -- Emit the code
+emitCmmLitSwitch :: CmmExpr                    -- Tag to switch on
+               -> [(Literal, CmmAGraphScoped)] -- Tagged branches
+               -> CmmAGraphScoped              -- Default branch (always)
+               -> FCode ()                     -- Emit the code
 -- Used for general literals, whose size might not be a word,
 -- where there is always a default case, and where we don't know
 -- the range of values for certain.  For simplicity we always generate a tree.
 --
 -- ToDo: for integers we could do better here, perhaps by generalising
 -- mk_switch and using that.  --SDM 15/09/2004
-emitCmmLitSwitch _scrut []       deflt = emit deflt
+emitCmmLitSwitch _scrut []       deflt = emit $ fst deflt
 emitCmmLitSwitch scrut  branches deflt = do
     scrut' <- assignTemp' scrut
     join_lbl <- newLabelC
@@ -682,7 +689,7 @@ mk_lit_switch scrut deflt_blk_id branches
 
 
 --------------
-label_default :: BlockId -> Maybe CmmAGraph -> FCode (Maybe BlockId)
+label_default :: BlockId -> Maybe CmmAGraphScoped -> FCode (Maybe BlockId)
 label_default _ Nothing
   = return  Nothing
 label_default join_lbl (Just code)
@@ -690,7 +697,7 @@ label_default join_lbl (Just code)
        return (Just lbl)
 
 --------------
-label_branches :: BlockId -> [(a,CmmAGraph)] -> FCode [(a,BlockId)]
+label_branches :: BlockId -> [(a,CmmAGraphScoped)] -> FCode [(a,BlockId)]
 label_branches _join_lbl []
   = return []
 label_branches join_lbl ((tag,code):branches)
@@ -699,14 +706,14 @@ label_branches join_lbl ((tag,code):branches)
        return ((tag,lbl):branches')
 
 --------------
-label_code :: BlockId -> CmmAGraph -> FCode BlockId
+label_code :: BlockId -> CmmAGraphScoped -> FCode BlockId
 --  label_code J code
 --      generates
 --  [L: code; goto J]
 -- and returns L
-label_code join_lbl code = do
+label_code join_lbl (code,tsc) = do
     lbl <- newLabelC
-    emitOutOfLine lbl (code <*> mkBranch join_lbl)
+    emitOutOfLine lbl (code MkGraph.<*> mkBranch join_lbl, tsc)
     return lbl
 
 --------------

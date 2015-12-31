@@ -18,7 +18,7 @@ Description:
     through this package.
 Category: Development
 Build-Type: Simple
-Cabal-Version: >= 1.2.3
+Cabal-Version: >=1.10
 
 Flag ghci
     Description: Build GHCi support.
@@ -41,22 +41,21 @@ Flag stage3
     Manual: True
 
 Library
+    Default-Language: Haskell2010
     Exposed: False
 
     Build-Depends: base       >= 4   && < 5,
                    directory  >= 1   && < 1.3,
                    process    >= 1   && < 1.3,
                    bytestring >= 0.9 && < 0.11,
-                   time                 < 1.5,
-                   containers >= 0.1 && < 0.6,
+                   time                 < 1.6,
+                   containers >= 0.5 && < 0.6,
                    array      >= 0.1 && < 0.6,
-                   filepath   >= 1   && < 1.4,
-                   Cabal,
+                   filepath   >= 1   && < 1.5,
                    hpc,
-                   transformers
-
-    if flag(stage1) && impl(ghc < 7.5)
-        Build-Depends: old-time   >= 1   && < 1.2
+                   transformers,
+                   bin-package-db,
+                   hoopl
 
     if os(windows)
         Build-Depends: Win32
@@ -70,18 +69,43 @@ Library
         CPP-Options: -DGHCI
         Include-Dirs: ../rts/dist/build @FFIIncludeDir@
 
-    Build-Depends: bin-package-db
-    Build-Depends: hoopl
-
-    Extensions: CPP, MagicHash, UnboxedTuples, PatternGuards,
-                ForeignFunctionInterface, EmptyDataDecls,
-                TypeSynonymInstances, MultiParamTypeClasses,
-                FlexibleInstances, RankNTypes, ScopedTypeVariables,
-                DeriveDataTypeable, BangPatterns
-    if impl(ghc >= 7.1)
-        Extensions: NondecreasingIndentation
+    Other-Extensions:
+        BangPatterns
+        CPP
+        DataKinds
+        DeriveDataTypeable
+        DeriveFoldable
+        DeriveFunctor
+        DeriveTraversable
+        DisambiguateRecordFields
+        ExplicitForAll
+        FlexibleContexts
+        FlexibleInstances
+        GADTs
+        GeneralizedNewtypeDeriving
+        MagicHash
+        MultiParamTypeClasses
+        NamedFieldPuns
+        NondecreasingIndentation
+        RankNTypes
+        RecordWildCards
+        ScopedTypeVariables
+        StandaloneDeriving
+        Trustworthy
+        TupleSections
+        TypeFamilies
+        TypeSynonymInstances
+        UnboxedTuples
+        UndecidableInstances
 
     Include-Dirs: . parser utils
+
+    if impl( ghc >= 7.9 )
+        -- We need to set the package key to ghc (without a version number)
+        -- as it's magic.  But we can't set it for old versions of GHC (e.g.
+        -- when bootstrapping) because those versions of GHC don't understand
+        -- that GHC is wired-in.
+        GHC-Options: -this-package-key ghc
 
     if flag(stage1)
         Include-Dirs: stage1
@@ -96,8 +120,6 @@ Library
 
     c-sources:
         parser/cutils.c
-
-    c-sources:
         ghci/keepCAFsForGHCi.c
         cbits/genSym.c
 
@@ -134,11 +156,13 @@ Library
         DataCon
         PatSyn
         Demand
+        Debug
         Exception
         GhcMonad
         Hooks
         Id
         IdInfo
+        Lexeme
         Literal
         Llvm
         Llvm.AbsSyn
@@ -165,6 +189,7 @@ Library
         Var
         VarEnv
         VarSet
+        UnVarGraph
         BlockId
         CLabel
         Cmm
@@ -183,7 +208,6 @@ Library
         CmmOpt
         CmmParse
         CmmProcPoint
-        CmmRewriteAssignments
         CmmSink
         CmmType
         CmmUtils
@@ -197,6 +221,7 @@ Library
         Bitmap
         CodeGen.Platform
         CodeGen.Platform.ARM
+        CodeGen.Platform.ARM64
         CodeGen.Platform.NoRegs
         CodeGen.Platform.PPC
         CodeGen.Platform.PPC_Darwin
@@ -232,11 +257,8 @@ Library
         CoreTidy
         CoreUnfold
         CoreUtils
-        ExternalCore
         MkCore
-        MkExternalCore
         PprCore
-        PprExternalCore
         Check
         Coverage
         Desugar
@@ -258,6 +280,7 @@ Library
         HsExpr
         HsImpExp
         HsLit
+        PlaceHolder
         HsPat
         HsSyn
         HsTypes
@@ -297,19 +320,20 @@ Library
         PackageConfig
         Packages
         PlatformConstants
+        Plugins
+        TcPluginM
         PprTyThing
         StaticFlags
+        StaticPtrTable
         SysTools
         TidyPgm
         Ctype
         HaddockUtils
-        LexCore
         Lexer
         OptCoercion
         Parser
-        ParserCore
-        ParserCoreUtils
         RdrHsSyn
+        ApiAnnotation
         ForeignCall
         PrelInfo
         PrelNames
@@ -351,6 +375,7 @@ Library
         CoreToStg
         StgLint
         StgSyn
+        CallArity
         DmdAnal
         WorkWrap
         WwLib
@@ -388,6 +413,7 @@ Library
         TcUnify
         TcInteract
         TcCanonical
+        TcFlatten
         TcSMonad
         TcTypeNats
         TcSplice
@@ -532,6 +558,9 @@ Library
             RegAlloc.Linear.X86_64.FreeRegs
             RegAlloc.Linear.PPC.FreeRegs
             RegAlloc.Linear.SPARC.FreeRegs
+            Dwarf
+            Dwarf.Types
+            Dwarf.Constants
 
     if flag(ghci)
         Exposed-Modules:

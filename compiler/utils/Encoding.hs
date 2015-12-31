@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns, MagicHash, UnboxedTuples #-}
 {-# OPTIONS_GHC -O #-}
 -- We always optimise this, otherwise performance of a non-optimised
 -- compiler is severely affected
@@ -28,7 +28,6 @@ module Encoding (
         zDecodeString
   ) where
 
-#include "HsVersions.h"
 import Foreign
 import Data.Char
 import Numeric
@@ -47,18 +46,18 @@ import ExtsCompat46
 -- before decoding them (see StringBuffer.hs).
 
 {-# INLINE utf8DecodeChar# #-}
-utf8DecodeChar# :: Addr# -> (# Char#, Addr# #)
+utf8DecodeChar# :: Addr# -> (# Char#, Int# #)
 utf8DecodeChar# a# =
   let !ch0 = word2Int# (indexWord8OffAddr# a# 0#) in
   case () of
-    _ | ch0 <=# 0x7F# -> (# chr# ch0, a# `plusAddr#` 1# #)
+    _ | ch0 <=# 0x7F# -> (# chr# ch0, 1# #)
 
       | ch0 >=# 0xC0# && ch0 <=# 0xDF# ->
         let !ch1 = word2Int# (indexWord8OffAddr# a# 1#) in
         if ch1 <# 0x80# || ch1 >=# 0xC0# then fail 1# else
         (# chr# (((ch0 -# 0xC0#) `uncheckedIShiftL#` 6#) +#
                   (ch1 -# 0x80#)),
-           a# `plusAddr#` 2# #)
+           2# #)
 
       | ch0 >=# 0xE0# && ch0 <=# 0xEF# ->
         let !ch1 = word2Int# (indexWord8OffAddr# a# 1#) in
@@ -68,7 +67,7 @@ utf8DecodeChar# a# =
         (# chr# (((ch0 -# 0xE0#) `uncheckedIShiftL#` 12#) +#
                  ((ch1 -# 0x80#) `uncheckedIShiftL#` 6#)  +#
                   (ch2 -# 0x80#)),
-           a# `plusAddr#` 3# #)
+           3# #)
 
      | ch0 >=# 0xF0# && ch0 <=# 0xF8# ->
         let !ch1 = word2Int# (indexWord8OffAddr# a# 1#) in
@@ -81,20 +80,21 @@ utf8DecodeChar# a# =
                  ((ch1 -# 0x80#) `uncheckedIShiftL#` 12#) +#
                  ((ch2 -# 0x80#) `uncheckedIShiftL#` 6#)  +#
                   (ch3 -# 0x80#)),
-           a# `plusAddr#` 4# #)
+           4# #)
 
       | otherwise -> fail 1#
   where
         -- all invalid sequences end up here:
-        fail n = (# '\0'#, a# `plusAddr#` n #)
+        fail :: Int# -> (# Char#, Int# #)
+        fail nBytes# = (# '\0'#, nBytes# #)
         -- '\xFFFD' would be the usual replacement character, but
         -- that's a valid symbol in Haskell, so will result in a
         -- confusing parse error later on.  Instead we use '\0' which
         -- will signal a lexer error immediately.
 
-utf8DecodeChar :: Ptr Word8 -> (Char, Ptr Word8)
+utf8DecodeChar :: Ptr Word8 -> (Char, Int)
 utf8DecodeChar (Ptr a#) =
-  case utf8DecodeChar# a# of (# c#, b# #) -> ( C# c#, Ptr b# )
+  case utf8DecodeChar# a# of (# c#, nBytes# #) -> ( C# c#, I# nBytes# )
 
 -- UTF-8 is cleverly designed so that we can always figure out where
 -- the start of the current character is, given any position in a
@@ -111,34 +111,35 @@ utf8CharStart p = go p
                         else return p
 
 utf8DecodeString :: Ptr Word8 -> Int -> IO [Char]
-STRICT2(utf8DecodeString)
-utf8DecodeString (Ptr a#) (I# len#)
-  = unpack a#
+utf8DecodeString ptr len
+  = unpack ptr
   where
-    !end# = addr2Int# (a# `plusAddr#` len#)
+    !end = ptr `plusPtr` len
 
-    unpack p#
-        | addr2Int# p# >=# end# = return []
+    unpack p
+        | p >= end = return []
         | otherwise  =
-        case utf8DecodeChar# p# of
-           (# c#, q# #) -> do
-                chs <- unpack q#
+        case utf8DecodeChar# (unPtr p) of
+           (# c#, nBytes# #) -> do
+                chs <- unpack (p `plusPtr#` nBytes#)
                 return (C# c# : chs)
 
 countUTF8Chars :: Ptr Word8 -> Int -> IO Int
-countUTF8Chars ptr bytes = go ptr 0
+countUTF8Chars ptr len = go ptr 0
   where
-        end = ptr `plusPtr` bytes
+        !end = ptr `plusPtr` len
 
-        STRICT2(go)
-        go ptr n
-           | ptr >= end = return n
+        go p !n
+           | p >= end = return n
            | otherwise  = do
-                case utf8DecodeChar# (unPtr ptr) of
-                  (# _, a #) -> go (Ptr a) (n+1)
+                case utf8DecodeChar# (unPtr p) of
+                  (# _, nBytes# #) -> go (p `plusPtr#` nBytes#) (n+1)
 
 unPtr :: Ptr a -> Addr#
 unPtr (Ptr a) = a
+
+plusPtr# :: Ptr a -> Int# -> Ptr a
+plusPtr# ptr nBytes# = ptr `plusPtr` (I# nBytes#)
 
 utf8EncodeChar :: Char -> Ptr Word8 -> IO (Ptr Word8)
 utf8EncodeChar c ptr =
@@ -167,16 +168,14 @@ utf8EncodeChar c ptr =
 
 utf8EncodeString :: Ptr Word8 -> String -> IO ()
 utf8EncodeString ptr str = go ptr str
-  where STRICT2(go)
-        go _   []     = return ()
+  where go !_   []     = return ()
         go ptr (c:cs) = do
           ptr' <- utf8EncodeChar c ptr
           go ptr' cs
 
 utf8EncodedLength :: String -> Int
 utf8EncodedLength str = go 0 str
-  where STRICT2(go)
-        go n [] = n
+  where go !n [] = n
         go n (c:cs)
           | ord c > 0 && ord c <= 0x007f = go (n+1) cs
           | ord c <= 0x07ff = go (n+2) cs

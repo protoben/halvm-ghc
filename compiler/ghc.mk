@@ -53,8 +53,10 @@ compiler/stage%/build/Config.hs : mk/config.mk mk/project.mk | $$(dir $$@)/.
 	@echo                                                               >> $@
 	@echo '#include "ghc_boot_platform.h"'                              >> $@
 	@echo                                                               >> $@
-	@echo 'data IntegerLibrary = IntegerGMP | IntegerSimple'            >> $@
-	@echo '    deriving Eq'                                             >> $@
+	@echo 'data IntegerLibrary = IntegerGMP'                            >> $@
+	@echo '                    | IntegerGMP2'                           >> $@
+	@echo '                    | IntegerSimple'                         >> $@
+	@echo '                    deriving Eq'                             >> $@
 	@echo                                                               >> $@
 	@echo 'cBuildPlatformString :: String'                              >> $@
 	@echo 'cBuildPlatformString = BuildPlatform_NAME'                   >> $@
@@ -65,12 +67,18 @@ compiler/stage%/build/Config.hs : mk/config.mk mk/project.mk | $$(dir $$@)/.
 	@echo                                                               >> $@
 	@echo 'cProjectName          :: String'                             >> $@
 	@echo 'cProjectName          = "$(ProjectName)"'                    >> $@
+	@echo 'cProjectGitCommitId   :: String'				    >> $@
+	@echo 'cProjectGitCommitId   = "$(ProjectGitCommitId)"'		    >> $@
 	@echo 'cProjectVersion       :: String'                             >> $@
 	@echo 'cProjectVersion       = "$(ProjectVersion)"'                 >> $@
 	@echo 'cProjectVersionInt    :: String'                             >> $@
 	@echo 'cProjectVersionInt    = "$(ProjectVersionInt)"'              >> $@
 	@echo 'cProjectPatchLevel    :: String'                             >> $@
 	@echo 'cProjectPatchLevel    = "$(ProjectPatchLevel)"'              >> $@
+	@echo 'cProjectPatchLevel1   :: String'                             >> $@
+	@echo 'cProjectPatchLevel1   = "$(ProjectPatchLevel1)"'             >> $@
+	@echo 'cProjectPatchLevel2   :: String'                             >> $@
+	@echo 'cProjectPatchLevel2   = "$(ProjectPatchLevel2)"'             >> $@
 	@echo 'cBooterVersion        :: String'                             >> $@
 	@echo 'cBooterVersion        = "$(GhcVersion)"'                     >> $@
 	@echo 'cStage                :: String'                             >> $@
@@ -80,6 +88,8 @@ compiler/stage%/build/Config.hs : mk/config.mk mk/project.mk | $$(dir $$@)/.
 	@echo 'cIntegerLibraryType   :: IntegerLibrary'                     >> $@
 ifeq "$(INTEGER_LIBRARY)" "integer-gmp"
 	@echo 'cIntegerLibraryType   = IntegerGMP'                          >> $@
+else ifeq "$(INTEGER_LIBRARY)" "integer-gmp2"
+	@echo 'cIntegerLibraryType   = IntegerGMP2'                         >> $@
 else ifeq "$(INTEGER_LIBRARY)" "integer-simple"
 	@echo 'cIntegerLibraryType   = IntegerSimple'                       >> $@
 else ifneq "$(CLEANING)" "YES"
@@ -258,9 +268,6 @@ compiler_CPP_OPTS += ${GhcCppOpts}
 
 define preprocessCompilerFiles
 # $0 = stage
-compiler/stage$1/build/Parser.y: compiler/parser/Parser.y.pp
-	$$(CPP) $$(RAWCPP_FLAGS) -P $$(compiler_CPP_OPTS) -x c $$< | grep -v '^#pragma GCC' > $$@
-
 compiler/stage$1/build/primops.txt: compiler/prelude/primops.txt.pp compiler/stage$1/$$(PLATFORM_H)
 	$$(CPP) $$(RAWCPP_FLAGS) -P $$(compiler_CPP_OPTS) -Icompiler/stage$1 -x c $$< | grep -v '^#pragma GCC' > $$@
 
@@ -441,7 +448,14 @@ ifeq "$(compiler_stage1_VERSION_MUNGED)" "YES"
 compiler_stage1_MUNGED_VERSION = $(subst .$(ProjectPatchLevel),,$(ProjectVersion))
 define compiler_PACKAGE_MAGIC
 compiler_stage1_VERSION = $(compiler_stage1_MUNGED_VERSION)
+compiler_stage1_PACKAGE_KEY = $(subst .$(ProjectPatchLevel),,$(compiler_stage1_PACKAGE_KEY))
+compiler_stage1_LIB_NAME = $(subst .$(ProjectPatchLevel),,$(compiler_stage1_LIB_NAME))
 endef
+
+# NB: the PACKAGE_KEY munging has no effect for new-style package keys
+# (which indeed, have nothing version like in them, but are important for
+# old-style package keys which do.)  The subst operation is idempotent, so
+# as long as we do it at least once we should be good.
 
 # Don't register the non-munged package
 compiler_stage1_REGISTER_PACKAGE = NO
@@ -460,15 +474,14 @@ compiler_stage3_SplitObjs = NO
 compiler_stage2_dll0_START_MODULE = DynFlags
 compiler_stage2_dll0_MODULES = \
 	Annotations \
+	ApiAnnotation \
 	Avail \
 	Bag \
 	BasicTypes \
-	BinIface \
 	Binary \
 	BooleanFormula \
 	BreakArray \
 	BufWrite \
-	BuildTyCl \
 	Class \
 	CmdLineParser \
 	CmmType \
@@ -479,18 +492,17 @@ compiler_stage2_dll0_MODULES = \
 	Constants \
 	CoreArity \
 	CoreFVs \
-	CoreLint \
 	CoreSubst \
 	CoreSyn \
 	CoreTidy \
 	CoreUnfold \
 	CoreUtils \
 	CostCentre \
+	Ctype \
 	DataCon \
 	Demand \
 	Digraph \
 	DriverPhases \
-	DsMonad \
 	DynFlags \
 	Encoding \
 	ErrUtils \
@@ -501,7 +513,6 @@ compiler_stage2_dll0_MODULES = \
 	FastMutInt \
 	FastString \
 	FastTypes \
-	Finder \
 	Fingerprint \
 	FiniteMap \
 	ForeignCall \
@@ -512,6 +523,7 @@ compiler_stage2_dll0_MODULES = \
 	HsExpr \
 	HsImpExp \
 	HsLit \
+	PlaceHolder \
 	HsPat \
 	HsSyn \
 	HsTypes \
@@ -520,14 +532,14 @@ compiler_stage2_dll0_MODULES = \
 	IOEnv \
 	Id \
 	IdInfo \
-	IfaceEnv \
 	IfaceSyn \
 	IfaceType \
 	InstEnv \
 	Kind \
+	Lexeme \
+	Lexer \
 	ListSetOps \
 	Literal \
-	LoadIface \
 	Maybes \
 	MkCore \
 	MkId \
@@ -550,7 +562,6 @@ compiler_stage2_dll0_MODULES = \
 	Platform \
 	PlatformConstants \
 	PprCore \
-	PrelInfo \
 	PrelNames \
 	PrelRules \
 	Pretty \
@@ -562,11 +573,8 @@ compiler_stage2_dll0_MODULES = \
 	StaticFlags \
 	StringBuffer \
 	TcEvidence \
-	TcIface \
-	TcRnMonad \
 	TcRnTypes \
 	TcType \
-	TcTypeNats \
 	TrieMap \
 	TyCon \
 	Type \
@@ -602,6 +610,7 @@ compiler_stage2_dll0_MODULES += \
 	CmmUtils \
 	CodeGen.Platform \
 	CodeGen.Platform.ARM \
+	CodeGen.Platform.ARM64 \
 	CodeGen.Platform.NoRegs \
 	CodeGen.Platform.PPC \
 	CodeGen.Platform.PPC_Darwin \
@@ -675,9 +684,9 @@ compiler_stage2_CONFIGURE_OPTS += --disable-library-for-ghci
 compiler_stage3_CONFIGURE_OPTS += --disable-library-for-ghci
 
 # after build-package, because that sets compiler_stage1_HC_OPTS:
-compiler_stage1_HC_OPTS += $(GhcStage1HcOpts)
-compiler_stage2_HC_OPTS += $(GhcStage2HcOpts)
-compiler_stage3_HC_OPTS += $(GhcStage3HcOpts)
+compiler_stage1_HC_OPTS += $(GhcHcOpts) $(GhcStage1HcOpts)
+compiler_stage2_HC_OPTS += $(GhcHcOpts) $(GhcStage2HcOpts)
+compiler_stage3_HC_OPTS += $(GhcHcOpts) $(GhcStage3HcOpts)
 
 ifneq "$(BINDIST)" "YES"
 

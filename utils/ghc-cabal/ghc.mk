@@ -39,9 +39,11 @@ $(ghc-cabal_DIST_BINARY): utils/ghc-cabal/Main.hs $(TOUCH_DEP) | $$(dir $$@)/. b
 	       -Wall -fno-warn-unused-imports -fno-warn-warnings-deprecations \
 	       -DCABAL_VERSION=$(CABAL_VERSION) \
 	       -DBOOTSTRAPPING \
+	       -optP-include -optPutils/ghc-cabal/cabal_macros_boot.h \
 	       -odir  bootstrapping \
 	       -hidir bootstrapping \
 	       -ilibraries/Cabal/Cabal \
+	       -ilibraries/binary/src -DGENERICS \
 	       -ilibraries/filepath \
 	       -ilibraries/hpc \
 	       $(utils/ghc-cabal_dist_EXTRA_HC_OPTS)

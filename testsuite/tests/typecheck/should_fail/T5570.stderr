@@ -1,7 +1,8 @@
 
 T5570.hs:7:16:
-    Kind incompatibility when matching types:
-      s0 :: *
+    Couldn't match kind ‘*’ with ‘#’
+    When matching types
+      r0 :: *
       Double# :: #
     In the second argument of ‘($)’, namely ‘D# $ 3.0##’
     In the expression: print $ D# $ 3.0##

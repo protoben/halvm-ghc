@@ -52,6 +52,6 @@ void arm_atomic_spin_lock()
 void arm_atomic_spin_unlock()
 {
   atomic_spin = 0;
-} 
+}
 
 #endif  /* arm_HOST_ARCH && defined(arm_HOST_ARCH_PRE_ARMv6) */

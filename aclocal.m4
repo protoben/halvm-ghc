@@ -25,7 +25,7 @@ AC_DEFUN([GHC_SELECT_FILE_EXTENSIONS],
     x86_64-apple-darwin)
         $3='.dylib'
         ;;
-    arm-apple-darwin10|i386-apple-darwin11)
+    arm-apple-darwin10|i386-apple-darwin11|aarch64-apple-darwin14)
         $2='.a'
         $3='.dylib'
         ;;
@@ -196,6 +196,9 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
         arm)
             GET_ARM_ISA()
             test -z "[$]2" || eval "[$]2=\"ArchARM {armISA = \$ARM_ISA, armISAExt = \$ARM_ISA_EXT, armABI = \$ARM_ABI}\""
+            ;;
+        aarch64)
+            test -z "[$]2" || eval "[$]2=ArchARM64"
             ;;
         alpha)
             test -z "[$]2" || eval "[$]2=ArchAlpha"
@@ -472,6 +475,7 @@ AC_DEFUN([FP_SETTINGS],
         SettingsDllWrapCommand="/bin/false"
         SettingsWindresCommand="/bin/false"
         SettingsLibtoolCommand="libtool"
+        SettingsReadElfCommand="$ReadElfCmd"
         SettingsTouchCommand='touch'
     fi
     if test -z "$LlcCmd"
@@ -501,6 +505,7 @@ AC_DEFUN([FP_SETTINGS],
     AC_SUBST(SettingsDllWrapCommand)
     AC_SUBST(SettingsWindresCommand)
     AC_SUBST(SettingsLibtoolCommand)
+    AC_SUBST(SettingsReadElfCommand)
     AC_SUBST(SettingsTouchCommand)
     AC_SUBST(SettingsLlcCommand)
     AC_SUBST(SettingsOptCommand)
@@ -526,6 +531,12 @@ AC_DEFUN([FPTOOLS_SET_C_LD_FLAGS],
     esac
 
     case $$1 in
+    i386-unknown-mingw32)
+        $2="$$2 -march=i686"
+        ;;
+    i386-portbld-freebsd*)
+        $2="$$2 -march=i686"
+        ;;
     i386-apple-darwin)
         $2="$$2 -m32"
         $3="$$3 -m32"
@@ -536,6 +547,12 @@ AC_DEFUN([FPTOOLS_SET_C_LD_FLAGS],
         $2="$$2 -m64"
         $3="$$3 -m64"
         $4="$$4 -arch x86_64"
+        $5="$$5 -m64"
+        ;;
+    x86_64-unknown-solaris2)
+        $2="$$2 -m64"
+        $3="$$3 -m64"
+        $4="$$4 -m64"
         $5="$$5 -m64"
         ;;
     alpha-*)
@@ -552,6 +569,22 @@ AC_DEFUN([FPTOOLS_SET_C_LD_FLAGS],
         $2="$$2 -D_HPUX_SOURCE"
         $3="$$3 -D_HPUX_SOURCE"
         $5="$$5 -D_HPUX_SOURCE"
+        ;;
+    arm*linux*)
+        # On arm/linux and arm/android, tell gcc to generate Arm
+        # instructions (ie not Thumb) and to link using the gold linker.
+        # Forcing LD to be ld.gold is done in FIND_LD m4 macro.
+        $2="$$2 -marm"
+        $3="$$3 -fuse-ld=gold -Wl,-z,noexecstack"
+        $4="$$4 -z noexecstack"
+        ;;
+
+    aarch64*linux*)
+        # On aarch64/linux and aarch64/android, tell gcc to link using the
+        # gold linker.
+        # Forcing LD to be ld.gold is done in FIND_LD m4 macro.
+        $3="$$3 -fuse-ld=gold -Wl,-z,noexecstack"
+        $4="$$4 -z noexecstack"
         ;;
     esac
 
@@ -628,19 +661,20 @@ AC_DEFUN([FPTOOLS_FLOAT_WORD_ORDER_BIGENDIAN],
 ])
 
 
-# FP_ARG_WITH_PATH_GNU_PROG
+# FP_ARG_WITH_PATH_GNU_PROG_GENERAL
 # --------------------
 # Find the specified command on the path or allow a user to set it manually
-# with a --with-<command> option. An error will be thrown if the command isn't
-# found.
+# with a --with-<command> option.
 #
 # This is ignored on the mingw32 platform.
 #
 # $1 = the variable to set
 # $2 = the with option name
 # $3 = the command to look for
+# $4 = prepend target to program name? if 'no', use the name unchanged
+# $5 = optional? if 'no', then raise an error if the command isn't found
 #
-AC_DEFUN([FP_ARG_WITH_PATH_GNU_PROG],
+AC_DEFUN([FP_ARG_WITH_PATH_GNU_PROG_GENERAL],
 [
 AC_ARG_WITH($2,
 [AC_HELP_STRING([--with-$2=ARG],
@@ -660,58 +694,40 @@ AC_ARG_WITH($2,
 [
     if test "$HostOS" != "mingw32"
     then
-        if test "$target_alias" = "" ; then
+        if test "$4" = "no" -o "$target_alias" = "" ; then
             AC_PATH_PROG([$1], [$3])
         else
             AC_PATH_PROG([$1], [$target_alias-$3])
         fi
-        if test -z "$$1"
+        if test "$5" = "no" -a -z "$$1"
         then
             AC_MSG_ERROR([cannot find $3 in your PATH])
         fi
     fi
 ]
 )
-]) # FP_ARG_WITH_PATH_GNU_PROG
+]) # FP_ARG_WITH_PATH_GNU_PROG_GENERAL
 
+
+# FP_ARG_WITH_PATH_GNU_PROG
+# --------------------
+# The usual case: prepend the target, and the program is not optional.
+AC_DEFUN([FP_ARG_WITH_PATH_GNU_PROG],
+[FP_ARG_WITH_PATH_GNU_PROG_GENERAL([$1], [$2], [$3], [yes], [no])])
 
 # FP_ARG_WITH_PATH_GNU_PROG_OPTIONAL
 # --------------------
 # Same as FP_ARG_WITH_PATH_GNU_PROG but no error will be thrown if the command
 # isn't found.
-#
-# This is ignored on the mingw32 platform.
-#
-# $1 = the variable to set
-# $2 = the with option name
-# $3 = the command to look for
-#
 AC_DEFUN([FP_ARG_WITH_PATH_GNU_PROG_OPTIONAL],
-[
-AC_ARG_WITH($2,
-[AC_HELP_STRING([--with-$2=ARG],
-        [Use ARG as the path to $2 [default=autodetect]])],
-[
-    if test "$HostOS" = "mingw32"
-    then
-        AC_MSG_WARN([Request to use $withval will be ignored])
-    else
-        $1=$withval
-    fi
+[FP_ARG_WITH_PATH_GNU_PROG_GENERAL([$1], [$2], [$3], [yes], [yes])])
 
-    # Remember that we set this manually.  Used to override CC_STAGE0
-    # and friends later, if we are not cross-compiling.
-    With_$2=$withval
-],
-[
-    if test "$HostOS" != "mingw32"
-    then
-        AC_PATH_PROG([$1], [$3])
-    fi
-]
-)
-]) # FP_ARG_WITH_PATH_GNU_PROG_OPTIONAL
-
+# FP_ARG_WITH_PATH_GNU_PROG_OPTIONAL_NOTARGET
+# --------------------
+# Same as FP_ARG_WITH_PATH_GNU_PROG_OPTIONAL but don't prepend the target name
+# (used for LLVM).
+AC_DEFUN([FP_ARG_WITH_PATH_GNU_PROG_OPTIONAL_NOTARGET],
+[FP_ARG_WITH_PATH_GNU_PROG_GENERAL([$1], [$2], [$3], [no], [yes])])
 
 
 # FP_PROG_CONTEXT_DIFF
@@ -883,10 +899,10 @@ else
 fi;
 changequote([, ])dnl
 ])
-if test ! -f compiler/parser/Parser.hs || test ! -f compiler/cmm/CmmParse.hs || test ! -f compiler/parser/ParserCore.hs
+if test ! -f compiler/parser/Parser.hs || test ! -f compiler/cmm/CmmParse.hs
 then
-    FP_COMPARE_VERSIONS([$fptools_cv_happy_version],[-lt],[1.19],
-      [AC_MSG_ERROR([Happy version 1.19 or later is required to compile GHC.])])[]
+    FP_COMPARE_VERSIONS([$fptools_cv_happy_version],[-lt],[1.19.4],
+      [AC_MSG_ERROR([Happy version 1.19.4 or later is required to compile GHC.])])[]
 fi
 HappyVersion=$fptools_cv_happy_version;
 AC_SUBST(HappyVersion)
@@ -1588,9 +1604,27 @@ if test "$RELEASE" = "NO"; then
     fi
 fi
 
+    AC_MSG_CHECKING([for GHC Git commit id])
+    if test -d .git; then
+        git_commit_id=`git rev-parse HEAD`
+        if test -n "$git_commit_id" 2>&1 >/dev/null; then true; else
+            AC_MSG_ERROR([failed to detect revision: check that git is in your path])
+        fi
+        PACKAGE_GIT_COMMIT_ID=$git_commit_id
+        AC_MSG_RESULT(inferred $PACKAGE_GIT_COMMIT_ID)
+    elif test -f GIT_COMMIT_ID; then
+        PACKAGE_GIT_COMMIT_ID=`cat GIT_COMMIT_ID`
+        AC_MSG_RESULT(given $PACKAGE_GIT_COMMIT_ID)
+    else
+        AC_MSG_WARN([cannot determine snapshot revision: no .git directory and no 'GIT_COMMIT_ID' file])
+        PACKAGE_GIT_COMMIT_ID="0000000000000000000000000000000000000000"
+    fi
+
+
 # Some renamings
 AC_SUBST([ProjectName], [$PACKAGE_NAME])
 AC_SUBST([ProjectVersion], [$PACKAGE_VERSION])
+AC_SUBST([ProjectGitCommitId], [$PACKAGE_GIT_COMMIT_ID])
 
 # Split PACKAGE_VERSION into (possibly empty) parts
 VERSION_MAJOR=`echo $PACKAGE_VERSION | sed 's/^\(@<:@^.@:>@*\)\(\.\{0,1\}\(.*\)\)$/\1'/`
@@ -1608,6 +1642,13 @@ AC_SUBST([ProjectVersionInt])
 
 # The project patchlevel is zero unless stated otherwise
 test -z "$ProjectPatchLevel" && ProjectPatchLevel=0
+
+# Save split version of ProjectPatchLevel
+ProjectPatchLevel1=`echo $ProjectPatchLevel | sed 's/^\(@<:@^.@:>@*\)\(\.\{0,1\}\(.*\)\)$/\1/'`
+ProjectPatchLevel2=`echo $ProjectPatchLevel | sed 's/^\(@<:@^.@:>@*\)\(\.\{0,1\}\(.*\)\)$/\3/'`
+
+AC_SUBST([ProjectPatchLevel1])
+AC_SUBST([ProjectPatchLevel2])
 
 # Remove dots from the patch level; this allows us to have versions like 6.4.1.20050508
 ProjectPatchLevel=`echo $ProjectPatchLevel | sed 's/\.//'`
@@ -1806,6 +1847,28 @@ AC_DEFUN([FP_GMP],
   AC_SUBST(GMP_LIB_DIRS)
 ])# FP_GMP
 
+# FP_CURSES
+# -------------
+AC_DEFUN([FP_CURSES],
+[
+  dnl--------------------------------------------------------------------
+  dnl * Deal with arguments telling us curses is somewhere odd
+  dnl--------------------------------------------------------------------
+
+  AC_ARG_WITH([curses-includes],
+    [AC_HELP_STRING([--with-curses-includes],
+      [directory containing curses headers])],
+      [CURSES_INCLUDE_DIRS=$withval])
+
+  AC_ARG_WITH([curses-libraries],
+    [AC_HELP_STRING([--with-curses-libraries],
+      [directory containing curses libraries])],
+      [CURSES_LIB_DIRS=$withval])
+
+  AC_SUBST(CURSES_INCLUDE_DIRS)
+  AC_SUBST(CURSES_LIB_DIRS)
+])# FP_CURSES
+
 # --------------------------------------------------------------
 # Calculate absolute path to build tree
 # --------------------------------------------------------------
@@ -1820,7 +1883,7 @@ AC_MSG_NOTICE(Building in-tree ghc-pwd)
     dnl If special linker flags are needed to build things, then allow
     dnl the user to pass them in via LDFLAGS.
     changequote(, )dnl
-    GHC_LDFLAGS=`echo $LDFLAGS | sed 's/\(^\| \)\([^ ]\)/\1-optl\2/g'`
+    GHC_LDFLAGS=`perl -e 'foreach (@ARGV) { print "-optl$_ " }' -- $LDFLAGS`
     changequote([, ])dnl
     if ! "$WithGhc" $GHC_LDFLAGS -v0 -no-user-$GHC_PACKAGE_DB_FLAG -hidir utils/ghc-pwd/dist-boot -odir utils/ghc-pwd/dist-boot -stubdir utils/ghc-pwd/dist-boot --make utils/ghc-pwd/Main.hs -o utils/ghc-pwd/dist-boot/ghc-pwd
     then
@@ -1865,6 +1928,9 @@ AC_MSG_CHECKING(for path to top of build tree)
 # converts cpu from gnu to ghc naming, and assigns the result to $target_var
 AC_DEFUN([GHC_CONVERT_CPU],[
 case "$1" in
+  aarch64*)
+    $2="aarch64"
+    ;;
   alpha*)
     $2="alpha"
     ;;
@@ -1955,7 +2021,7 @@ AC_DEFUN([GHC_CONVERT_VENDOR],[
 # converts os from gnu to ghc naming, and assigns the result to $target_var
 AC_DEFUN([GHC_CONVERT_OS],[
 case "$1-$2" in
-  darwin10-arm|darwin11-i386)
+  darwin10-arm|darwin11-i386|darwin14-aarch64)
     $3="ios"
     ;;
   *)
@@ -2046,23 +2112,66 @@ AC_DEFUN([XCODE_VERSION],[
 # $1 = the variable to set
 # $2 = the with option name
 # $3 = the command to look for
+# $4 = the version of the command to look for
 #
 AC_DEFUN([FIND_LLVM_PROG],[
-    FP_ARG_WITH_PATH_GNU_PROG_OPTIONAL([$1], [$2], [$3])
-    if test "$$1" == ""; then
-        save_IFS=$IFS
-        IFS=":;"
-        for p in ${PATH}; do
-            if test -d "${p}"; then
-                $1=`${FindCmd} "${p}" -type f -perm +111 -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' -or -type l -perm +111 -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' | ${SortCmd} -n | tail -1`
-                if test -n "$$1"; then
-                    break
-                fi
-            fi
-        done
-        IFS=$save_IFS
+    # Test for program with version name.
+    FP_ARG_WITH_PATH_GNU_PROG_OPTIONAL_NOTARGET([$1], [$2], [$3-$4])
+    if test "$$1" = ""; then
+        # Test for program without version name.
+        FP_ARG_WITH_PATH_GNU_PROG_OPTIONAL_NOTARGET([$1], [$2], [$3])
+        AC_MSG_CHECKING([$$1 is version $4])
+        if test `$$1 --version | grep -c "version $4"` -gt 0 ; then
+            AC_MSG_RESULT(yes)
+        else
+            AC_MSG_RESULT(no)
+            $1=""
+        fi
     fi
 ])
+
+# FIND_LD
+# Find the version of `ld` to use. This is used in both in the top level
+# configure.ac and in distrib/configure.ac.in.
+#
+# $1 = the variable to set
+#
+AC_DEFUN([FIND_LD],[
+    FP_ARG_WITH_PATH_GNU_PROG([LD], [ld], [ld])
+    case $target in
+        arm*linux*       | \
+        aarch64*linux*   )
+            # Arm and Aarch64 requires use of the binutils ld.gold linker.
+            # This case should catch at least arm-unknown-linux-gnueabihf,
+            # arm-linux-androideabi, arm64-unknown-linux and
+            # aarch64-linux-android
+            FP_ARG_WITH_PATH_GNU_PROG([LD_GOLD], [ld.gold], [ld.gold])
+            $1="$LD_GOLD"
+            ;;
+        *)
+            $1="$LD"
+            ;;
+    esac
+])
+
+# FIND_GHC_BOOTSTRAP_PROG()
+# --------------------------------
+# Parse the bootstrap GHC's compier settings file for the location of things
+# like the `llc` and `opt` commands.
+#
+# $1 = the variable to set
+# $2 = The bootstrap compiler.
+# $3 = The string to grep for to find the correct line.
+#
+AC_DEFUN([FIND_GHC_BOOTSTRAP_PROG],[
+    BootstrapTmpCmd=`grep $3 $($2 --print-libdir)/settings 2>/dev/null | sed 's/.*", "//;s/".*//'`
+    if test -n "$BootstrapTmpCmd" && test `basename $BootstrapTmpCmd` = $BootstrapTmpCmd ; then
+        AC_PATH_PROG([$1], [$BootstrapTmpCmd], "")
+    else
+        $1=$BootstrapTmpCmd
+    fi
+])
+
 
 # FIND_GCC()
 # --------------------------------
@@ -2085,7 +2194,7 @@ AC_DEFUN([FIND_GCC],[
         $1="$CC"
     else
         FP_ARG_WITH_PATH_GNU_PROG_OPTIONAL([$1], [$2], [$3])
-        # From Xcode 5 on, OS X command line tools do not include gcc
+        # From Xcode 5 on/, OS X command line tools do not include gcc
         # anymore. Use clang.
         if test -z "$$1"
         then
@@ -2099,6 +2208,24 @@ AC_DEFUN([FIND_GCC],[
     AC_SUBST($1)
 ])
 
+# FIND_READELF()
+# --------------------------------
+# Finds which `readelf` to use. This is used in both in the top level
+# `configure.ac` and in `distrib/configure.ac.in`
+#
+# $1 = the variable to set
+#
+AC_DEFUN([FIND_READELF],[
+    if test "$HostOS" != "mingw32" &&
+       test "$HostOS" != "darwin" ; then
+        FP_ARG_WITH_PATH_GNU_PROG([READELF], [readelf], [readelf])
+        if test -z "$READELF"; then
+            AC_MSG_ERROR([cannot identify readelf tool])
+        fi
+        $1="$READELF"
+    fi
+])
+
 AC_DEFUN([MAYBE_OVERRIDE_STAGE0],[
   if test ! -z "$With_$1" -a "$CrossCompiling" != "YES"; then
       AC_MSG_NOTICE([Not cross-compiling, so --with-$1 also sets $2])
@@ -2107,5 +2234,151 @@ AC_DEFUN([MAYBE_OVERRIDE_STAGE0],[
 ])
 
 
+# FP_CPP_CMD_WITH_ARGS()
+# ----------------------
+# sets CPP command and its arguments
+#
+# $1 = the variable to set to CPP command
+# $2 = the varibale to set to CPP command arguments
+
+AC_DEFUN([FP_CPP_CMD_WITH_ARGS],[
+dnl ** what cpp to use?
+dnl --------------------------------------------------------------
+AC_ARG_WITH(hs-cpp,
+[AC_HELP_STRING([--with-hs-cpp=ARG],
+        [Use ARG as the path to cpp [default=autodetect]])],
+[
+    if test "$HostOS" = "mingw32"
+    then
+        AC_MSG_WARN([Request to use $withval will be ignored])
+    else
+        HS_CPP_CMD=$withval
+    fi
+],
+[
+
+    HS_CPP_CMD=$WhatGccIsCalled
+
+    SOLARIS_GCC_CPP_BROKEN=NO
+    SOLARIS_FOUND_GOOD_CPP=NO
+    case $host in
+        i386-*-solaris2)
+        GCC_MAJOR_MINOR=`$WhatGccIsCalled --version|grep "gcc (GCC)"|cut -d ' ' -f 3-3|cut -d '.' -f 1-2`
+        if test "$GCC_MAJOR_MINOR" != "3.4"; then
+          # this is not 3.4.x release so with broken CPP
+          SOLARIS_GCC_CPP_BROKEN=YES
+        fi
+        ;;
+    esac
+
+    if test "$SOLARIS_GCC_CPP_BROKEN" = "YES"; then
+      # let's try to find if GNU C 3.4.x is installed
+      if test -x /usr/sfw/bin/gcc; then
+        # something executable is in expected path so let's
+        # see if it's really GNU C
+        NEW_GCC_MAJOR_MINOR=`/usr/sfw/bin/gcc --version|grep "gcc (GCC)"|cut -d ' ' -f 3-3|cut -d '.' -f 1-2`
+        if test "$NEW_GCC_MAJOR_MINOR" = "3.4"; then
+          # this is GNU C 3.4.x which provides non-broken CPP on Solaris
+          # let's use it as CPP then.
+          HS_CPP_CMD=/usr/sfw/bin/gcc
+          SOLARIS_FOUND_GOOD_CPP=YES
+        fi
+      fi
+      if test "$SOLARIS_FOUND_GOOD_CPP" = "NO"; then
+        AC_MSG_WARN([Your GNU C provides broken CPP and you do not have GNU C 3.4.x installed.])
+        AC_MSG_WARN([Please install GNU C 3.4.x to solve this issue. It will be used as CPP only.])
+      fi
+    fi
+]
+)
+
+
+
+dnl ** what cpp flags to use?
+dnl -----------------------------------------------------------
+AC_ARG_WITH(hs-cpp-flags,
+  [AC_HELP_STRING([--with-hs-cpp-flags=ARG],
+          [Use ARG as the path to hs cpp [default=autodetect]])],
+  [
+      if test "$HostOS" = "mingw32"
+      then
+          AC_MSG_WARN([Request to use $withval will be ignored])
+      else
+          HS_CPP_ARGS=$withval
+      fi
+  ],
+[
+  $HS_CPP_CMD -x c /dev/null -dM -E > conftest.txt 2>&1
+  if grep "__clang__" conftest.txt >/dev/null 2>&1; then
+    HS_CPP_ARGS="-E -undef -traditional -Wno-invalid-pp-token -Wno-unicode -Wno-trigraphs "
+  else
+      $HS_CPP_CMD  -v > conftest.txt 2>&1
+      if  grep "gcc" conftest.txt >/dev/null 2>&1; then
+          HS_CPP_ARGS="-E -undef -traditional "
+        else
+          $HS_CPP_CMD  --version > conftest.txt 2>&1
+          if grep "cpphs" conftest.txt >/dev/null 2>&1; then
+            HS_CPP_ARGS="--cpp -traditional"
+          else
+            AC_MSG_WARN([configure can't recognize your CPP program, you may need to set --with-hs-cpp-flags=FLAGS explicitly])
+            HS_CPP_ARGS=""
+          fi
+      fi
+  fi
+  ]
+)
+
+$1=$HS_CPP_CMD
+$2=$HS_CPP_ARGS
+
+])
+
+# FP_BFD_SUPPORT()
+# ----------------------
+# whether to use libbfd for debugging RTS
+AC_DEFUN([FP_BFD_SUPPORT], [
+    AC_ARG_ENABLE(bfd-debug,
+        [AC_HELP_STRING([--enable-bfd-debug],
+              [Enable symbol resolution for -debug rts ('+RTS -Di') via binutils' libbfd [default=no]])],
+        [
+            # don't pollute general LIBS environment
+            save_LIBS="$LIBS"
+            AC_CHECK_HEADERS([bfd.h])
+            dnl ** check whether this machine has BFD and libiberty installed (used for debugging)
+            dnl    the order of these tests matters: bfd needs libiberty
+            AC_CHECK_LIB(iberty, xmalloc)
+            dnl 'bfd_init' is a rare non-macro in libbfd
+            AC_CHECK_LIB(bfd,    bfd_init)
+
+            AC_TRY_LINK([#include <bfd.h>],
+                        [
+                                /* mimic our rts/Printer.c */
+                                bfd* abfd;
+                                const char * name;
+                                char **matching;
+
+                                name = "some.executable";
+                                bfd_init();
+                                abfd = bfd_openr(name, "default");
+                                bfd_check_format_matches (abfd, bfd_object, &matching);
+                                {
+                                    long storage_needed;
+                                    storage_needed = bfd_get_symtab_upper_bound (abfd);
+                                }
+                                {
+                                    asymbol **symbol_table;
+                                    long number_of_symbols;
+                                    symbol_info info;
+
+                                    number_of_symbols = bfd_canonicalize_symtab (abfd, symbol_table);
+                                    bfd_get_symbol_info(abfd,symbol_table[0],&info);
+                                }
+                        ],
+                        [],dnl bfd seems to work
+                        [AC_MSG_ERROR([can't use 'bfd' library])])
+            LIBS="$save_LIBS"
+        ]
+    )
+])
 
 # LocalWords:  fi

@@ -19,6 +19,7 @@
 #include "RtsFlags.h"
 #include "RtsUtils.h"
 #include "Prelude.h"
+#include "Printer.h"    /* DEBUG_LoadSymbols */
 #include "Schedule.h"   /* initScheduler */
 #include "Stats.h"      /* initStats */
 #include "STM.h"        /* initSTM */
@@ -26,17 +27,18 @@
 #include "Weak.h"
 #include "Ticky.h"
 #include "StgRun.h"
-#include "Prelude.h"		/* fixupRTStoPreludeRefs */
+#include "Prelude.h"            /* fixupRTStoPreludeRefs */
 #include "ThreadLabels.h"
 #include "sm/BlockAlloc.h"
 #include "Trace.h"
 #include "Stable.h"
+#include "StaticPtrTable.h"
 #include "Hash.h"
 #include "Profiling.h"
 #include "Timer.h"
 #include "Globals.h"
 #include "FileLock.h"
-void exitLinker( void );	// there is no Linker.h file to include
+#include "LinkerInternals.h"
 
 #if defined(PROFILING)
 # include "ProfHeap.h"
@@ -124,8 +126,8 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
 {
     hs_init_count++;
     if (hs_init_count > 1) {
-	// second and subsequent inits are ignored
-	return;
+        // second and subsequent inits are ignored
+        return;
     }
 
 #ifndef HaLVM_TARGET_OS
@@ -162,6 +164,11 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
         setFullProgArgv(*argc,*argv);
         setupRtsFlags(argc, *argv,
                       rts_config.rts_opts_enabled, rts_config.rts_opts, rts_config.rts_hs_main);
+
+#ifdef DEBUG
+        /* load debugging symbols for current binary */
+        DEBUG_LoadSymbols((*argv)[0]);
+#endif /* DEBUG */
     }
 
     /* Initialise the stats department, phase 1 */
@@ -210,12 +217,14 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
     getStablePtr((StgPtr)blockedIndefinitelyOnMVar_closure);
     getStablePtr((StgPtr)nonTermination_closure);
     getStablePtr((StgPtr)blockedIndefinitelyOnSTM_closure);
+    getStablePtr((StgPtr)allocationLimitExceeded_closure);
     getStablePtr((StgPtr)nestedAtomically_closure);
 
     getStablePtr((StgPtr)runSparks_closure);
     getStablePtr((StgPtr)ensureIOManagerIsRunning_closure);
     getStablePtr((StgPtr)ioManagerCapabilitiesChanged_closure);
-#if !defined(mingw32_HOST_OS) && !defined(HaLVM_TARGET_OS)
+#ifndef mingw32_HOST_OS
+    getStablePtr((StgPtr)blockedOnBadFD_closure);
     getStablePtr((StgPtr)runHandlersPtr_closure);
 #endif
 
@@ -310,16 +319,16 @@ hs_add_root(void (*init_root)(void) STG_UNUSED)
 static void
 hs_exit_(rtsBool wait_foreign)
 {
-    nat g;
+    nat g, i;
 
     if (hs_init_count <= 0) {
-	errorBelch("warning: too many hs_exit()s");
-	return;
+        errorBelch("warning: too many hs_exit()s");
+        return;
     }
     hs_init_count--;
     if (hs_init_count > 0) {
-	// ignore until it's the last one
-	return;
+        // ignore until it's the last one
+        return;
     }
 
     /* start timing the shutdown */
@@ -342,6 +351,9 @@ hs_exit_(rtsBool wait_foreign)
     exitScheduler(wait_foreign);
 
     /* run C finalizers for all active weak pointers */
+    for (i = 0; i < n_capabilities; i++) {
+        runAllCFinalizers(capabilities[i]->weak_ptr_list_hd);
+    }
     for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
         runAllCFinalizers(generations[g].weak_ptr_list);
     }
@@ -393,6 +405,9 @@ hs_exit_(rtsBool wait_foreign)
 #if !defined(HaLVM_TARGET_OS)
     freeFileLocking();
 #endif
+
+    /* free the Static Pointer Table */
+    exitStaticPtrTable();
 
     /* free the stable pointer table */
     exitStableTables();

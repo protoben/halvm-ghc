@@ -148,6 +148,17 @@
           (when using <option>-staticlib</option> only).</para>
         </listitem>
       </varlistentry>
+
+      <varlistentry>
+        <term>
+          <option>-pgmreadelf</option> <replaceable>cmd</replaceable>
+          <indexterm><primary><option>-pgmreadelf</option></primary></indexterm>
+        </term>
+        <listitem>
+          <para>Use <replaceable>cmd</replaceable> as the readelf command
+          (part of Unix binutils).</para>
+        </listitem>
+      </varlistentry>
     </variablelist>
   </sect2>
 
@@ -214,15 +225,6 @@
         </term>
         <listitem>
           <para>Pass <replaceable>option</replaceable> to the LLVM compiler.</para>
-        </listitem>
-      </varlistentry>
-      <varlistentry>
-        <term>
-          <option>-optm</option>  <replaceable>option</replaceable>
-          <indexterm><primary><option>-optm</option></primary></indexterm>
-        </term>
-        <listitem>
-          <para>Pass <replaceable>option</replaceable> to the mangler.</para>
         </listitem>
       </varlistentry>
       <varlistentry>
@@ -395,6 +397,100 @@ $ cat foo.hspp</screen>
           files).</para>
         </listitem>
       </varlistentry>
+
+      <varlistentry>
+        <term>
+          <constant>&lowbar;&lowbar;GLASGOW&lowbar;HASKELL&lowbar;PATCHLEVEL1&lowbar;&lowbar;</constant>
+          <indexterm><primary><constant>&lowbar;&lowbar;GLASGOW&lowbar;HASKELL&lowbar;PATCHLEVEL1&lowbar;&lowbar;</constant></primary></indexterm>
+        </term>
+        <term>
+          <constant>&lowbar;&lowbar;GLASGOW&lowbar;HASKELL&lowbar;PATCHLEVEL2&lowbar;&lowbar;</constant>
+          <indexterm><primary><constant>&lowbar;&lowbar;GLASGOW&lowbar;HASKELL&lowbar;PATCHLEVEL2&lowbar;&lowbar;</constant></primary></indexterm>
+        </term>
+        <listitem>
+          <para>These macros are available starting with GHC 7.10.1.</para>
+
+          <para>For three-part GHC version numbers
+          <literal><replaceable>x</replaceable>.<replaceable>y</replaceable>.<replaceable>z</replaceable></literal>,
+          the value of
+          <constant>&lowbar;&lowbar;GLASGOW&lowbar;HASKELL&lowbar;PATCHLEVEL1&lowbar;&lowbar;</constant>
+          is the integer <replaceable>z</replaceable>.</para>
+
+          <para>For four-part GHC version numbers
+          <literal><replaceable>x</replaceable>.<replaceable>y</replaceable>.<replaceable>z</replaceable>.<replaceable>z'</replaceable></literal>,
+          the value of
+          <constant>&lowbar;&lowbar;GLASGOW&lowbar;HASKELL&lowbar;PATCHLEVEL1&lowbar;&lowbar;</constant>
+          is the integer <replaceable>z</replaceable> while the value of
+          <constant>&lowbar;&lowbar;GLASGOW&lowbar;HASKELL&lowbar;PATCHLEVEL2&lowbar;&lowbar;</constant>
+          is set to the integer <replaceable>z'</replaceable>.</para>
+
+          <para>These macros are provided for allowing finer
+          granularity than is provided by
+          <literal>__GLASGOW_HASKELL__</literal>. Usually, this should
+          not be necessary as it's expected for most APIs to remain
+          stable between patchlevel releases, but occasionally
+          internal API changes are necessary to fix bugs.  Also
+          conditional compilation on the patchlevel can be useful for
+          working around bugs in older releases.</para>
+
+          <para>NB. These macros are set when pre-processing both
+          Haskell source and C source, including the C source
+          generated from a Haskell module
+          (i.e. <filename>.hs</filename>, <filename>.lhs</filename>,
+          <filename>.c</filename> and <filename>.hc</filename>
+          files).</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
+          <constant>MIN&lowbar;VERSION&lowbar;GLASGOW&lowbar;HASKELL(<replaceable>x</replaceable>,<replaceable>y</replaceable>,<replaceable>z</replaceable>,<replaceable>z'</replaceable>)</constant>
+          <indexterm><primary><constant>MIN&lowbar;VERSION&lowbar;GLASGOW&lowbar;HASKELL</constant></primary></indexterm>
+        </term>
+        <listitem>
+          <para>This macro is available starting with GHC 7.10.1.</para>
+
+          <para>This macro is provided for convenience to write CPP
+          conditionals testing whether the GHC version used is version
+          <literal><replaceable>x</replaceable>.<replaceable>y</replaceable>.<replaceable>z</replaceable>.<replaceable>z'</replaceable></literal>
+          or later.</para>
+
+          <para>If compatibility with Haskell compilers (including GHC
+          prior to version 7.10.1) which do not define
+          <literal>MIN_VERSION_GLASGOW_HASKELL</literal> is required,
+          the presence of the
+          <literal>MIN_VERSION_GLASGOW_HASKELL</literal> macro needs
+          to be ensured before it is called, e.g.:</para>
+
+<programlisting>&num;ifdef MIN_VERSION_GLASGOW_HASKELL
+&num;if MIN_VERSION_GLASGOW_HASKELL(7,10,2,0)
+/* code that applies only to GHC 7.10.2 or later */
+&num;endif
+&num;endif</programlisting>
+
+          <para>NB. This macro is set when pre-processing both
+          Haskell source and C source, including the C source
+          generated from a Haskell module
+          (i.e. <filename>.hs</filename>, <filename>.lhs</filename>,
+          <filename>.c</filename> and <filename>.hc</filename>
+          files).</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
+          <constant>&lowbar;&lowbar;GLASGOW&lowbar;HASKELL&lowbar;TH&lowbar;&lowbar;</constant>
+          <indexterm><primary><constant>&lowbar;&lowbar;GLASGOW&lowbar;HASKELL&lowbar;TH&lowbar;&lowbar;</constant></primary></indexterm>
+        </term>
+        <listitem>
+          <para>
+          This is set to <literal>YES</literal> when the compiler supports Template Haskell, and to
+          <literal>NO</literal> when not. The latter is the case for a stage-1 compiler during bootstrapping, or
+          on architectures where the interpreter is not available.
+          </para>
+        </listitem>
+      </varlistentry>
+
 
       <varlistentry>
         <term>
@@ -585,8 +681,22 @@ $ cat foo.hspp</screen>
         </term>
         <listitem>
           <para>Omit code generation (and all later phases)
-          altogether.  Might be of some use if you just want to see
-          dumps of the intermediate compilation phases.</para>
+          altogether.  This is useful if you're only interested in
+          type checking code.</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
+          <option>-fwrite-interface</option>
+          <indexterm><primary><option>-fwrite-interface</option></primary></indexterm>
+        </term>
+        <listitem>
+          <para>Always write interface files.  GHC will normally write
+          interface files automatically, but this flag is useful with
+          <option>-fno-code</option>, which normally suppresses generation
+          of interface files.  This is useful if you want to type check
+          over multiple runs of GHC without compiling dependencies.</para>
         </listitem>
       </varlistentry>
 
@@ -794,10 +904,10 @@ $ cat foo.hspp</screen>
           executables linked against the library are smaller as they only
           link against the object files that they need. However, assembling
           all the sections separately is expensive, so this is slower than
-          compiling normally.
-          We use this feature for building GHC's libraries
-          (warning: don't use it unless you know what you're
-          doing!).</para>
+          compiling normally. Additionally, the size of the library itself
+          (the <literal>.a</literal> file) can be a factor of 2 to 2.5
+          larger.
+          We use this feature for building GHC's libraries.</para>
         </listitem>
       </varlistentry>
 
@@ -1223,6 +1333,21 @@ $ cat foo.hspp</screen>
               allows you to override it with the specified file path. (It passes
               <literal>-install_name</literal> to Apple's linker.) Ignored on other
               platforms.</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
+          <option>-rdynamic</option>
+          <indexterm><primary><option>-rdynamic</option></primary>
+          </indexterm>
+        </term>
+        <listitem>
+          <para>
+              This instructs the linker to add all symbols, not only used ones, to the
+              dynamic symbol table. Currently Linux and Windows/MinGW32 only.
+              This is equivalent to using <literal>-optl -rdynamic</literal> on Linux,
+              and <literal>-optl -export-all-symbols</literal> on Windows.</para>
         </listitem>
       </varlistentry>
     </variablelist>

@@ -95,11 +95,9 @@ TargetElf = YES
 endif
 
 # Some platforms don't support shared libraries
-NoSharedLibsPlatformList = powerpc-unknown-linux \
+NoSharedLibsPlatformList = \
 	x86_64-unknown-mingw32 \
-	i386-unknown-mingw32 \
-	sparc-sun-solaris2 \
-	sparc-unknown-linux
+	i386-unknown-mingw32
 
 ifeq "$(SOLARIS_BROKEN_SHLD)" "YES"
 NoSharedLibsPlatformList += i386-unknown-solaris2
@@ -174,7 +172,7 @@ HaveLibDL = @HaveLibDL@
 
 # ArchSupportsSMP should be set iff there is support for that arch in
 # includes/stg/SMP.h
-ArchSupportsSMP=$(strip $(patsubst $(TargetArch_CPP), YES, $(findstring $(TargetArch_CPP), i386 x86_64 sparc powerpc arm)))
+ArchSupportsSMP=$(strip $(patsubst $(TargetArch_CPP), YES, $(findstring $(TargetArch_CPP), i386 x86_64 sparc powerpc arm aarch64)))
 
 GhcWithSMP := $(strip $(if $(filter YESNO, $(ArchSupportsSMP)$(GhcUnregisterised)),YES,NO))
 
@@ -182,7 +180,7 @@ GhcWithSMP := $(strip $(if $(filter YESNO, $(ArchSupportsSMP)$(GhcUnregisterised
 # has support for this OS/ARCH combination.
 
 OsSupportsGHCi=$(strip $(patsubst $(TargetOS_CPP), YES, $(findstring $(TargetOS_CPP), mingw32 cygwin32 linux solaris2 freebsd dragonfly netbsd openbsd darwin kfreebsdgnu)))
-ArchSupportsGHCi=$(strip $(patsubst $(TargetArch_CPP), YES, $(findstring $(TargetArch_CPP), i386 x86_64 powerpc sparc sparc64 arm)))
+ArchSupportsGHCi=$(strip $(patsubst $(TargetArch_CPP), YES, $(findstring $(TargetArch_CPP), i386 x86_64 powerpc sparc sparc64 arm aarch64)))
 
 ifeq "$(OsSupportsGHCi)$(ArchSupportsGHCi)" "YESYES"
 GhcWithInterpreter=YES
@@ -232,7 +230,7 @@ ExtraMakefileSanityChecks = NO
 # Options for Libraries
 
 # Which directory (in libraries/) contains the integer library?
-INTEGER_LIBRARY=integer-gmp
+INTEGER_LIBRARY=integer-gmp2
 
 # We build the libraries at least the "vanilla" way (way "v")
 GhcLibWays = v
@@ -355,7 +353,7 @@ LAX_DEPENDENCIES = NO
 # the debugging RTS flavour, rts/ghc.mk overrides these to turn off
 # optimisation.
 GhcRtsHcOpts=-O2
-GhcRtsCcOpts=-O2 -fomit-frame-pointer
+GhcRtsCcOpts=-O2 -fomit-frame-pointer -g
 
 # Include support for CPU performance counters via the PAPI library in the RTS?
 # (PAPI: http://icl.cs.utk.edu/papi/)
@@ -492,6 +490,8 @@ endif
 GHC_PACKAGE_DB_FLAG = @GHC_PACKAGE_DB_FLAG@
 
 CMM_SINK_BOOTSTRAP_IS_NEEDED = @CMM_SINK_BOOTSTRAP_IS_NEEDED@
+
+SUPPORTS_PACKAGE_KEY = @SUPPORTS_PACKAGE_KEY@
 
 #-----------------------------------------------------------------------------
 # C compiler
@@ -801,24 +801,8 @@ else
 HSCOLOUR_SRCS = YES
 endif
 
-################################################################################
-#
-#		31-bit-Int Core files
-#
-################################################################################
-
-#
-# It is possible to configure the compiler and prelude to support 31-bit
-# integers, suitable for a back-end and RTS using a tag bit on a 32-bit
-# architecture.  Currently the only useful output from this option is external Core
-# files.  The following additions to your build.mk will produce the
-# 31-bit core output.  Note that this is *not* just a library "way"; the
-# compiler must be built a special way too.
-
-# GhcCppOpts +=-DWORD_SIZE_IN_BITS=31
-# GhcLibHcOpts +=-fext-core -fno-code -DWORD_SIZE_IN_BITS=31
-# GhcLibCppOpts += -DWORD_SIZE_IN_BITS=31
-# SplitObjs=NO
+# Build DPH?
+BUILD_DPH = NO
 
 ################################################################################
 #
@@ -839,3 +823,6 @@ ICONV_LIB_DIRS = @ICONV_LIB_DIRS@
 
 GMP_INCLUDE_DIRS = @GMP_INCLUDE_DIRS@
 GMP_LIB_DIRS = @GMP_LIB_DIRS@
+
+CURSES_INCLUDE_DIRS = @CURSES_INCLUDE_DIRS@
+CURSES_LIB_DIRS = @CURSES_LIB_DIRS@

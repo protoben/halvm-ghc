@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 -- -----------------------------------------------------------------------------
 --
 -- (c) The University of Glasgow 1994-2004
@@ -35,7 +37,9 @@ module PPC.Regs (
         fits16Bits,
         makeImmediate,
         fReg,
-        sp, r3, r4, r27, r28, f1, f20, f21,
+        r0, sp, r3, r4, r27, r28, r30,
+        tmpReg,
+        f1, f20, f21,
 
         allocatableRegs
 
@@ -293,12 +297,14 @@ point registers.
 fReg :: Int -> RegNo
 fReg x = (32 + x)
 
-sp, r3, r4, r27, r28, f1, f20, f21 :: Reg
+r0, sp, r3, r4, r27, r28, r30, f1, f20, f21 :: Reg
+r0      = regSingle 0
 sp      = regSingle 1
 r3      = regSingle 3
 r4      = regSingle 4
 r27     = regSingle 27
 r28     = regSingle 28
+r30     = regSingle 30
 f1      = regSingle $ fReg 1
 f20     = regSingle $ fReg 20
 f21     = regSingle $ fReg 21
@@ -310,3 +316,10 @@ allocatableRegs :: Platform -> [RealReg]
 allocatableRegs platform
    = let isFree i = isFastTrue (freeReg platform i)
      in  map RealRegSingle $ filter isFree allMachRegNos
+
+-- temporary register for compiler use
+tmpReg :: Platform -> Reg
+tmpReg platform =
+       case platformArch platform of
+       ArchPPC      -> regSingle 13
+       _            -> panic "PPC.Regs.tmpReg: unknowm arch"

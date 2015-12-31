@@ -10,6 +10,7 @@
 	path = libraries/Cabal
 	url = git://git.haskell.org/packages/Cabal.git
 	ignore = untracked
+	branch = 1.22
 [submodule "libraries/containers"]
 	path = libraries/containers
 	url = git://git.haskell.org/packages/containers.git
@@ -54,6 +55,64 @@
 	path = libraries/random
 	url = git://git.haskell.org/packages/random.git
 	ignore = untracked
-[submodule "rts/minlibc"]
-	path = rts/minlibc
-	url = git://github.com/GaloisInc/minlibc
+[submodule "libraries/array"]
+	path = libraries/array
+	url = git://git.haskell.org/packages/array.git
+	ignore = none
+[submodule "libraries/deepseq"]
+	path = libraries/deepseq
+	url = git://git.haskell.org/packages/deepseq.git
+	ignore = none
+[submodule "libraries/directory"]
+	path = libraries/directory
+	url = git://git.haskell.org/packages/directory.git
+	ignore = none
+[submodule "libraries/filepath"]
+	path = libraries/filepath
+	url = git://git.haskell.org/packages/filepath.git
+	ignore = none
+[submodule "libraries/hoopl"]
+	path = libraries/hoopl
+	url = git://git.haskell.org/packages/hoopl.git
+	ignore = none
+[submodule "libraries/hpc"]
+	path = libraries/hpc
+	url = git://git.haskell.org/packages/hpc.git
+	ignore = none
+[submodule "libraries/process"]
+	path = libraries/process
+	url = git://git.haskell.org/packages/process.git
+	ignore = none
+[submodule "libraries/unix"]
+	path = libraries/unix
+	url = git://git.haskell.org/packages/unix.git
+	ignore = none
+[submodule "libraries/parallel"]
+	path = libraries/parallel
+	url = git://git.haskell.org/packages/parallel.git
+	ignore = none
+[submodule "libraries/stm"]
+	path = libraries/stm
+	url = git://git.haskell.org/packages/stm.git
+	ignore = none
+[submodule "libraries/dph"]
+	path = libraries/dph
+	url = git://git.haskell.org/packages/dph.git
+	ignore = none
+[submodule "utils/haddock"]
+	path = utils/haddock
+	url = git://git.haskell.org/haddock.git
+	ignore = none
+	branch = master
+[submodule "nofib"]
+	path = nofib
+	url = git://git.haskell.org/nofib.git
+	ignore = none
+[submodule "utils/hsc2hs"]
+	path = utils/hsc2hs
+	url = git://git.haskell.org/hsc2hs.git
+	ignore = none
+[submodule "libffi-tarballs"]
+	path = libffi-tarballs
+	url = git://git.haskell.org/libffi-tarballs.git
+	ignore = none

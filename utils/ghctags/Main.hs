@@ -1,4 +1,4 @@
-{-# LANGUAGE PatternGuards, ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Main where
 
 import Prelude hiding ( mod, id, mapM )
@@ -20,7 +20,6 @@ import SrcLoc
 
 import Distribution.Simple.GHC ( componentGhcOptions )
 import Distribution.Simple.Configure ( getPersistBuildConfig )
-import Distribution.Simple.Compiler ( compilerVersion )
 import Distribution.Simple.Program.GHC ( renderGhcOptions )
 import Distribution.PackageDescription ( library, libBuildInfo )
 import Distribution.Simple.LocalBuildInfo
@@ -191,8 +190,7 @@ flagsFromCabal distPref = do
       let bi = libBuildInfo lib
           odir = buildDir lbi
           opts = componentGhcOptions V.normal lbi bi clbi odir
-          version = compilerVersion (compiler lbi)
-      in return $ renderGhcOptions version opts
+      in return $ renderGhcOptions (compiler lbi) opts
     _ -> error "no library"
 
 ----------------------------------------------------------------
@@ -284,7 +282,7 @@ boundThings modname lbinding =
     PatBind { pat_lhs = lhs } -> patThings lhs []
     VarBind { var_id = id } -> [FoundThing modname (getOccString id) (startOfLocated lbinding)]
     AbsBinds { } -> [] -- nothing interesting in a type abstraction
-    PatSynBind { patsyn_id = id } -> [thing id]
+    PatSynBind PSB{ psb_id = id } -> [thing id]
   where thing = foundOfLName modname
         patThings lpat tl =
           let loc = startOfLocated lpat
@@ -309,7 +307,7 @@ boundThings modname lbinding =
                _ -> error "boundThings"
         conArgs (PrefixCon ps) tl = foldr patThings tl ps
         conArgs (RecCon (HsRecFields { rec_flds = flds })) tl
-             = foldr (\f tl' -> patThings (hsRecFieldArg f) tl') tl flds
+             = foldr (\(L _ f) tl' -> patThings (hsRecFieldArg f) tl') tl flds
         conArgs (InfixCon p1 p2) tl = patThings p1 $ patThings p2 tl
 
 

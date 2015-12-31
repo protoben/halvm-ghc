@@ -34,7 +34,6 @@ ALL_DIRS = hooks sm eventlog
 ifeq "$(HostOS_CPP)" "mingw32"
 ALL_DIRS += win32
 else ifeq "$(TargetOS_CPP)" "HaLVM"
-ALL_DIRS += xen minlibc
 else
 ALL_DIRS += posix
 endif
@@ -190,7 +189,7 @@ ifneq "$$(findstring dyn, $1)" ""
 ifeq "$$(HostOS_CPP)" "mingw32" 
 $$(rts_$1_LIB) : $$(rts_$1_OBJS) $$(ALL_RTS_DEF_LIBS) rts/dist/libs.depend rts/dist/build/$$(LIBFFI_DLL)
 	"$$(RM)" $$(RM_OPTS) $$@
-	"$$(rts_dist_HC)" -package-name rts -shared -dynamic -dynload deploy \
+	"$$(rts_dist_HC)" -this-package-key rts -shared -dynamic -dynload deploy \
 	  -no-auto-link-packages -Lrts/dist/build -l$$(LIBFFI_NAME) \
          `cat rts/dist/libs.depend` $$(rts_$1_OBJS) $$(ALL_RTS_DEF_LIBS) \
          $$(rts_dist_$1_GHC_LD_OPTS) \
@@ -211,7 +210,7 @@ LIBFFI_LIBS =
 endif
 $$(rts_$1_LIB) : $$(rts_$1_OBJS) $$(rts_$1_DTRACE_OBJS) rts/dist/libs.depend $$(rts_dist_FFI_SO)
 	"$$(RM)" $$(RM_OPTS) $$@
-	"$$(rts_dist_HC)" -package-name rts -shared -dynamic -dynload deploy \
+	"$$(rts_dist_HC)" -this-package-key rts -shared -dynamic -dynload deploy \
 	  -no-auto-link-packages $$(LIBFFI_LIBS) `cat rts/dist/libs.depend` $$(rts_$1_OBJS) \
           $$(rts_dist_$1_GHC_LD_OPTS) \
 	  $$(rts_$1_DTRACE_OBJS) -o $$@
@@ -285,7 +284,7 @@ STANDARD_OPTS += -DCOMPILING_RTS
 rts_CC_OPTS += $(WARNING_OPTS)
 rts_CC_OPTS += $(STANDARD_OPTS)
 
-rts_HC_OPTS += $(STANDARD_OPTS) -package-name rts
+rts_HC_OPTS += $(STANDARD_OPTS) -this-package-key rts
 
 ifneq "$(GhcWithSMP)" "YES"
 rts_CC_OPTS += -DNOSMP

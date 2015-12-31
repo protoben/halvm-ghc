@@ -143,6 +143,8 @@ class TestRun:
        self.unexpected_passes = {}
        self.n_unexpected_failures = 0
        self.unexpected_failures = {}
+       self.n_unexpected_stat_failures = 0
+       self.unexpected_stat_failures = {}
        
 global t
 t = TestRun()
@@ -251,6 +253,11 @@ class TestOptions:
 
        # Extra output normalisation
        self.extra_normaliser = lambda x: x
+
+       # Custom output checker, otherwise do a comparison with expected
+       # stdout file.  Accepts two arguments: filename of actual stdout
+       # output, and a normaliser function given other test options
+       self.check_stdout = None
 
        # Extra normalisation for compiler error messages
        self.extra_errmsg_normaliser = lambda x: x

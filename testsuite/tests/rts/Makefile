@@ -102,23 +102,48 @@ T7037:
 T7040_ghci_setup :
 	'$(TEST_HC)' $(TEST_HC_OPTS) $(ghciWayFlags) -c T7040_ghci_c.c
 
-LOCAL_GHC_PKG = '$(GHC_PKG)' --no-user-package-db
-
-BASE_DIR = $(shell $(LOCAL_GHC_PKG) field base library-dirs | sed 's/^.*: *//')
-BASE_LIB = $(shell $(LOCAL_GHC_PKG) field base hs-libraries | sed 's/^.*: *//')
-GHC_PRIM_DIR = $(shell $(LOCAL_GHC_PKG) field ghc-prim library-dirs | sed 's/^.*: *//')
-GHC_PRIM_LIB = $(shell $(LOCAL_GHC_PKG) field ghc-prim hs-libraries | sed 's/^.*: *//')
-INTEGER_GMP_DIR = $(shell $(LOCAL_GHC_PKG) field integer-gmp library-dirs | sed 's/^.*: *//')
-INTEGER_GMP_LIB = $(shell $(LOCAL_GHC_PKG) field integer-gmp hs-libraries | sed 's/^.*: *//')
-
-BASE        = $(BASE_DIR)/lib$(BASE_LIB).a
-GHC_PRIM    = $(GHC_PRIM_DIR)/lib$(GHC_PRIM_LIB).a
-INTEGER_GMP = $(INTEGER_GMP_DIR)/lib$(INTEGER_GMP_LIB).a
-
 .PHONY: linker_unload
 linker_unload:
 	$(RM) Test.o Test.hi
 	"$(TEST_HC)" $(TEST_HC_OPTS) -c Test.hs -v0
 	# -rtsopts causes a warning
-	"$(TEST_HC)" $(filter-out -rtsopts, $(TEST_HC_OPTS)) linker_unload.c -o linker_unload -no-hs-main -optc-Werror
-	./linker_unload $(BASE) $(GHC_PRIM) $(INTEGER_GMP)
+	"$(TEST_HC)" LinkerUnload.hs -package ghc $(filter-out -rtsopts, $(TEST_HC_OPTS)) linker_unload.c -o linker_unload -no-hs-main -optc-Werror
+	./linker_unload "`'$(TEST_HC)' $(TEST_HC_OPTS) --print-libdir | tr -d '\r'`"
+
+# -----------------------------------------------------------------------------
+# Testing failures in the RTS linker.  We should be able to repeatedly
+# load bogus object files of various kinds without crashing and
+# without any memory leaks.
+#
+# Check for memory leaks manually by running e.g.
+#
+# make linker_error1
+# valgrind --leak-check=full --show-reachable=yes ./linker_error1 linker_error1_o.o
+
+# linker_error1: not a valid object file
+
+.PHONY: linker_error1
+linker_error1:
+	"$(TEST_HC)" -c linker_error.c -o linker_error1.o
+	"$(TEST_HC)" linker_error1.o -o linker_error1 -no-hs-main -optc-g -debug -threaded
+	./linker_error1 linker_error.c
+
+# linker_error2: the object file has an unknown symbol (fails in
+# resolveObjs())
+
+.PHONY: linker_error2
+linker_error2:
+	"$(TEST_HC)" -c linker_error.c -o linker_error2.o
+	"$(TEST_HC)" -c linker_error2.c -o linker_error2_o.o
+	"$(TEST_HC)" linker_error2.o -o linker_error2 -no-hs-main -optc-g -debug -threaded
+	./linker_error2 linker_error2_o.o
+
+# linker_error3: the object file duplicates an existing symbol (fails
+# in loadObj())
+
+.PHONY: linker_error3
+linker_error3:
+	"$(TEST_HC)" -c linker_error.c -o linker_error3.o
+	"$(TEST_HC)" -c linker_error3.c -o linker_error3_o.o
+	"$(TEST_HC)" linker_error3.o -o linker_error3 -no-hs-main -optc-g -debug -threaded
+	./linker_error3 linker_error3_o.o

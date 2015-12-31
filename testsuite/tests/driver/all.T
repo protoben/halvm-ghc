@@ -384,18 +384,35 @@ test('T7060',
 test('T7130', normal, compile_fail, ['-fflul-laziness'])
 test('T7563', when(unregisterised(), skip), run_command,
      ['$MAKE -s --no-print-directory T7563'])
-test('T6037', expect_broken(6037), run_command,
+test('T6037',
+     # The testsuite doesn't know how to set a non-Unicode locale on Windows or Mac OS X
+     [when(opsys('mingw32'), expect_fail), when(opsys('darwin'), expect_fail)],
+     run_command,
      ['$MAKE -s --no-print-directory T6037'])
+
 test('T2507',
      # The testsuite doesn't know how to set a non-Unicode locale on Windows or Mac OS X
      [when(opsys('mingw32'), expect_fail), when(opsys('darwin'), expect_fail)],
      run_command,
      ['$MAKE -s --no-print-directory T2507'])
+test('T8959a',
+     # The testsuite doesn't know how to set a non-Unicode locale on Windows or Mac OS X
+     [when(opsys('mingw32'), expect_fail), when(opsys('darwin'), expect_fail)],
+     run_command,
+     ['$MAKE -s --no-print-directory T8959a'])
 
 test('T703', normal, run_command, ['$MAKE -s --no-print-directory T703'])
+test('T2182', normal, run_command, ['$MAKE -s --no-print-directory T2182'])
 test('T8101', normal, compile, ['-Wall -fno-code'])
 
 def build_T9050(name, way):
      return simple_build(name + '.cmm', way, '-outputdir=. ', 0, '', 0, 0, 0)
 test('T9050', normal, build_T9050, [])
 
+test('write_interface_oneshot', normal, run_command, ['$MAKE -s --no-print-directory write_interface_oneshot'])
+test('write_interface_make', normal, run_command, ['$MAKE -s --no-print-directory write_interface_make'])
+
+test('T9776', normal, compile_fail, ['-frule-check'])
+
+test('T9963', exit_code(1), run_command,
+     ['{compiler} --interactive --print-libdir'])

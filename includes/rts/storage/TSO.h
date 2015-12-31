@@ -50,7 +50,7 @@ typedef union {
   struct MessageBlackHole_ *bh;
   struct MessageThrowTo_ *throwto;
   struct MessageWakeup_  *wakeup;
-  StgInt fd;	/* StgInt instead of int, so that it's the same size as the ptrs */
+  StgInt fd;    /* StgInt instead of int, so that it's the same size as the ptrs */
 #if defined(mingw32_HOST_OS)
   StgAsyncIOResult *async_result;
 #endif
@@ -102,7 +102,7 @@ typedef struct StgTSO_ {
 
     struct StgTSO_*         global_link;    // Links threads on the
                                             // generation->threads lists
-    
+
     /*
      * The thread's stack
      */
@@ -145,15 +145,21 @@ typedef struct StgTSO_ {
     */
     struct StgBlockingQueue_ *bq;
 
-#ifdef TICKY_TICKY
-    /* TICKY-specific stuff would go here. */
-#endif
-#ifdef PROFILING
-    StgTSOProfInfo prof;
-#endif
-#ifdef mingw32_HOST_OS
-    StgWord32 saved_winerror;
-#endif
+    /*
+     * The allocation limit for this thread, which is updated as the
+     * thread allocates.  If the value drops below zero, and
+     * TSO_ALLOC_LIMIT is set in flags, we raise an exception in the
+     * thread, and give the thread a little more space to handle the
+     * exception before we raise the exception again.
+     *
+     * This is an integer, because we might update it in a place where
+     * it isn't convenient to raise the exception, so we want it to
+     * stay negative until we get around to checking it.
+     *
+     * Use only PK_Int64/ASSIGN_Int64 macros to get/set the value of alloc_limit
+     * in C code otherwise you will cause alignment issues on SPARC
+     */
+    StgInt64  alloc_limit;     /* in bytes */
 
     /*
      * sum of the sizes of all stack chunks (in words), used to decide
@@ -167,6 +173,16 @@ typedef struct StgTSO_ {
      * hard +RTS -K<size> limit.
      */
     StgWord32  tot_stack_size;
+
+#ifdef TICKY_TICKY
+    /* TICKY-specific stuff would go here. */
+#endif
+#ifdef PROFILING
+    StgTSOProfInfo prof;
+#endif
+#ifdef mingw32_HOST_OS
+    StgWord32 saved_winerror;
+#endif
 
 } *StgTSOPtr;
 
@@ -202,37 +218,37 @@ void dirty_STACK (Capability *cap, StgStack *stack);
 
       tso->stack < tso->sp < tso->stack+tso->stack_size
       tso->stack_size <= tso->max_stack_size
-      
+
       RESERVED_STACK_WORDS is large enough for any heap-check or
       stack-check failure.
 
       The size of the TSO struct plus the stack is either
         (a) smaller than a block, or
-	(b) a multiple of BLOCK_SIZE
+        (b) a multiple of BLOCK_SIZE
 
-	tso->why_blocked       tso->block_info      location
+        tso->why_blocked       tso->block_info      location
         ----------------------------------------------------------------------
-	NotBlocked             END_TSO_QUEUE        runnable_queue, or running
-	
+        NotBlocked             END_TSO_QUEUE        runnable_queue, or running
+
         BlockedOnBlackHole     the BLACKHOLE        blackhole_queue
-	
+
         BlockedOnMVar          the MVAR             the MVAR's queue
 
         BlockedOnSTM           END_TSO_QUEUE        STM wait queue(s)
         BlockedOnSTM           STM_AWOKEN           run queue
-	
+
         BlockedOnMsgThrowTo    MessageThrowTo *     TSO->blocked_exception
 
         BlockedOnRead          NULL                 blocked_queue
-        BlockedOnWrite         NULL		    blocked_queue
+        BlockedOnWrite         NULL                 blocked_queue
         BlockedOnDelay         NULL                 blocked_queue
-	BlockedOnGA            closure TSO blocks on   BQ of that closure
-	BlockedOnGA_NoSend     closure TSO blocks on   BQ of that closure
+        BlockedOnGA            closure TSO blocks on   BQ of that closure
+        BlockedOnGA_NoSend     closure TSO blocks on   BQ of that closure
 
       tso->link == END_TSO_QUEUE, if the thread is currently running.
 
    A zombie thread has the following properties:
-      
+
       tso->what_next == ThreadComplete or ThreadKilled
       tso->link     ==  (could be on some queue somewhere)
       tso->sp       ==  tso->stack + tso->stack_size - 1 (i.e. top stack word)

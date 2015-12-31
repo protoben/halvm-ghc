@@ -4,10 +4,7 @@
 #	extra run flags
 #	expected process return value, if not zero
 
-# Doesn't work with External Core due to __labels
-test('fed001', [only_compiler_types(['ghc']),
-                expect_fail_for(['extcore','optextcore'])],
-		compile_and_run, [''])
+test('fed001', normal, compile_and_run, [''])
 
 # Omit GHCi for these two, as they use foreign export
 test('ffi001', omit_ways(['ghci']), compile_and_run, [''])
@@ -37,9 +34,7 @@ test('ffi005', [ omit_ways(prof_ways),
                  exit_code(3) ],
                compile_and_run, [''])
 
-# ffi[006-009] don't work with External Core due to non-static-C foreign calls
-
-test('ffi006', expect_fail_for(['extcore','optextcore']), compile_and_run, [''])
+test('ffi006', normal, compile_and_run, [''])
 
 # Skip ffi00{7,8} for GHCi.  These tests both try to exit or raise an
 # error from a foreign export, which shuts down the runtime.  When
@@ -48,33 +43,24 @@ test('ffi006', expect_fail_for(['extcore','optextcore']), compile_and_run, [''])
 # Sometimes we end up with the wrong exit code, or get an extra
 # 'interrupted' message from the GHCi thread shutting down.
 
-test('ffi007',
-     [omit_ways(['ghci']), expect_fail_for(['extcore','optextcore'])], 
-	       compile_and_run, [''])
-
-test('ffi008',
-     [expect_fail_for(['extcore','optextcore']),
-      exit_code(1),
-      omit_ways(['ghci'])],
-	       compile_and_run, [''])
+test('ffi007', omit_ways(['ghci']), compile_and_run, [''])
+test('ffi008', [exit_code(1), omit_ways(['ghci'])], compile_and_run, [''])
 
 # On i386, we need -msse2 to get reliable floating point results
 maybe_skip = normal
 opts = ''
 if config.platform.startswith('i386-'):
-   if config.compiler_type == 'ghc' and \
+    if config.compiler_type == 'ghc' and \
       version_ge(config.compiler_version, '6.13'):
-	opts = '-msse2'
-   else:
+        opts = '-msse2'
+    else:
         maybe_skip = only_ways(['ghci'])
 
-test('ffi009', [when(fast(), skip), expect_fail_for(['extcore','optextcore']),
+test('ffi009', [when(fast(), skip),
                 reqlib('random'),
                 maybe_skip] ,compile_and_run, [opts])
 
-# Doesn't work with External Core due to __labels
-test('ffi010', expect_fail_for(['extcore','optextcore']), compile_and_run, [''])
-
+test('ffi010', normal, compile_and_run, [''])
 test('ffi011', normal, compile_and_run, [''])
 
 # The stdcall calling convention works on Windows, and sometimes on
@@ -83,14 +69,12 @@ test('ffi011', normal, compile_and_run, [''])
 # it.
 
 if config.os == 'mingw32':
-	skip_if_not_windows = normal
+    skip_if_not_windows = normal
 else:
-	skip_if_not_windows = skip
+    skip_if_not_windows = skip
 
 test('ffi012', skip_if_not_windows, compile_and_run, [''])
-
-# Doesn't work with External Core due to __labels
-test('ffi013', expect_fail_for(['extcore','optextcore']), compile_and_run, [''])
+test('ffi013', normal, compile_and_run, [''])
 
 # threaded2 sometimes gives ffi014: Main_dDu: interrupted
 test('ffi014',
@@ -225,3 +209,11 @@ test('T8083',
      compile_and_run,
      ['T8083_c.c'])
 
+test('ffi023', [ omit_ways(['ghci']),
+                extra_clean(['ffi023_c.o']),
+                extra_run_opts('1000 4'),
+                pre_cmd('$MAKE -s --no-print-directory ffi023_setup') ],
+                # The ffi023_setup hack is to ensure that we generate
+                # ffi023_stub.h before compiling ffi023_c.c, which
+                # needs it.
+              compile_and_run, ['ffi023_c.c'])

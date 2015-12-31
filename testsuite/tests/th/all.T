@@ -4,9 +4,9 @@
 test('T4255', unless(compiler_profiled(), skip), compile_fail, ['-v0'])
 
 def f(name, opts):
-  opts.extra_hc_opts = '-XTemplateHaskell -package template-haskell'
-  if (ghc_with_interpreter == 0):
-	opts.skip = 1
+    opts.extra_hc_opts = '-XTemplateHaskell -package template-haskell'
+    if (ghc_with_interpreter == 0):
+        opts.skip = 1
 
 setTestOpts(f)
 setTestOpts(only_compiler_types(['ghc']))
@@ -120,7 +120,7 @@ test('TH_dupdecl', normal, compile_fail, ['-v0'])
 test('TH_exn2', normal, compile_fail, ['-v0'])
 
 test('TH_recover', normal, compile_and_run, [''])
-test('TH_dataD1', normal, compile, ['-v0'])
+test('TH_dataD1', normal, compile_fail, ['-v0'])
 
 test('TH_ppr1', normal, compile_and_run, [''])
 
@@ -130,6 +130,8 @@ test('TH_scopedTvs', normal, compile, ['-v0'])
 test('TH_runIO', normal, compile_fail, ['-v0'])
 
 test('TH_ghci1', normal, ghci_script, ['TH_ghci1.script'])
+
+test('TH_linePragma', normal, compile_fail, ['-v0'])
 
 test('TH_scope', normal, compile, [''])
 test('T2632', normal, compile, [''])
@@ -159,6 +161,9 @@ test('T3177a', normal, compile_fail, ['-v0'])
 
 test('T3319', normal, compile, ['-ddump-splices -v0'])
 test('TH_foreignInterruptible', normal, compile, ['-ddump-splices -v0'])
+test('TH_foreignCallingConventions', normal,
+                                     compile,
+                                     ['-ddump-splices -dsuppress-uniques -v0'])
 
 test('T3395', normal, compile_fail, ['-v0'])
 test('T3467', normal, compile, [''])
@@ -185,7 +190,7 @@ test('T5126', normal, compile, ['-v0'])
 test('T5217', normal, compile, ['-v0 -dsuppress-uniques -ddump-splices'])
 test('T5037', normal, compile, ['-v0'])
 test('TH_unboxedSingleton', normal, compile, ['-v0'])
-test('T5290', normal, compile, ['-v0 -ddump-splices'])
+test('T5290', normal, compile, ['-v0 -ddump-splices -dsuppress-uniques'])
 test('T5362', normal, compile, ['-v0'])
 
 test('TH_unresolvedInfix',
@@ -209,7 +214,7 @@ test('T5452', normal, compile, ['-v0'])
 test('T5434', extra_clean(['T5434a.hi','T5434a.o']),
               multimod_compile,
               ['T5434','-v0 -Wall ' + config.ghc_th_way_flags])
-test('T5508', normal, compile, ['-v0 -ddump-splices'])
+test('T5508', normal, compile, ['-v0 -ddump-splices -dsuppress-uniques'])
 test('TH_Depends',
      [extra_clean(['TH_Depends_External.o', 'TH_Depends_External.hi',
                    'TH_Depends_external.txt'])],
@@ -224,7 +229,7 @@ test('T5700', extra_clean(['T5700a.hi','T5700a.o']),
               ['T5700','-v0 -ddump-splices ' + config.ghc_th_way_flags])
 test('T5721', normal, compile, ['-v0'])
 
-test('TH_PromotedTuple', normal, compile, ['-v0 -ddump-splices'])
+test('TH_PromotedTuple', normal, compile, ['-v0 -ddump-splices -dsuppress-uniques'])
 test('TH_PromotedList', normal, compile, ['-v0'])
 test('TH_Promoted1Tuple', normal, compile_fail, ['-v0'])
 test('TH_RichKinds', normal, compile, ['-v0'])
@@ -249,7 +254,7 @@ test('T5795', normal, compile_fail, ['-v0'])
 test('T6005', normal, compile, ['-v0'])
 test('T6005a', normal, compile, ['-v0'])
 test('T5737', normal, compile, ['-v0'])
-test('T6114', normal, compile_fail, ['-v0 -dsuppress-uniques'])
+test('T6114', normal, compile, ['-v0'])
 test('TH_StringPrimL', normal, compile_and_run, [''])
 test('T7064',
      extra_clean(['T7064a.hi', 'T7064a.o']),
@@ -317,10 +322,43 @@ test('T8577',
      ['T8577', '-v0 ' + config.ghc_th_way_flags])
 test('T8633', normal, compile_and_run, [''])
 test('T8625', normal, ghci_script, ['T8625.script'])
+test('TH_StaticPointers',
+     [ when(compiler_lt('ghc', '7.9'), skip)
+     , when(doing_ghci(), extra_hc_opts('-fobject-code'))
+     ],
+     compile_and_run, [''])
+test('TH_StaticPointers02',
+     [ when(compiler_lt('ghc', '7.9'), skip) ],
+     compile_fail, [''])
 test('T8759', normal, compile_fail, ['-v0'])
 test('T8759a', normal, compile_fail, ['-v0'])
+test('T7021',
+     extra_clean(['T7021a.hi', 'T7021a.o']), multimod_compile, ['T7021','-v0'])
+test('T8807', normal, compile, ['-v0'])
 test('T8884', normal, compile, ['-v0'])
-test('T8932', normal, compile_fail, ['-v0'])
 test('T8954', normal, compile, ['-v0'])
+test('T8932', normal, compile_fail, ['-v0'])
+test('T8987', normal, compile_fail, ['-v0'])
 test('T7241', normal, compile_fail, ['-v0'])
+test('T9262', normal, compile, ['-v0'])
 test('T9199', normal, compile, ['-v0'])
+test('T9692', normal, compile, ['-v0'])
+test('T8953', normal, compile, ['-v0'])
+test('T9084', normal, compile_fail, ['-v0'])
+test('T9738', normal, compile, ['-v0'])
+test('T9081', normal, compile, ['-v0'])
+test('T9066', normal, compile, ['-v0'])
+test('T8100', normal, compile, ['-v0'])
+test('T9064', normal, compile, ['-v0'])
+test('T9209', normal, compile_fail, ['-v0'])
+test('T7484', normal, compile_fail, ['-v0'])
+test('T1476', normal, compile, ['-v0'])
+test('T1476b', normal, compile_fail, ['-v0'])
+test('T9824', normal, compile, ['-v0'])
+test('T8031', normal, compile, ['-v0'])
+test('T8624', normal, run_command, ['$MAKE -s --no-print-directory T8624'])
+test('TH_Lift', normal, compile, ['-v0'])
+test('T10019', normal, ghci_script, ['T10019.script'])
+test('T10279', normal, compile_fail, ['-v0'])
+test('T10596', normal, compile, ['-v0'])
+test('T10810', normal, compile, ['-v0'])

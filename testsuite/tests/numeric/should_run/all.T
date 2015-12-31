@@ -15,11 +15,11 @@ test('arith007', normal, compile_and_run, [''])
 ways = normal
 opts = ''
 if config.platform.startswith('i386-'):
-   if config.compiler_type == 'ghc' and \
+    if config.compiler_type == 'ghc' and \
       version_ge(config.compiler_version, '6.13'):
-	opts = '-msse2'
-   else:
-	ways = expect_fail_for(['optasm','threaded2','hpc','dyn','profasm'])
+        opts = '-msse2'
+    else:
+        ways = expect_fail_for(['optasm','threaded2','hpc','dyn','profasm'])
 
 test('arith008', ways, compile_and_run, [opts])
 
@@ -62,3 +62,6 @@ test('T7014',
 test('T7233', normal, compile_and_run, [''])
 test('NumDecimals', normal, compile_and_run, [''])
 test('T8726', normal, compile_and_run, [''])
+test('CarryOverflow', omit_ways(['ghci']), compile_and_run, [''])
+test('T9810', normal, compile_and_run, [''])
+test('T10011', normal, compile_and_run, [''])

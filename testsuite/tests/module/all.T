@@ -91,7 +91,16 @@ test('mod69', normal, compile_fail, [''])
 test('mod70', normal, compile_fail, [''])
 test('mod71', normal, compile_fail, [''])
 test('mod72', normal, compile_fail, [''])
-test('mod73', normal, compile_fail, [''])
+
+# The order of suggestions in the output for test mod73
+# is subject to variation depending on the optimization level
+# that GHC was built with (and probably minor changes to GHC too).
+# This seems okay since there is unsafePerformIO under the hood
+# in FastString. Allow any order with an extra normaliser. (See #9325.)
+def normalise_mod73_error(x):
+    return x.replace('LT','XX',1).replace('EQ','XX',1).replace('GT','XX',1)
+test('mod73', normalise_errmsg_fun(normalise_mod73_error), compile_fail, [''])
+
 test('mod74', normal, compile_fail, [''])
 test('mod75', normal, compile, [''])
 test('mod76', normal, compile_fail, [''])
@@ -300,7 +309,7 @@ test('mod170', extra_clean(['Mod170_A.hi', 'Mod170_A.o']),
 
 
 test('mod171', extra_clean(['Mod171_A.hi', 'Mod171_A.o', 'Mod171_B.hi', 'Mod171_B.o']),
-     multimod_compile, ['mod171', '-v0 -Wall'])
+     multimod_compile, ['mod171', '-v0 -Wall -fno-warn-tabs'])
 
 
 test('mod172', extra_clean(['Mod172_B.hi', 'Mod172_B.o', 'Mod172_C.hi', 'Mod172_C.o']),
@@ -335,3 +344,6 @@ test('T414a', normal, compile, [''])
 test('T414b', normal, compile, [''])
 test('T3776', normal, compile, [''])
 test('T9061', normal, compile, [''])
+test('T9997', normal, compile, [''])
+test('T10233', extra_clean(['T01233a.hi', 'T01233a.o']),
+     multimod_compile, ['T10233', '-v0'])

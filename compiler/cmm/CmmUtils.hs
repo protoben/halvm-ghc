@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE CPP, GADTs, RankNTypes #-}
 
 -----------------------------------------------------------------------------
 --
@@ -42,6 +42,9 @@ module CmmUtils(
         cmmTagMask, cmmPointerMask, cmmUntag, cmmIsTagged,
         cmmConstrTag1,
 
+        -- Overlap and usage
+        regsOverlap, regUsedIn,
+
         -- Liveness and bitmaps
         mkLiveness,
 
@@ -55,7 +58,10 @@ module CmmUtils(
 
         analFwd, analBwd, analRewFwd, analRewBwd,
         dataflowPassFwd, dataflowPassBwd, dataflowAnalFwd, dataflowAnalBwd,
-        dataflowAnalFwdBlocks
+        dataflowAnalFwdBlocks,
+
+        -- * Ticks
+        blockTicks
   ) where
 
 #include "HsVersions.h"
@@ -72,6 +78,7 @@ import Unique
 import UniqSupply
 import DynFlags
 import Util
+import CodeGen.Platform
 
 import Data.Word
 import Data.Maybe
@@ -286,22 +293,23 @@ cmmOffsetLitB = cmmOffsetLit
 
 -----------------------
 -- The "W" variants take word offsets
+
 cmmOffsetExprW :: DynFlags -> CmmExpr -> CmmExpr -> CmmExpr
 -- The second arg is a *word* offset; need to change it to bytes
 cmmOffsetExprW dflags  e (CmmLit (CmmInt n _)) = cmmOffsetW dflags e (fromInteger n)
 cmmOffsetExprW dflags e wd_off = cmmIndexExpr dflags (wordWidth dflags) e wd_off
 
 cmmOffsetW :: DynFlags -> CmmExpr -> WordOff -> CmmExpr
-cmmOffsetW dflags e n = cmmOffsetB dflags e (wORD_SIZE dflags * n)
+cmmOffsetW dflags e n = cmmOffsetB dflags e (wordsToBytes dflags n)
 
 cmmRegOffW :: DynFlags -> CmmReg -> WordOff -> CmmExpr
-cmmRegOffW dflags reg wd_off = cmmRegOffB reg (wd_off * wORD_SIZE dflags)
+cmmRegOffW dflags reg wd_off = cmmRegOffB reg (wordsToBytes dflags wd_off)
 
 cmmOffsetLitW :: DynFlags -> CmmLit -> WordOff -> CmmLit
-cmmOffsetLitW dflags lit wd_off = cmmOffsetLitB lit (wORD_SIZE dflags * wd_off)
+cmmOffsetLitW dflags lit wd_off = cmmOffsetLitB lit (wordsToBytes dflags wd_off)
 
 cmmLabelOffW :: DynFlags -> CLabel -> WordOff -> CmmLit
-cmmLabelOffW dflags lbl wd_off = cmmLabelOffB lbl (wORD_SIZE dflags * wd_off)
+cmmLabelOffW dflags lbl wd_off = cmmLabelOffB lbl (wordsToBytes dflags wd_off)
 
 cmmLoadIndexW :: DynFlags -> CmmExpr -> Int -> CmmType -> CmmExpr
 cmmLoadIndexW dflags base off ty = CmmLoad (cmmOffsetW dflags base off) ty
@@ -389,6 +397,38 @@ cmmConstrTag1 :: DynFlags -> CmmExpr -> CmmExpr
 -- Get constructor tag, but one based.
 cmmConstrTag1 dflags e = cmmAndWord dflags e (cmmTagMask dflags)
 
+
+-----------------------------------------------------------------------------
+-- Overlap and usage
+
+-- | Returns True if the two STG registers overlap on the specified
+-- platform, in the sense that writing to one will clobber the
+-- other. This includes the case that the two registers are the same
+-- STG register. See Note [Overlapping global registers] for details.
+regsOverlap :: DynFlags -> CmmReg -> CmmReg -> Bool
+regsOverlap dflags (CmmGlobal g) (CmmGlobal g')
+  | Just real  <- globalRegMaybe (targetPlatform dflags) g,
+    Just real' <- globalRegMaybe (targetPlatform dflags) g',
+    real == real'
+    = True
+regsOverlap _ reg reg' = reg == reg'
+
+-- | Returns True if the STG register is used by the expression, in
+-- the sense that a store to the register might affect the value of
+-- the expression.
+--
+-- We must check for overlapping registers and not just equal
+-- registers here, otherwise CmmSink may incorrectly reorder
+-- assignments that conflict due to overlap. See Trac #10521 and Note
+-- [Overlapping global registers].
+regUsedIn :: DynFlags -> CmmReg -> CmmExpr -> Bool
+regUsedIn dflags = regUsedIn_ where
+  _   `regUsedIn_` CmmLit _         = False
+  reg `regUsedIn_` CmmLoad e  _     = reg `regUsedIn_` e
+  reg `regUsedIn_` CmmReg reg'      = regsOverlap dflags reg reg'
+  reg `regUsedIn_` CmmRegOff reg' _ = regsOverlap dflags reg reg'
+  reg `regUsedIn_` CmmMachOp _ es   = any (reg `regUsedIn_`) es
+  _   `regUsedIn_` CmmStackSlot _ _ = False
 
 --------------------------------------------
 --
@@ -492,7 +532,8 @@ mapGraphNodes :: ( CmmNode C O -> CmmNode C O
                  , CmmNode O C -> CmmNode O C)
               -> CmmGraph -> CmmGraph
 mapGraphNodes funs@(mf,_,_) g =
-  ofBlockMap (entryLabel $ mf $ CmmEntry $ g_entry g) $ mapMap (mapBlock3' funs) $ toBlockMap g
+  ofBlockMap (entryLabel $ mf $ CmmEntry (g_entry g) GlobalScope) $
+  mapMap (mapBlock3' funs) $ toBlockMap g
 
 mapGraphNodes1 :: (forall e x. CmmNode e x -> CmmNode e x) -> CmmGraph -> CmmGraph
 mapGraphNodes1 f = modifyGraph (mapGraph f)
@@ -566,3 +607,13 @@ dataflowPassBwd :: NonLocal n =>
 dataflowPassBwd (CmmGraph {g_entry=entry, g_graph=graph}) facts bwd = do
   (graph, facts, NothingO) <- analyzeAndRewriteBwd bwd (JustC [entry]) graph (mkFactBase (bp_lattice bwd) facts)
   return (CmmGraph {g_entry=entry, g_graph=graph}, facts)
+
+-------------------------------------------------
+-- Tick utilities
+
+-- | Extract all tick annotations from the given block
+blockTicks :: Block CmmNode C C -> [CmmTickish]
+blockTicks b = reverse $ foldBlockNodesF goStmt b []
+  where goStmt :: CmmNode e x -> [CmmTickish] -> [CmmTickish]
+        goStmt  (CmmTick t) ts = t:ts
+        goStmt  _other      ts = ts

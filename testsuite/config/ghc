@@ -9,6 +9,7 @@ config.compiler_type         = 'ghc'
 config.compiler              = 'ghc'
 config.compiler_always_flags = ghc_compiler_always_flags.split()
 
+config.haddock               = 'haddock'
 config.hp2ps                 = 'hp2ps'
 config.hpc                   = 'hpc'
 config.gs                    = 'gs'
@@ -21,15 +22,15 @@ config.compile_ways       = ['normal', 'hpc']
 config.run_ways           = ['normal', 'hpc']
 
 # ways that are not enabled by default, but can always be invoked explicitly
-config.other_ways         = ['extcore','optextcore',
-                             'prof',
+config.other_ways         = ['prof',
                              'prof_hc_hb','prof_hb',
                              'prof_hd','prof_hy','prof_hr',
                              'threaded1_ls', 'threaded2_hT',
                              'llvm', 'debugllvm',
                              'profllvm', 'profoptllvm', 'profthreadedllvm',
                              'threaded1llvm', 'threaded2llvm',
-                             'dynllvm']
+                             'dynllvm',
+                             'debug']
 
 if (ghc_with_native_codegen == 1):
     config.compile_ways.append('optasm')
@@ -93,8 +94,6 @@ config.way_flags = lambda name : {
     'profasm'      : ['-O', '-prof', '-static', '-auto-all'],
     'profthreaded' : ['-O', '-prof', '-static', '-auto-all', '-threaded'],
     'ghci'         : ['--interactive', '-v0', '-ignore-dot-ghci', '+RTS', '-I0.1', '-RTS'],
-    'extcore'      : ['-fext-core'],
-    'optextcore'   : ['-O', '-fext-core'],
     'threaded1'    : ['-threaded', '-debug'],
     'threaded1_ls' : ['-threaded', '-debug'],
     'threaded2'    : ['-O', '-threaded', '-eventlog'],
@@ -107,6 +106,7 @@ config.way_flags = lambda name : {
     'prof_hr'      : ['-O', '-prof', '-static', '-auto-all'],
     'dyn'          : ['-O', '-dynamic'],
     'static'       : ['-O', '-static'],
+    'debug'        : ['-O', '-g', '-dannot-lint'],
     # llvm variants...
     'profllvm'         : ['-prof', '-static', '-auto-all', '-fllvm'],
     'profoptllvm'      : ['-O', '-prof', '-static', '-auto-all', '-fllvm'],
@@ -127,8 +127,6 @@ config.way_rts_flags = {
     'profasm'      : ['-hc', '-p'], # test heap profiling too
     'profthreaded' : ['-p'],
     'ghci'         : [],
-    'extcore'      : [],
-    'optextcore'   : [],
     'threaded1'    : [],
     'threaded1_ls' : ['-ls'],
     'threaded2'    : ['-N2 -ls'],
@@ -141,6 +139,7 @@ config.way_rts_flags = {
     'prof_hr'      : ['-hr'],
     'dyn'          : [],
     'static'       : [],
+    'debug'        : [],
     # llvm variants...
     'profllvm'         : ['-p'],
     'profoptllvm'      : ['-hc', '-p'],
@@ -153,26 +152,26 @@ config.way_rts_flags = {
 # Useful classes of ways that can be used with only_ways() and
 # expect_broken_for().
 
-prof_ways = map (lambda x: x[0], \
-                 filter(lambda x: '-prof' in x[1], \
-                        config.way_flags('dummy_name').items()))
+prof_ways     = [x[0] for x in config.way_flags('dummy_name').items()
+                      if '-prof' in x[1]]
 
-threaded_ways = map (lambda x: x[0], \
-                 filter(lambda x: '-threaded' in x[1] or 'ghci' == x[0], \
-                        config.way_flags('dummy_name').items()))
+threaded_ways = [x[0] for x in config.way_flags('dummy_name').items()
+                      if '-threaded' in x[1] or 'ghci' == x[0]]
 
-opt_ways = map (lambda x: x[0], \
-                 filter(lambda x: '-O' in x[1], \
-                        config.way_flags('dummy_name').items()))
+opt_ways      = [x[0] for x in config.way_flags('dummy_name').items()
+                      if '-O' in x[1]]
+
+llvm_ways     = [x[0] for x in config.way_flags('dummy_name').items()
+                      if '-fflvm' in x[1]]
 
 def get_compiler_info():
 # This should really not go through the shell
-    h = os.popen('"' + config.compiler + '" --info', 'r')
+    h = os.popen(config.compiler + ' --info', 'r')
     s = h.read()
     s = re.sub('[\r\n]', '', s)
     h.close()
     compilerInfoDict = dict(eval(s))
-    h = os.popen('"' + config.compiler + '" +RTS --info', 'r')
+    h = os.popen(config.compiler + ' +RTS --info', 'r')
     s = h.read()
     s = re.sub('[\r\n]', '', s)
     h.close()
@@ -193,7 +192,7 @@ def get_compiler_info():
 
     if re.match(".*_p(_.*|$)", rtsInfoDict["RTS way"]):
         config.compiler_profiled = True
-        config.run_ways = filter(lambda x: x != 'ghci', config.run_ways)
+        config.run_ways = [x for x in config.run_ways if x != 'ghci']
     else:
         config.compiler_profiled = False
 

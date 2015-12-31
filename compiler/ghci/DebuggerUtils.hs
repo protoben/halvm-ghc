@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module DebuggerUtils (
        dataConInfoPtrToName,
   ) where
@@ -44,7 +46,7 @@ dataConInfoPtrToName x = do
        modFS = mkFastStringByteList mod
        occFS = mkFastStringByteList occ
        occName = mkOccNameFS OccName.dataName occFS
-       modName = mkModule (fsToPackageId pkgFS) (mkModuleNameFS modFS) 
+       modName = mkModule (fsToPackageKey pkgFS) (mkModuleNameFS modFS)
    return (Left $ showSDoc dflags $ ppr modName <> dot <> ppr occName)
     `recoverM` (Right `fmap` lookupOrig modName occName)
 
@@ -101,7 +103,7 @@ dataConInfoPtrToName x = do
                          4 -> do w <- peek ptr'
                                  return (fromIntegral (w :: Word32))
                          8 -> do w <- peek ptr'
-                                 return (fromIntegral (w :: Word64))
+                                 return (fromIntegral (w :: Word32))
                          w -> panic ("getConDescAddress: Unknown platformWordSize: " ++ show w)
        return $ (ptr `plusPtr` stdInfoTableSizeB dflags) `plusPtr` offsetToString
     | otherwise =

@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 -- Vectorise a modules type and class declarations.
 --
 -- This produces new type constructors and family instances top be included in the module toplevel
@@ -215,7 +217,7 @@ vectTypeEnv tycons vectTypeDecls vectClassDecls
            -- Furthermore, 'par_tcs' are those type constructors (converted or not) whose
            -- definition, directly or indirectly, depends on parallel arrays. Finally, 'drop_tcs'
            -- are all type constructors that cannot be vectorised.
-       ; parallelTyCons <- (`addListToNameSet` map (tyConName . fst) vectTyConsWithRHS) <$>
+       ; parallelTyCons <- (`extendNameSetList` map (tyConName . fst) vectTyConsWithRHS) <$>
                              globalParallelTyCons
        ; let maybeVectoriseTyCons = filter notVectSpecialTyCon tycons ++ impVectTyCons
              (conv_tcs, keep_tcs, par_tcs, drop_tcs)
@@ -225,14 +227,15 @@ vectTypeEnv tycons vectTypeDecls vectClassDecls
        ; traceVt " VECT SCALAR    : " $ ppr (scalarTyConsNoRHS ++ map fst scalarTyConsWithRHS)
        ; traceVt " VECT [class]   : " $ ppr impVectTyCons
        ; traceVt " VECT with rhs  : " $ ppr (map fst (vectTyConsWithRHS ++ scalarTyConsWithRHS))
-       ; traceVt " -- after classification (local and VECT [class] tycons) --" empty
+       ; traceVt " -- after classification (local and VECT [class] tycons) --" Outputable.empty
        ; traceVt " reuse          : " $ ppr keep_tcs
        ; traceVt " convert        : " $ ppr conv_tcs
        
            -- warn the user about unvectorised type constructors
        ; let explanation    = ptext (sLit "(They use unsupported language extensions") $$
                               ptext (sLit "or depend on type constructors that are not vectorised)")
-             drop_tcs_nosyn = filter (not . isSynTyCon) drop_tcs
+             drop_tcs_nosyn = filter (not . isTypeFamilyTyCon) .
+                              filter (not . isTypeSynonymTyCon) $ drop_tcs
        ; unless (null drop_tcs_nosyn) $
            emitVt "Warning: cannot vectorise these type constructors:" $ 
              pprQuotedList drop_tcs_nosyn $$ explanation
@@ -354,7 +357,7 @@ vectTypeEnv tycons vectTypeDecls vectClassDecls
         origName  = tyConName origTyCon
         vectName  = tyConName vectTyCon
 
-        mkSyn canonName ty = mkSynTyCon canonName (typeKind ty) [] [] (SynonymTyCon ty) NoParentTyCon
+        mkSyn canonName ty = mkSynonymTyCon canonName (typeKind ty) [] [] ty
         
         defDataCons
           | isAbstract = return ()

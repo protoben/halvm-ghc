@@ -1,6 +1,6 @@
 {-# LANGUAGE RoleAnnotations, RankNTypes, ScopedTypeVariables #-}
 
-import GHC.Prim (coerce, Coercible)
+import Data.Coerce (coerce, Coercible)
 import Data.Ord (Down)
 
 newtype Age = Age Int deriving Show
@@ -20,10 +20,8 @@ foo4 = coerce $ one :: Down Int
 newtype Void = Void Void
 foo5 = coerce :: Void -> ()
 
--- Do not test this; fills up memory
---newtype VoidBad a = VoidBad (VoidBad (a,a))
---foo5 = coerce :: (VoidBad ()) -> ()
-
+newtype VoidBad a = VoidBad (VoidBad (a,a))
+foo5' = coerce :: (VoidBad ()) -> ()
 
 -- This shoul fail with a context stack overflow
 newtype Fix f = Fix (f (Fix f))

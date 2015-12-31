@@ -11,7 +11,7 @@ module MonadUtils
 
         , liftIO1, liftIO2, liftIO3, liftIO4
 
-        , zipWith3M
+        , zipWith3M, zipWith3M_, zipWithAndUnzipM
         , mapAndUnzipM, mapAndUnzip3M, mapAndUnzip4M
         , mapAccumLM
         , mapSndM
@@ -21,6 +21,7 @@ module MonadUtils
         , anyM, allM
         , foldlM, foldlM_, foldrM
         , maybeMapM
+        , whenM
         ) where
 
 -------------------------------------------------------------------------------
@@ -33,6 +34,7 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.IO.Class
+import Prelude -- avoid redundant import warning due to AMP
 
 -------------------------------------------------------------------------------
 -- Lift combinators
@@ -69,6 +71,21 @@ zipWith3M f (x:xs) (y:ys) (z:zs)
        ; rs <- zipWith3M f xs ys zs
        ; return $ r:rs
        }
+
+zipWith3M_ :: Monad m => (a -> b -> c -> m d) -> [a] -> [b] -> [c] -> m ()
+zipWith3M_ f as bs cs = do { _ <- zipWith3M f as bs cs
+                           ; return () }
+
+zipWithAndUnzipM :: Monad m
+                 => (a -> b -> m (c, d)) -> [a] -> [b] -> m ([c], [d])
+{-# INLINE zipWithAndUnzipM #-}
+-- See Note [flatten_many performance] in TcFlatten for why this
+-- pragma is essential.
+zipWithAndUnzipM f (x:xs) (y:ys)
+  = do { (c, d) <- f x y
+       ; (cs, ds) <- zipWithAndUnzipM f xs ys
+       ; return (c:cs, d:ds) }
+zipWithAndUnzipM _ _ _ = return ([], [])
 
 -- | mapAndUnzipM for triples
 mapAndUnzip3M :: Monad m => (a -> m (b,c,d)) -> [a] -> m ([b],[c],[d])
@@ -149,3 +166,8 @@ foldrM k z (x:xs) = do { r <- foldrM k z xs; k x r }
 maybeMapM :: Monad m => (a -> m b) -> (Maybe a -> m (Maybe b))
 maybeMapM _ Nothing  = return Nothing
 maybeMapM m (Just x) = liftM Just $ m x
+
+-- | Monadic version of @when@, taking the condition in the monad
+whenM :: Monad m => m Bool -> m () -> m ()
+whenM mb thing = do { b <- mb
+                    ; when b thing }

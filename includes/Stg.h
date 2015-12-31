@@ -47,13 +47,17 @@
 // We need _BSD_SOURCE so that math.h defines things like gamma
 // on Linux
 # define _BSD_SOURCE
+
+// '_BSD_SOURCE' is deprecated since glibc-2.20
+// in favour of '_DEFAULT_SOURCE'
+# define _DEFAULT_SOURCE
 #endif
 
 #if IN_STG_CODE == 0 || defined(llvm_CC_FLAVOR)
 // C compilers that use an LLVM back end (clang or llvm-gcc) do not
 // correctly support global register variables so we make sure that
 // we do not declare them for these compilers.
-# define NO_GLOBAL_REG_DECLS	/* don't define fixed registers */
+# define NO_GLOBAL_REG_DECLS    /* don't define fixed registers */
 #endif
 
 /* Configuration */
@@ -213,15 +217,41 @@ typedef StgFunPtr       F_;
 #define II_(X)          static StgWordArray (X) GNU_ATTRIBUTE(aligned (8))
 #define IF_(f)    static StgFunPtr GNUC3_ATTRIBUTE(used) f(void)
 #define FN_(f)    StgFunPtr f(void)
-#define EF_(f)    extern StgFunPtr f()
+#define EF_(f)    extern StgFunPtr f()   /* See Note [External function prototypes] */
+
+/* Note [External function prototypes]  See Trac #8965
+   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The external-function macro EF_(F) used to be defined as
+    extern StgFunPtr f(void)
+i.e a function of zero arguments.  On most platforms this doesn't
+matter very much: calls to these functions put the parameters in the
+usual places anyway, and (with the exception of varargs) things just
+work.
+
+However, the ELFv2 ABI on ppc64 optimises stack allocation
+(http://gcc.gnu.org/ml/gcc-patches/2013-11/msg01149.html): a call to a
+function that has a prototype, is not varargs, and receives all parameters
+in registers rather than on the stack does not require the caller to
+allocate an argument save area.  The incorrect prototypes cause GCC to
+believe that all functions declared this way can be called without an
+argument save area, but if the callee has sufficiently many arguments then
+it will expect that area to be present, and will thus corrupt the caller's
+stack.  This happens in particular with calls to runInteractiveProcess in
+libraries/process/cbits/runProcess.c, and led to Trac #8965.
+
+The simplest fix appears to be to declare these external functions with an
+unspecified argument list rather than a void argument list.  This is no
+worse for platforms that don't care either way, and allows a successful
+bootstrap of GHC 7.8 on little-endian Linux ppc64 (which uses the ELFv2
+ABI).
+*/
+
 
 /* -----------------------------------------------------------------------------
    Tail calls
    -------------------------------------------------------------------------- */
 
 #define JMP_(cont) return((StgFunPtr)(cont))
-#define FB_
-#define FE_
 
 /* -----------------------------------------------------------------------------
    Other Stg stuff...
@@ -449,24 +479,6 @@ INLINE_HEADER StgInt64 PK_Int64(W_ p_src[])
 #else
 #define __STG_SPLIT_MARKER /* nothing */
 #endif
-
-/* -----------------------------------------------------------------------------
-   Write-combining store
-   -------------------------------------------------------------------------- */
-
-INLINE_HEADER void
-wcStore (StgPtr p, StgWord w)
-{
-#ifdef x86_64_HOST_ARCH
-    __asm__(
-   "movnti\t%1, %0"
-   : "=m" (*p)
-   : "r" (w)
-   );
-#else
-      *p = w;
-#endif
-}
 
 /* -----------------------------------------------------------------------------
    Integer multiply with overflow

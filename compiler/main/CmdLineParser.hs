@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 -------------------------------------------------------------------------------
 --
 -- | Command-line parser
@@ -11,12 +13,12 @@
 
 module CmdLineParser
     (
-      processArgs, OptKind(..),
+      processArgs, OptKind(..), GhcFlagMode(..),
       CmdLineP(..), getCmdLineState, putCmdLineState,
-      Flag(..),
+      Flag(..), defFlag, defGhcFlag, defGhciFlag, defHiddenFlag,
       errorsToGhcException,
 
-      EwM, addErr, addWarn, getArg, getCurLoc, liftEwM, deprecate
+      EwM, runEwM, addErr, addWarn, getArg, getCurLoc, liftEwM, deprecate
     ) where
 
 #include "HsVersions.h"
@@ -31,17 +33,38 @@ import Data.Function
 import Data.List
 
 import Control.Monad (liftM, ap)
+#if __GLASGOW_HASKELL__ < 709
 import Control.Applicative (Applicative(..))
-
+#endif
 
 --------------------------------------------------------
 --         The Flag and OptKind types
 --------------------------------------------------------
 
 data Flag m = Flag
-    {   flagName    :: String,   -- Flag, without the leading "-"
-        flagOptKind :: OptKind m -- What to do if we see it
+    {   flagName    :: String,     -- Flag, without the leading "-"
+        flagOptKind :: OptKind m,  -- What to do if we see it
+        flagGhcMode :: GhcFlagMode    -- Which modes this flag affects
     }
+
+defFlag :: String -> OptKind m -> Flag m
+defFlag name optKind = Flag name optKind AllModes
+
+defGhcFlag :: String -> OptKind m -> Flag m
+defGhcFlag name optKind = Flag name optKind OnlyGhc
+
+defGhciFlag :: String -> OptKind m -> Flag m
+defGhciFlag name optKind = Flag name optKind OnlyGhci
+
+defHiddenFlag :: String -> OptKind m -> Flag m
+defHiddenFlag name optKind = Flag name optKind HiddenFlag
+
+-- | GHC flag modes describing when a flag has an effect.
+data GhcFlagMode
+    = OnlyGhc  -- ^ The flag only affects the non-interactive GHC
+    | OnlyGhci -- ^ The flag only affects the interactive GHC
+    | AllModes -- ^ The flag affects multiple ghc modes
+    | HiddenFlag -- ^ This flag should not be seen in cli completion
 
 data OptKind m                             -- Suppose the flag is -f
     = NoArg     (EwM m ())                 -- -f all by itself
@@ -56,8 +79,6 @@ data OptKind m                             -- Suppose the flag is -f
     | AnySuffix (String -> EwM m ())       -- -f or -farg; pass entire "-farg" to fn
     | PrefixPred    (String -> Bool) (String -> EwM m ())
     | AnySuffixPred (String -> Bool) (String -> EwM m ())
-    | VersionSuffix (Int -> Int -> EwM m ())
-      -- -f or -f=maj.min; pass major and minor version to fn
 
 
 --------------------------------------------------------
@@ -86,6 +107,9 @@ instance Monad m => Monad (EwM m) where
     (EwM f) >>= k = EwM (\l e w -> do (e', w', r) <- f l e w
                                       unEwM (k r) l e' w')
     return v = EwM (\_ e w -> return (e, w, v))
+
+runEwM :: EwM m a -> m (Errs, Warns, a)
+runEwM action = unEwM action (panic "processArgs: no arg yet") emptyBag emptyBag
 
 setArg :: Monad m => Located String -> EwM m () -> EwM m ()
 setArg l (EwM f) = EwM (\_ es ws -> f l es ws)
@@ -149,8 +173,7 @@ processArgs :: Monad m
                    [Located String],  -- errors
                    [Located String] ) -- warnings
 processArgs spec args = do
-    (errs, warns, spare) <- unEwM action (panic "processArgs: no arg yet")
-                                  emptyBag emptyBag
+    (errs, warns, spare) <- runEwM action
     return (spare, bagToList errs, bagToList warns)
   where
     action = process args []
@@ -188,8 +211,9 @@ processOneArg opt_kind rest arg args
                                     []               -> missingArgErr dash_arg
                                     (L _ arg1:args1) -> Right (f arg1, args1)
 
+        -- See Trac #9776
         SepArg f -> case args of
-                        []               -> unknownFlagErr dash_arg
+                        []               -> missingArgErr dash_arg
                         (L _ arg1:args1) -> Right (f arg1, args1)
 
         Prefix f | notNull rest_no_eq -> Right (f rest_no_eq, args)
@@ -214,15 +238,6 @@ processOneArg opt_kind rest arg args
         OptPrefix f       -> Right (f rest_no_eq, args)
         AnySuffix f       -> Right (f dash_arg, args)
         AnySuffixPred _ f -> Right (f dash_arg, args)
-
-        VersionSuffix f | [maj_s, min_s] <- split '.' rest_no_eq,
-                          Just maj <- parseInt maj_s,
-                          Just min <- parseInt min_s -> Right (f maj min, args)
-                        | [maj_s] <- split '.' rest_no_eq,
-                          Just maj <- parseInt maj_s -> Right (f maj 0, args)
-                        | null rest_no_eq -> Right (f 1 0, args)
-                        | otherwise -> Left ("malformed version argument in " ++ dash_arg)
-
 
 findArg :: [Flag m] -> String -> Maybe (String, OptKind m)
 findArg spec arg =
@@ -249,7 +264,6 @@ arg_ok (OptPrefix       _)  _    _   = True
 arg_ok (PassFlag        _)  rest _   = null rest
 arg_ok (AnySuffix       _)  _    _   = True
 arg_ok (AnySuffixPred p _)  _    arg = p arg
-arg_ok (VersionSuffix   _)  _    _   = True
 
 -- | Parse an Int
 --
@@ -281,8 +295,26 @@ missingArgErr f = Left ("missing argument for flag: " ++ f)
 -- Utils
 --------------------------------------------------------
 
-errorsToGhcException :: [Located String] -> GhcException
-errorsToGhcException errs =
-    UsageError $
-        intercalate "\n" [ showUserSpan True l ++ ": " ++ e | L l e <- errs ]
 
+-- See Note [Handling errors when parsing flags]
+errorsToGhcException :: [(String,    -- Location
+                          String)]   -- Error
+                     -> GhcException
+errorsToGhcException errs =
+    UsageError $ intercalate "\n" $ [ l ++ ": " ++ e | (l, e) <- errs ]
+
+{- Note [Handling errors when parsing commandline flags]
+
+Parsing of static and mode flags happens before any session is started, i.e.,
+before the first call to 'GHC.withGhc'. Therefore, to report errors for
+invalid usage of these two types of flags, we can not call any function that
+needs DynFlags, as there are no DynFlags available yet (unsafeGlobalDynFlags
+is not set either). So we always print "on the commandline" as the location,
+which is true except for Api users, which is probably ok.
+
+When reporting errors for invalid usage of dynamic flags we /can/ make use of
+DynFlags, and we do so explicitly in DynFlags.parseDynamicFlagsFull.
+
+Before, we called unsafeGlobalDynFlags when an invalid (combination of)
+flag(s) was given on the commandline, resulting in panics (#9963).
+-}

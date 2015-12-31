@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 -----------------------------------------------------------------------------
 --
 -- Stg to C-- code generation: expressions
@@ -45,6 +47,11 @@ import FastString
 import Outputable
 
 import Control.Monad (when,void)
+import Control.Arrow (first)
+
+#if __GLASGOW_HASKELL__ >= 709
+import Prelude hiding ((<*>))
+#endif
 
 ------------------------------------------------------------------------
 --              cgExpr: the main function
@@ -60,10 +67,7 @@ cgExpr (StgOpApp (StgPrimOp SeqOp) [StgVarArg a, _] _res_ty) =
 
 cgExpr (StgOpApp op args ty) = cgOpApp op args ty
 cgExpr (StgConApp con args)  = cgConApp con args
-cgExpr (StgSCC cc tick push expr) = do { emitSetCCC cc tick push; cgExpr expr }
-cgExpr (StgTick m n expr) = do dflags <- getDynFlags
-                               emit (mkTickBox dflags m n)
-                               cgExpr expr
+cgExpr (StgTick t e)         = cgTick t >> cgExpr e
 cgExpr (StgLit lit)       = do cmm_lit <- cgLit lit
                                emitReturn [CmmLit cmm_lit]
 
@@ -127,8 +131,8 @@ cgLetNoEscapeRhs
 cgLetNoEscapeRhs join_id local_cc bndr rhs =
   do { (info, rhs_code) <- cgLetNoEscapeRhsBody local_cc bndr rhs
      ; let (bid, _) = expectJust "cgLetNoEscapeRhs" $ maybeLetNoEscape info
-     ; let code = do { body <- getCode rhs_code
-                     ; emitOutOfLine bid (body <*> mkBranch join_id) }
+     ; let code = do { (_, body) <- getCodeScoped rhs_code
+                     ; emitOutOfLine bid (first (<*> mkBranch join_id) body) }
      ; return (info, code)
      }
 
@@ -351,30 +355,59 @@ of Bool-returning primops was that tagToEnum# was added implicitly in the
 codegen and then optimized away. Now the call to tagToEnum# is explicit
 in the source code, which allows to optimize it away at the earlier stages
 of compilation (i.e. at the Core level).
+
+Note [Scrutinising VoidRep]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Suppose we have this STG code:
+   f = \[s : State# RealWorld] ->
+       case s of _ -> blah
+This is very odd.  Why are we scrutinising a state token?  But it
+can arise with bizarre NOINLINE pragmas (Trac #9964)
+    crash :: IO ()
+    crash = IO (\s -> let {-# NOINLINE s' #-}
+                          s' = s
+                      in (# s', () #))
+
+Now the trouble is that 's' has VoidRep, and we do not bind void
+arguments in the environment; they don't live anywhere.  See the
+calls to nonVoidIds in various places.  So we must not look up
+'s' in the environment.  Instead, just evaluate the RHS!  Simple.
+
+Note [Dodgy unsafeCoerce 1]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider
+    case (x :: MutVar# Int) |> co of (y :: HValue)
+        DEFAULT -> ...
+We want to gnerate an assignment
+     y := x
+We want to allow this assignment to be generated in the case when the
+types are compatible, because this allows some slightly-dodgy but
+occasionally-useful casts to be used, such as in RtClosureInspect
+where we cast an HValue to a MutVar# so we can print out the contents
+of the MutVar#.  If instead we generate code that enters the HValue,
+then we'll get a runtime panic, because the HValue really is a
+MutVar#.  The types are compatible though, so we can just generate an
+assignment.
+
+Note [Dodgy unsafeCoerce 2]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Note [ticket #3132]: we might be looking at a case of a lifted Id that
+was cast to an unlifted type.  The Id will always be bottom, but we
+don't want the code generator to fall over here.  If we just emit an
+assignment here, the assignment will be type-incorrect Cmm.  Hence, we
+emit the usual enter/return code, (and because bottom must be
+untagged, it will be entered and the program will crash).  The Sequel
+is a type-correct assignment, albeit bogus.  The (dead) continuation
+loops; it would be better to invoke some kind of panic function here.
 -}
 
+cgCase (StgApp v []) _ (PrimAlt _) alts
+  | isVoidRep (idPrimRep v)  -- See Note [Scrutinising VoidRep]
+  , [(DEFAULT, _, _, rhs)] <- alts
+  = cgExpr rhs
 
-  -- Note [ticket #3132]: we might be looking at a case of a lifted Id
-  -- that was cast to an unlifted type.  The Id will always be bottom,
-  -- but we don't want the code generator to fall over here.  If we
-  -- just emit an assignment here, the assignment will be
-  -- type-incorrect Cmm.  Hence, we emit the usual enter/return code,
-  -- (and because bottom must be untagged, it will be entered and the
-  -- program will crash).
-  -- The Sequel is a type-correct assignment, albeit bogus.
-  -- The (dead) continuation loops; it would be better to invoke some kind
-  -- of panic function here.
-  --
-  -- However, we also want to allow an assignment to be generated
-  -- in the case when the types are compatible, because this allows
-  -- some slightly-dodgy but occasionally-useful casts to be used,
-  -- such as in RtClosureInspect where we cast an HValue to a MutVar#
-  -- so we can print out the contents of the MutVar#.  If we generate
-  -- code that enters the HValue, then we'll get a runtime panic, because
-  -- the HValue really is a MutVar#.  The types are compatible though,
-  -- so we can just generate an assignment.
 cgCase (StgApp v []) bndr alt_type@(PrimAlt _) alts
-  | isUnLiftedType (idType v)
+  | isUnLiftedType (idType v)  -- Note [Dodgy unsafeCoerce 1]
   || reps_compatible
   = -- assignment suffices for unlifted types
     do { dflags <- getDynFlags
@@ -388,7 +421,7 @@ cgCase (StgApp v []) bndr alt_type@(PrimAlt _) alts
     reps_compatible = idPrimRep v == idPrimRep bndr
 
 cgCase scrut@(StgApp v []) _ (PrimAlt _) _
-  = -- fail at run-time, not compile-time
+  = -- See Note [Dodgy unsafeCoerce 2]
     do { dflags <- getDynFlags
        ; mb_cc <- maybeSaveCostCentre True
        ; _ <- withSequel (AssignTo [idToReg dflags (NonVoid v)] False) (cgExpr scrut)
@@ -399,7 +432,9 @@ cgCase scrut@(StgApp v []) _ (PrimAlt _) _
        ; emit (mkBranch l)
        ; return AssignedDirectly
        }
-{-
+
+{- Note [Handle seq#]
+~~~~~~~~~~~~~~~~~~~~~
 case seq# a s of v
   (# s', a' #) -> e
 
@@ -413,7 +448,8 @@ is the same as the return convention for just 'a')
 -}
 
 cgCase (StgOpApp (StgPrimOp SeqOp) [StgVarArg a, _] _) bndr alt_type alts
-  = -- handle seq#, same return convention as vanilla 'a'.
+  = -- Note [Handle seq#]
+    -- Use the same return convention as vanilla 'a'.
     cgCase (StgApp a []) bndr alt_type alts
 
 cgCase scrut bndr alt_type alts
@@ -422,8 +458,8 @@ cgCase scrut bndr alt_type alts
        ; up_hp_usg <- getVirtHp        -- Upstream heap usage
        ; let ret_bndrs = chooseReturnBndrs bndr alt_type alts
              alt_regs  = map (idToReg dflags) ret_bndrs
-             simple_scrut = isSimpleScrut scrut alt_type
-             do_gc  | not simple_scrut = True
+       ; simple_scrut <- isSimpleScrut scrut alt_type
+       ; let do_gc  | not simple_scrut = True
                     | isSingleton alts = False
                     | up_hp_usg > 0    = False
                     | otherwise        = True
@@ -450,6 +486,13 @@ recover any unused heap before passing control to the sequel.  If we
 don't do this, then any unused heap will become slop because the heap
 check will reset the heap usage. Slop in the heap breaks LDV profiling
 (+RTS -hb) which needs to do a linear sweep through the nursery.
+
+
+Note [Inlining out-of-line primops and heap checks]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+If shouldInlinePrimOp returns True when called from StgCmmExpr for the
+purpose of heap check placement, we *must* inline the primop later in
+StgCmmPrim. If we don't things will go wrong.
 -}
 
 -----------------
@@ -460,21 +503,25 @@ maybeSaveCostCentre simple_scrut
 
 
 -----------------
-isSimpleScrut :: StgExpr -> AltType -> Bool
+isSimpleScrut :: StgExpr -> AltType -> FCode Bool
 -- Simple scrutinee, does not block or allocate; hence safe to amalgamate
 -- heap usage from alternatives into the stuff before the case
 -- NB: if you get this wrong, and claim that the expression doesn't allocate
 --     when it does, you'll deeply mess up allocation
-isSimpleScrut (StgOpApp op _ _) _          = isSimpleOp op
-isSimpleScrut (StgLit _)       _           = True       -- case 1# of { 0# -> ..; ... }
-isSimpleScrut (StgApp _ [])    (PrimAlt _) = True       -- case x# of { 0# -> ..; ... }
-isSimpleScrut _                _           = False
+isSimpleScrut (StgOpApp op args _) _       = isSimpleOp op args
+isSimpleScrut (StgLit _)       _           = return True       -- case 1# of { 0# -> ..; ... }
+isSimpleScrut (StgApp _ [])    (PrimAlt _) = return True       -- case x# of { 0# -> ..; ... }
+isSimpleScrut _                _           = return False
 
-isSimpleOp :: StgOp -> Bool
+isSimpleOp :: StgOp -> [StgArg] -> FCode Bool
 -- True iff the op cannot block or allocate
-isSimpleOp (StgFCallOp (CCall (CCallSpec _ _ safe)) _) = not (playSafe safe)
-isSimpleOp (StgPrimOp op)                              = not (primOpOutOfLine op)
-isSimpleOp (StgPrimCallOp _)                           = False
+isSimpleOp (StgFCallOp (CCall (CCallSpec _ _ safe)) _) _ = return $! not (playSafe safe)
+isSimpleOp (StgPrimOp op) stg_args                  = do
+    arg_exprs <- getNonVoidArgAmodes stg_args
+    dflags <- getDynFlags
+    -- See Note [Inlining out-of-line primops and heap checks]
+    return $! isJust $ shouldInlinePrimOp dflags op arg_exprs
+isSimpleOp (StgPrimCallOp _) _                           = return False
 
 -----------------
 chooseReturnBndrs :: Id -> AltType -> [StgAlt] -> [NonVoid Id]
@@ -574,8 +621,8 @@ cgAlts _ _ _ _ = panic "cgAlts"
 
 -------------------
 cgAlgAltRhss :: (GcPlan,ReturnKind) -> NonVoid Id -> [StgAlt]
-             -> FCode ( Maybe CmmAGraph
-                      , [(ConTagZ, CmmAGraph)] )
+             -> FCode ( Maybe CmmAGraphScoped
+                      , [(ConTagZ, CmmAGraphScoped)] )
 cgAlgAltRhss gc_plan bndr alts
   = do { tagged_cmms <- cgAltRhss gc_plan bndr alts
 
@@ -594,14 +641,14 @@ cgAlgAltRhss gc_plan bndr alts
 
 -------------------
 cgAltRhss :: (GcPlan,ReturnKind) -> NonVoid Id -> [StgAlt]
-          -> FCode [(AltCon, CmmAGraph)]
+          -> FCode [(AltCon, CmmAGraphScoped)]
 cgAltRhss gc_plan bndr alts = do
   dflags <- getDynFlags
   let
     base_reg = idToReg dflags bndr
-    cg_alt :: StgAlt -> FCode (AltCon, CmmAGraph)
+    cg_alt :: StgAlt -> FCode (AltCon, CmmAGraphScoped)
     cg_alt (con, bndrs, _uses, rhs)
-      = getCodeR                  $
+      = getCodeScoped             $
         maybeAltHeapCheck gc_plan $
         do { _ <- bindConArgs con base_reg bndrs
            ; _ <- cgExpr rhs
@@ -627,7 +674,7 @@ cgConApp con stg_args
        ; emitReturn arg_exprs }
 
   | otherwise   --  Boxed constructors; allocate and return
-  = ASSERT( stg_args `lengthIs` dataConRepRepArity con )
+  = ASSERT2( stg_args `lengthIs` dataConRepRepArity con, ppr con <+> ppr stg_args )
     do  { (idinfo, fcode_init) <- buildDynCon (dataConWorkId con) False
                                      currentCCS con stg_args
                 -- The first "con" says that the name bound to this
@@ -737,10 +784,16 @@ cgIdApp fun_id args = do
 --
 --   * Whenever we are compiling a function, we set that information to reflect
 --     the fact that function currently being compiled can be jumped to, instead
---     of called. We also have to emit a label to which we will be jumping. Both
---     things are done in closureCodyBody in StgCmmBind.
+--     of called. This is done in closureCodyBody in StgCmmBind.
 --
---   * When we began compilation of another closure we remove the additional
+--   * We also have to emit a label to which we will be jumping. We make sure
+--     that the label is placed after a stack check but before the heap
+--     check. The reason is that making a recursive tail-call does not increase
+--     the stack so we only need to check once. But it may grow the heap, so we
+--     have to repeat the heap check in every self-call. This is done in
+--     do_checks in StgCmmHeap.
+--
+--   * When we begin compilation of another closure we remove the additional
 --     information from the environment. This is done by forkClosureBody
 --     in StgCmmMonad. Other functions that duplicate the environment -
 --     forkLneBody, forkAlts, codeOnly - duplicate that information. In other
@@ -755,8 +808,8 @@ cgIdApp fun_id args = do
 --     arity. (d) loopification is turned on via -floopification command-line
 --     option.
 --
---   * Command line option to control turn loopification on and off is
---     implemented in DynFlags
+--   * Command line option to turn loopification on and off is implemented in
+--     DynFlags.
 --
 
 
@@ -820,12 +873,30 @@ emitEnter fun = do
          -- inlined in the RHS of the R1 assignment.
        ; let entry = entryCode dflags (closureInfoPtr dflags (CmmReg nodeReg))
              the_call = toCall entry (Just lret) updfr_off off outArgs regs
+       ; tscope <- getTickScope
        ; emit $
            copyout <*>
            mkCbranch (cmmIsTagged dflags (CmmReg nodeReg)) lret lcall <*>
-           outOfLine lcall the_call <*>
-           mkLabel lret <*>
+           outOfLine lcall (the_call,tscope) <*>
+           mkLabel lret tscope <*>
            copyin
        ; return (ReturnedTo lret off)
        }
   }
+
+------------------------------------------------------------------------
+--              Ticks
+------------------------------------------------------------------------
+
+-- | Generate Cmm code for a tick. Depending on the type of Tickish,
+-- this will either generate actual Cmm instrumentation code, or
+-- simply pass on the annotation as a @CmmTickish@.
+cgTick :: Tickish Id -> FCode ()
+cgTick tick
+  = do { dflags <- getDynFlags
+       ; case tick of
+           ProfNote   cc t p -> emitSetCCC cc t p
+           HpcTick    m n    -> emit (mkTickBox dflags m n)
+           SourceNote s n    -> emitTick $ SourceNote s n
+           _other            -> return () -- ignore
+       }

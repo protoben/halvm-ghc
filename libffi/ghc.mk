@@ -58,13 +58,17 @@ $(libffi_STAMP_CONFIGURE): $(TOUCH_DEP)
 	cat libffi-tarballs/libffi*.tar.gz | $(GZIP_CMD) -d | { cd libffi && $(TAR_CMD) -xf - ; }
 	mv libffi/libffi-* libffi/build
 
-# We need to apply a patch to libffi that makes HaLVM a valid build target
-	patch -d libffi/build -p1 < libffi/HaLVM.patch
+# update config.guess/config.sub
+	$(CP) "$(TOP)/config.guess" libffi/build/config.guess
+	$(CP) "$(TOP)/config.sub"   libffi/build/config.sub
 
 # We have to fake a non-working ln for configure, so that the fallback
 # option (cp -p) gets used instead.  Otherwise the libffi build system
 # will use cygwin symbolic links which cannot be read by mingw gcc.
 	chmod +x libffi/ln
+
+	# don't report nonselinux systems as selinux
+	( cd libffi/build && "$(PATCH_CMD)" -p0 < ../libffi.x86-execstack.patch; )
 
 	# We need to use -MMD rather than -MD, as otherwise we get paths
 	# like c:/... in the dependency files on Windows, and the extra
@@ -93,12 +97,13 @@ $(libffi_STAMP_CONFIGURE): $(TOUCH_DEP)
 	    $(LIBFFI_PATH_MANGLE) \
 	    cd build && \
 	    CC=$(CC_STAGE1) \
+	    CXX=$(CC_STAGE1) \
 	    LD=$(LD) \
 	    AR=$(AR_STAGE1) \
 	    NM=$(NM) \
 	    RANLIB=$(REAL_RANLIB_CMD) \
         CFLAGS="$(SRC_CC_OPTS) $(CONF_CC_OPTS_STAGE1) -w" \
-        LDFLAGS="$(SRC_LD_OPTS) $(CONF_GCC_LINKER_OPTS_STAGE1) -w" \
+        LDFLAGS="$(SRC_LD_OPTS) -w" \
         "$(SHELL)" ./configure \
 	          --prefix=$(TOP)/libffi/build/inst \
 	          --libdir=$(TOP)/libffi/build/inst/lib \

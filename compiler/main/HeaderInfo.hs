@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 -----------------------------------------------------------------------------
 --
 -- | Parsing the top of a Haskell source file to get its module name,
@@ -79,7 +81,8 @@ getImports dflags buf filename source_filename = do
                                        ord_idecls
 
                 implicit_prelude = xopt Opt_ImplicitPrelude dflags
-                implicit_imports = mkPrelImports (unLoc mod) main_loc implicit_prelude imps
+                implicit_imports = mkPrelImports (unLoc mod) main_loc
+                                                 implicit_prelude imps
               in
               return (src_idecls, implicit_imports ++ ordinary_imps, mod)
 
@@ -107,7 +110,8 @@ mkPrelImports this_mod loc implicit_prelude import_decls
 
       preludeImportDecl :: LImportDecl RdrName
       preludeImportDecl
-        = L loc $ ImportDecl { ideclName      = L loc pRELUDE_NAME,
+        = L loc $ ImportDecl { ideclSourceSrc = Nothing,
+                               ideclName      = L loc pRELUDE_NAME,
                                ideclPkgQual   = Nothing,
                                ideclSource    = False,
                                ideclSafe      = False,  -- Not a safe import
@@ -160,7 +164,7 @@ lazyGetToks dflags filename handle = do
 
   lazyLexBuf :: Handle -> PState -> Bool -> Int -> IO [Located Token]
   lazyLexBuf handle state eof size = do
-    case unP (lexer return) state of
+    case unP (lexer False return) state of
       POk state' t -> do
         -- pprTrace "lazyLexBuf" (text (show (buffer state'))) (return ())
         if atEnd (buffer state') && not eof
@@ -185,8 +189,8 @@ lazyGetToks dflags filename handle = do
        -- large module names (#5981)
      nextbuf <- hGetStringBufferBlock handle new_size
      if (len nextbuf == 0) then lazyLexBuf handle state True new_size else do
-     newbuf <- appendStringBuffers (buffer state) nextbuf
-     unsafeInterleaveIO $ lazyLexBuf handle state{buffer=newbuf} False new_size
+       newbuf <- appendStringBuffers (buffer state) nextbuf
+       unsafeInterleaveIO $ lazyLexBuf handle state{buffer=newbuf} False new_size
 
 
 getToks :: DynFlags -> FilePath -> StringBuffer -> [Located Token]
@@ -194,7 +198,7 @@ getToks dflags filename buf = lexAll (pragState dflags buf loc)
  where
   loc  = mkRealSrcLoc (mkFastString filename) 1 1
 
-  lexAll state = case unP (lexer return) state of
+  lexAll state = case unP (lexer False return) state of
                    POk _      t@(L _ ITeof) -> [t]
                    POk state' t -> t : lexAll state'
                    _ -> [L (RealSrcSpan (last_loc state)) ITeof]
@@ -298,7 +302,7 @@ unsupportedExtnError dflags loc unsup =
   throw $ mkSrcErr $ unitBag $
     mkPlainErrMsg dflags loc $
         text "Unsupported extension: " <> text unsup $$
-        if null suggestions then empty else text "Perhaps you meant" <+> quotedListWithOr (map text suggestions)
+        if null suggestions then Outputable.empty else text "Perhaps you meant" <+> quotedListWithOr (map text suggestions)
   where
      suggestions = fuzzyMatch unsup supportedLanguagesAndExtensions
 

@@ -16,23 +16,33 @@
 
 #include "BeginPrivate.h"
 
-void blockedThrowTo (Capability *cap, 
+void blockedThrowTo (Capability *cap,
                      StgTSO *target, MessageThrowTo *msg);
 
+StgTSO* raiseAsync (Capability *cap,
+                    StgTSO *tso,
+                    StgClosure *exception,
+                    rtsBool stop_at_atomically,
+                    StgUpdateFrame *stop_here);
+
 void throwToSingleThreaded (Capability *cap,
-			    StgTSO *tso,
-			    StgClosure *exception);
+                            StgTSO *tso,
+                            StgClosure *exception);
 
-void throwToSingleThreaded_ (Capability *cap, 
-			     StgTSO *tso, 
-			     StgClosure *exception, 
-			     rtsBool stop_at_atomically);
+void throwToSingleThreaded_ (Capability *cap,
+                             StgTSO *tso,
+                             StgClosure *exception,
+                             rtsBool stop_at_atomically);
 
-void suspendComputation (Capability *cap, 
-			 StgTSO *tso, 
-			 StgUpdateFrame *stop_here);
+void throwToSelf (Capability *cap,
+                  StgTSO *tso,
+                  StgClosure *exception);
 
-MessageThrowTo *throwTo (Capability *cap,      // the Capability we hold 
+void suspendComputation (Capability *cap,
+                         StgTSO *tso,
+                         StgUpdateFrame *stop_here);
+
+MessageThrowTo *throwTo (Capability *cap,      // the Capability we hold
                          StgTSO *source,
                          StgTSO *target,
                          StgClosure *exception); // the exception closure
@@ -74,4 +84,3 @@ interruptible(StgTSO *t)
 #endif /* CMINUSMINUS */
 
 #endif /* RAISEASYNC_H */
-

@@ -24,14 +24,14 @@ void arm_atomic_spin_unlock(void);
 /* ----------------------------------------------------------------------------
    Atomic operations
    ------------------------------------------------------------------------- */
-   
+
 #if !IN_STG_CODE || IN_STGCRUN
 // We only want the barriers, e.g. write_barrier(), declared in .hc
 // files.  Defining the other inline functions here causes type
 // mismatch errors from gcc, because the generated C code is assuming
 // that there are no prototypes in scope.
 
-/* 
+/*
  * The atomic exchange operation: xchg(p,w) exchanges the value
  * pointed to by p with the value w, returning the old value.
  *
@@ -40,12 +40,12 @@ void arm_atomic_spin_unlock(void);
  */
 EXTERN_INLINE StgWord xchg(StgPtr p, StgWord w);
 
-/* 
+/*
  * Compare-and-swap.  Atomically does this:
  *
- * cas(p,o,n) { 
- *    r = *p; 
- *    if (r == o) { *p = n }; 
+ * cas(p,o,n) {
+ *    r = *p;
+ *    if (r == o) { *p = n };
  *    return r;
  * }
  */
@@ -88,11 +88,11 @@ EXTERN_INLINE void busy_wait_nop(void);
  * Reference for these: "The JSR-133 Cookbook for Compiler Writers"
  * http://gee.cs.oswego.edu/dl/jmm/cookbook.html
  *
- * To check whether you got these right, try the test in 
+ * To check whether you got these right, try the test in
  *   testsuite/tests/rts/testwsdeque.c
  * This tests the work-stealing deque implementation, which relies on
  * properly working store_load and load_load memory barriers.
- */ 
+ */
 EXTERN_INLINE void write_barrier(void);
 EXTERN_INLINE void store_load_barrier(void);
 EXTERN_INLINE void load_load_barrier(void);
@@ -107,15 +107,18 @@ EXTERN_INLINE StgWord
 xchg(StgPtr p, StgWord w)
 {
     StgWord result;
-#if i386_HOST_ARCH || x86_64_HOST_ARCH
+#if defined(NOSMP)
+    result = *p;
+    *p = w;
+#elif i386_HOST_ARCH || x86_64_HOST_ARCH
     result = w;
     __asm__ __volatile__ (
         // NB: the xchg instruction is implicitly locked, so we do not
         // need a lock prefix here.
- 	  "xchg %1,%0"
+          "xchg %1,%0"
           :"+r" (result), "+m" (*p)
           : /* no input-only operands */
-	);
+        );
 #elif powerpc_HOST_ARCH
     __asm__ __volatile__ (
         "1:     lwarx     %0, 0, %2\n"
@@ -128,8 +131,8 @@ xchg(StgPtr p, StgWord w)
     result = w;
     __asm__ __volatile__ (
         "swap %1,%0"
-	: "+r" (result), "+m" (*p)
-	: /* no input-only operands */
+        : "+r" (result), "+m" (*p)
+        : /* no input-only operands */
       );
 #elif arm_HOST_ARCH && defined(arm_HOST_ARCH_PRE_ARMv6)
     __asm__ __volatile__ ("swp %0, %1, [%2]"
@@ -154,25 +157,40 @@ xchg(StgPtr p, StgWord w)
                           : "r" (w), "r" (p)
                           : "memory"
                           );
-#elif !defined(WITHSMP)
-    result = *p;
-    *p = w;
+#elif aarch64_HOST_ARCH
+    StgWord tmp; 
+    __asm__ __volatile__ (
+                          "1:    ldaxr  %0, [%3]\n"
+                          "      stlxr  %w1, %2, [%3]\n"
+                          "      cbnz   %w1, 1b\n"
+                          "      dmb sy\n"
+                          : "=&r" (result), "=&r" (tmp)
+                          : "r" (w), "r" (p)
+                          : "memory"
+                          );
 #else
 #error xchg() unimplemented on this architecture
 #endif
     return result;
 }
 
-/* 
- * CMPXCHG - the single-word atomic compare-and-exchange instruction.  Used 
+/*
+ * CMPXCHG - the single-word atomic compare-and-exchange instruction.  Used
  * in the STM implementation.
  */
 EXTERN_INLINE StgWord
 cas(StgVolatilePtr p, StgWord o, StgWord n)
 {
-#if i386_HOST_ARCH || x86_64_HOST_ARCH
+#if defined(NOSMP)
+    StgWord result;
+    result = *p;
+    if (result == o) {
+        *p = n;
+    }
+    return result;
+#elif i386_HOST_ARCH || x86_64_HOST_ARCH
     __asm__ __volatile__ (
- 	  "lock\ncmpxchg %3,%1"
+          "lock\ncmpxchg %3,%1"
           :"=a"(o), "+m" (*(volatile unsigned int *)p)
           :"0" (o), "r" (n));
     return o;
@@ -192,17 +210,17 @@ cas(StgVolatilePtr p, StgWord o, StgWord n)
     return result;
 #elif sparc_HOST_ARCH
     __asm__ __volatile__ (
-	"cas [%1], %2, %0"
-	: "+r" (n)
-	: "r" (p), "r" (o)
-	: "memory"
+        "cas [%1], %2, %0"
+        : "+r" (n)
+        : "r" (p), "r" (o)
+        : "memory"
     );
     return n;
 #elif arm_HOST_ARCH && defined(arm_HOST_ARCH_PRE_ARMv6)
     StgWord r;
     arm_atomic_spin_lock();
-    r  = *p; 
-    if (r == o) { *p = n; } 
+    r  = *p;
+    if (r == o) { *p = n; }
     arm_atomic_spin_unlock();
     return r;
 #elif arm_HOST_ARCH && !defined(arm_HOST_ARCH_PRE_ARMv6)
@@ -225,12 +243,23 @@ cas(StgVolatilePtr p, StgWord o, StgWord n)
                 : "cc","memory");
 
     return result;
-#elif !defined(WITHSMP)
-    StgWord result;
-    result = *p;
-    if (result == o) {
-        *p = n;
-    }
+#elif aarch64_HOST_ARCH
+    // Don't think we actually use tmp here, but leaving
+    // it for consistent numbering
+    StgWord result,tmp;
+
+    __asm__ __volatile__(
+        "1:     ldxr %1, [%2]\n"
+        "       mov %w0, #0\n"
+        "       cmp %1, %3\n"
+        "       b.ne 2f\n"
+        "       stxr %w0, %4, [%2]\n"
+        "       cbnz %w0, 1b\n"
+        "2:     dmb sy\n"
+                : "=&r"(tmp), "=&r"(result)
+                : "r"(p), "r"(o), "r"(n)
+                : "cc","memory");
+
     return result;
 #else
 #error cas() unimplemented on this architecture
@@ -251,12 +280,12 @@ atomic_inc(StgVolatilePtr p, StgWord incr)
     );
     return r + incr;
 #else
-    StgWord old, new;
+    StgWord old, new_;
     do {
         old = *p;
-        new = old + incr;
-    } while (cas(p, old, new) != old);
-    return new;
+        new_ = old + incr;
+    } while (cas(p, old, new_) != old);
+    return new_;
 #endif
 }
 
@@ -272,21 +301,31 @@ atomic_dec(StgVolatilePtr p)
     );
     return r-1;
 #else
-    StgWord old, new;
+    StgWord old, new_;
     do {
         old = *p;
-        new = old - 1;
-    } while (cas(p, old, new) != old);
-    return new;
+        new_ = old - 1;
+    } while (cas(p, old, new_) != old);
+    return new_;
 #endif
 }
 
+/*
+ * Some architectures have a way to tell the CPU that we're in a
+ * busy-wait loop, and the processor should look for something else to
+ * do (such as run another hardware thread).
+ */
 EXTERN_INLINE void
 busy_wait_nop(void)
 {
 #if defined(i386_HOST_ARCH) || defined(x86_64_HOST_ARCH)
+    // On Intel, the busy-wait-nop instruction is called "pause",
+    // which is actually represented as a nop with the rep prefix.
+    // On processors before the P4 this behaves as a nop; on P4 and
+    // later it might do something clever like yield to another
+    // hyperthread.  In any case, Intel recommends putting one
+    // of these in a spin lock loop.
     __asm__ __volatile__ ("rep; nop");
-    //
 #else
     // nothing
 #endif
@@ -302,7 +341,9 @@ busy_wait_nop(void)
  */
 EXTERN_INLINE void
 write_barrier(void) {
-#if i386_HOST_ARCH || x86_64_HOST_ARCH
+#if defined(NOSMP)
+    return;
+#elif i386_HOST_ARCH || x86_64_HOST_ARCH
     __asm__ __volatile__ ("" : : : "memory");
 #elif powerpc_HOST_ARCH
     __asm__ __volatile__ ("lwsync" : : : "memory");
@@ -311,10 +352,8 @@ write_barrier(void) {
     __asm__ __volatile__ ("" : : : "memory");
 #elif arm_HOST_ARCH && defined(arm_HOST_ARCH_PRE_ARMv7)
     __asm__ __volatile__ ("" : : : "memory");
-#elif arm_HOST_ARCH && !defined(arm_HOST_ARCH_PRE_ARMv7)
+#elif (arm_HOST_ARCH && !defined(arm_HOST_ARCH_PRE_ARMv7)) || aarch64_HOST_ARCH
     __asm__ __volatile__ ("dmb  st" : : : "memory");
-#elif !defined(WITHSMP)
-    return;
 #else
 #error memory barriers unimplemented on this architecture
 #endif
@@ -322,7 +361,9 @@ write_barrier(void) {
 
 EXTERN_INLINE void
 store_load_barrier(void) {
-#if i386_HOST_ARCH
+#if defined(NOSMP)
+    return;
+#elif i386_HOST_ARCH
     __asm__ __volatile__ ("lock; addl $0,0(%%esp)" : : : "memory");
 #elif x86_64_HOST_ARCH
     __asm__ __volatile__ ("lock; addq $0,0(%%rsp)" : : : "memory");
@@ -330,10 +371,12 @@ store_load_barrier(void) {
     __asm__ __volatile__ ("sync" : : : "memory");
 #elif sparc_HOST_ARCH
     __asm__ __volatile__ ("membar #StoreLoad" : : : "memory");
+#elif arm_HOST_ARCH && defined(arm_HOST_ARCH_PRE_ARMv7)
+    __asm__ __volatile__ ("" : : : "memory");
 #elif arm_HOST_ARCH && !defined(arm_HOST_ARCH_PRE_ARMv7)
     __asm__ __volatile__ ("dmb" : : : "memory");
-#elif !defined(WITHSMP)
-    return;
+#elif aarch64_HOST_ARCH
+    __asm__ __volatile__ ("dmb sy" : : : "memory");
 #else
 #error memory barriers unimplemented on this architecture
 #endif
@@ -341,7 +384,9 @@ store_load_barrier(void) {
 
 EXTERN_INLINE void
 load_load_barrier(void) {
-#if i386_HOST_ARCH
+#if defined(NOSMP)
+    return;
+#elif i386_HOST_ARCH
     __asm__ __volatile__ ("" : : : "memory");
 #elif x86_64_HOST_ARCH
     __asm__ __volatile__ ("" : : : "memory");
@@ -350,10 +395,12 @@ load_load_barrier(void) {
 #elif sparc_HOST_ARCH
     /* Sparc in TSO mode does not require load/load barriers. */
     __asm__ __volatile__ ("" : : : "memory");
+#elif arm_HOST_ARCH && defined(arm_HOST_ARCH_PRE_ARMv7)
+    __asm__ __volatile__ ("" : : : "memory");
 #elif arm_HOST_ARCH && !defined(arm_HOST_ARCH_PRE_ARMv7)
     __asm__ __volatile__ ("dmb" : : : "memory");
-#elif !defined(WITHSMP)
-    return;
+#elif aarch64_HOST_ARCH
+    __asm__ __volatile__ ("dmb sy" : : : "memory");
 #else
 #error memory barriers unimplemented on this architecture
 #endif

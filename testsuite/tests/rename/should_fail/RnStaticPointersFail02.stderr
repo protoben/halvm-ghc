@@ -1,0 +1,2 @@
+
+RnStaticPointersFail02.hs:5:12: Not in scope: data constructor ‘T’

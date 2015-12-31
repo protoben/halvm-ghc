@@ -170,7 +170,7 @@ test('T4981-V2', normal, compile, [''])
 test('T4981-V3', normal, compile, [''])
 
 test('T5002', normal, compile, [''])
-test('PushedInAsGivens', normal, compile, [''])
+test('PushedInAsGivens', normal, compile_fail, [''])
 
 # Superclass equalities
 test('T4338', normal, compile, [''])
@@ -194,7 +194,6 @@ test('T6152',
      run_command,
      ['$MAKE -s --no-print-directory T6152'])
 
-test('T6088', normal, compile, [''])
 test('T7082', normal, compile, [''])
 
 test('Overlap1', normal, compile, [''])
@@ -245,3 +244,12 @@ test('T8978', normal, compile, [''])
 test('T8979', normal, compile, [''])
 test('T9085', normal, compile, [''])
 test('T9316', normal, compile, [''])
+test('red-black-delete', normal, compile, [''])
+test('Sock', normal, compile, [''])
+test('T9211', normal, compile, [''])
+test('T9747', normal, compile, [''])
+test('T9582', normal, compile, [''])
+test('T9090', normal, compile, [''])
+test('T10020', normal, compile, [''])
+test('T10079', normal, compile, [''])
+test('T10713', normal, compile, [''])

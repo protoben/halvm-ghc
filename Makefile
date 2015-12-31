@@ -30,10 +30,10 @@ default : all
 
 # For help, type 'make help'
 .PHONY: help
-help :
-	@cat MAKEHELP
+help:
+	@cat MAKEHELP.md
 
-ifneq "$(findstring clean,$(MAKECMDGOALS))" ""
+ifneq "$(filter maintainer-clean distclean clean help,$(MAKECMDGOALS))" ""
 -include mk/config.mk
 else
 include mk/config.mk

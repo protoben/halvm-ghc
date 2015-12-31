@@ -16,7 +16,10 @@ module ParserM (
     -- Other
     happyError
  ) where
+
 import Control.Applicative
+import Prelude
+
 import Control.Monad (ap, liftM)
 import Data.Word (Word8)
 import Data.Char (ord)
@@ -83,7 +86,6 @@ data Token = TEOF
            | TPrimop
            | TPseudoop
            | TPrimtype
-           | TPrimclass
            | TWith
            | TDefaults
            | TTrue

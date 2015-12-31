@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveDataTypeable, UndecidableInstances #-}
+{-# LANGUAGE CPP #-}
+
 --
 -- (c) The University of Glasgow 2002-2006
 --
@@ -7,7 +10,6 @@
 -- as its in the IO monad, mutable references can be used
 -- for updating state.
 --
-{-# LANGUAGE UndecidableInstances #-}
 
 module IOEnv (
         IOEnv, -- Instance of Monad
