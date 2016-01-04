@@ -19,7 +19,13 @@
 #
 # $(eval $(call build-prog,utils/genapply,dist-install,1))
 
+str-equal  = $(if $(findstring $1,$2),YES)
+cond-neg   = $(if $(call str-equal,$1,YES),,YES)
+
+build-cond = $(if $(call str-equal,$(Stage1Only),YES),$(if $(call str-equal,$1,0),YES,NO),YES)
+
 define build-prog
+ifeq "$$(call build-cond,$3)" "YES"
 $(call trace, build-prog($1,$2,$3))
 $(call profStart, build-prog($1,$2,$3))
 # $1 = dir
@@ -48,6 +54,7 @@ ifneq "$$($1_$2_NOT_NEEDED)" "YES"
 $$(eval $$(call build-prog-helper,$1,$2,$3))
 endif
 $(call profEnd, build-prog($1,$2,$3))
+endif
 endef
 
 

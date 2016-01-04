@@ -9,19 +9,13 @@
 #ifndef RTSSIGNALS_H
 #define RTSSIGNALS_H
 
-#if !defined(mingw32_HOST_OS) && !defined(HaLVM_TARGET_OS)
+#if !defined(mingw32_HOST_OS)
 
 #include "posix/Signals.h"
 
 #elif defined(mingw32_HOST_OS)
 
 #include "win32/ConsoleHandler.h"
-
-#elif defined(HaLVM_TARGET_OS)
-
-#include <signal.h>
-#include <signals.h>
-extern void startSignalHandlers(Capability *cap);
 
 #else
 

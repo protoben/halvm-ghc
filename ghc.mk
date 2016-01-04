@@ -421,8 +421,6 @@ endif
 PACKAGES_STAGE1 += pretty
 PACKAGES_STAGE1 += template-haskell
 PACKAGES_STAGE1 += binary
-PACKAGES_STAGE1 += Cabal/Cabal
-PACKAGES_STAGE1 += bin-package-db
 PACKAGES_STAGE1 += hoopl
 PACKAGES_STAGE1 += transformers
 
@@ -431,8 +429,6 @@ PACKAGES_STAGE1 += xhtml
 endif
 
 ifeq "$(TargetOS_CPP)" "HaLVM"
-PACKAGES_STAGE1 += old-time
-PACKAGES_STAGE1 += haskell2010
 PACKAGES_STAGE1 += xhtml
 endif
 

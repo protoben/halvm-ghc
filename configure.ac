@@ -949,7 +949,6 @@ AS_IF([test "$UseSystemLibFFI" = "YES"], [
 
 dnl ** check whether we need -ldl to get dlopen()
 AC_CHECK_LIB(dl, dlopen)
->>>>>>> 072c5c9648b9f48b26100b0e433611ebd12b3947
 
 dnl --------------------------------------------------
 dnl * Miscellaneous feature tests

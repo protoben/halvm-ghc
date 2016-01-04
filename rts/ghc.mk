@@ -313,7 +313,7 @@ rts_CC_OPTS += -DBE_CONSERVATIVE
 endif
 
 ifeq "$(TargetOS_CPP)" "HaLVM"
-rts_CC_OPTS += -nostdinc -Irts/minlibc/include -Irts/xen/include -Ilibraries/HALVMCore/cbits/include
+rts_CC_OPTS += -nostdinc -I/home/vagrant/HaLVM/rumprun/obj-amd64-xen/dest.stage/include
 endif
 
 #-----------------------------------------------------------------------------

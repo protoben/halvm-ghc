@@ -115,6 +115,7 @@ _darcs/
 /libffi/stamp*
 /libffi/package.conf.install
 /libffi/package.conf.install.raw
+/libraries/base/libc-include
 /libraries/bin-package-db/GNUmakefile
 /libraries/bin-package-db/ghc.mk
 /libraries/bootstrapping.conf
