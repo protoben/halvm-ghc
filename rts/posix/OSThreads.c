@@ -255,7 +255,7 @@ getNumberOfProcessors (void)
     return nproc;
 }
 
-#if defined(HAVE_SCHED_H) && defined(HAVE_SCHED_SETAFFINITY)
+#if defined(HAVE_SCHED_H) && defined(HAVE_SCHED_SETAFFINITY) && !defined(HaLVM_TARGET_OS)
 // Schedules the thread to run on CPU n of m.  m may be less than the
 // number of physical CPUs, in which case, the thread will be allowed
 // to run on CPU n, n+m, n+2m etc.
