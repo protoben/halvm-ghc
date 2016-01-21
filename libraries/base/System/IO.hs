@@ -265,8 +265,8 @@ data XenIO = XenIO {
 {-# NOINLINE xenOps #-}
 xenOps :: IORef XenIO
 xenOps  = unsafePerformIO $ newIORef XenIO {
-    xenPutStr  = \ _ -> return ()
-  , xenGetChar = fail "System.IO.xenGetChar not set in xenOps!"
+    xenPutStr  = hPutStr stderr
+  , xenGetChar = hGetChar stdin
   }
 
 withXenOp :: (XenIO -> f) -> IO f
