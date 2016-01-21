@@ -18,6 +18,9 @@ import-dirs:
 
 #ifdef INSTALLING
 library-dirs:           LIB_DIR"/rts" PAPI_LIB_DIR FFI_LIB_DIR
+#ifdef HaLVM_TARGET_OS
+                        , LIB_DIR"/rump/rumprun-x86_64/lib"
+#endif
 #else /* !INSTALLING */
 library-dirs:           TOP"/rts/dist/build" PAPI_LIB_DIR FFI_LIB_DIR
 #endif
@@ -57,9 +60,6 @@ extra-libraries:
                              , "papi"
 #endif
 #if defined(HaLVM_TARGET_OS) && defined(INSTALLING)
-                              , "rumprun_base", "rumpvfs", "rumpkern_bmktc", "rumpdev", "rumpfs_tmpfs"
-                              , "rumpnet_config", "rumpdev_bpf", "rumpdev_vnd"
-                              , "rumpnet_net", "rumpnet", "rumpdev_vnd", "rumpdev_rnd", "rump"
                               , "pthread", "c"
 #endif
 
@@ -177,7 +177,7 @@ ld-options:
 #endif
 
 #if defined(HaLVM_TARGET_OS)
-         , "-nostdlib", LIB_DIR"/rts/rumprun.o"
+         , "-nostdlib"
 #endif
 
 framework-dirs:
