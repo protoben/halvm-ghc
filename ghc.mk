@@ -430,7 +430,7 @@ endif
 
 ifeq "$(TargetOS_CPP)" "HaLVM"
 PACKAGES_STAGE1 += xhtml
-PACKAGES_STAGE1 += XenRaw
+PACKAGES_STAGE1 += HaLVMInterfaces
 endif
 
 ifeq "$(Windows_Target)" "NO"
