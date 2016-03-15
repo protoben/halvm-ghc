@@ -138,7 +138,7 @@ void runtime_entry(start_info_t *start_info, void *init_sp)
   init_grants();
 
   /* OK, now we need to figure out what command line to give GHC. */
-  cmdline_size = strlen((const char *)start_info->cmd_line);
+  cmdline_size = strlen((const char *)start_info->cmd_line) + 1;
   argc = 0; argv = malloc((6 + cmdline_size) * sizeof(char *));
   memset(argv, 0, (6 + cmdline_size) * sizeof(char *));
   /* these are constant ... */
