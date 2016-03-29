@@ -61,6 +61,7 @@ _darcs/
 /libraries/*/dist-boot/
 /libraries/*/dist-install/
 /libraries/dist-haddock/
+/libraries/HaLVMInterfaces
 /rts/dist/
 /utils/*/dist*/
 /compiler/stage1/

@@ -430,6 +430,7 @@ endif
 
 ifeq "$(TargetOS_CPP)" "HaLVM"
 PACKAGES_STAGE1 += xhtml
+PACKAGES_STAGE1 += BoundedChan
 PACKAGES_STAGE1 += HaLVMInterfaces
 endif
 

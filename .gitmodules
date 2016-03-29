@@ -116,3 +116,6 @@
 	path = libffi-tarballs
 	url = git://git.haskell.org/libffi-tarballs.git
 	ignore = none
+[submodule "libraries/BoundedChan"]
+	path = libraries/BoundedChan
+	url = git://github.com/GaloisInc/BoundedChan.git
