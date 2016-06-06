@@ -15,14 +15,20 @@
 
 #define min(a,b) (((a)<(b)) ? (a) : (b))
 
+static int grant_table_interface_verson = 0;
+
+/*******************************************************************************
+ *
+ * VERSION 2 INTERFACE (PREFERRED)
+ *
+ ******************************************************************************/
+
 static grant_entry_v2_t *grant_table  = NULL;
 static grant_status_t   *status_table = NULL;
 static grant_ref_t       max_ref      = 0;
 
-void init_grants(void)
+static void init_grants_v2(void)
 {
-  gnttab_set_version_t svers     = { .version = 2 };
-  gnttab_get_version_t gvers     = { .dom = DOMID_SELF };
   gnttab_query_size_t  qsize     = { .dom = DOMID_SELF };
   gnttab_setup_table_t stable    = { .dom = DOMID_SELF };
   gnttab_get_status_frames_t gsf = { .dom = DOMID_SELF };
@@ -30,11 +36,6 @@ void init_grants(void)
   xen_pfn_t *table_pfns;
   uint64_t *stat_pfns;
   mfn_t *mframes;
-
-  /* we really want to use version 2 of the grant table API */
-  assert(HYPERCALL_grant_table_op(GNTTABOP_set_version, &svers, 1) >= 0);
-  assert(HYPERCALL_grant_table_op(GNTTABOP_get_version, &gvers, 1) >= 0);
-  assert(gvers.version == 2);
 
   /* figure out how big we can make our grant table */
   assert(HYPERCALL_grant_table_op(GNTTABOP_query_size, &qsize, 1) >= 0);
@@ -75,7 +76,8 @@ void init_grants(void)
   status_table = map_frames(mframes, num_stat_frames);
 }
 
-long alloc_grant(domid_t dom, void *p, uint16_t len, int ro, grant_ref_t *pref)
+static long alloc_grant_v2(domid_t dom, void *p, uint16_t len, int ro,
+                           grant_ref_t *pref)
 {
   uint16_t offset;
   grant_ref_t i;
@@ -114,7 +116,7 @@ long alloc_grant(domid_t dom, void *p, uint16_t len, int ro, grant_ref_t *pref)
   return -EXFULL;
 }
 
-long end_grant(grant_ref_t gref)
+static long end_grant_v2(grant_ref_t gref)
 {
   if(gref >= max_ref)
     return -EINVAL;
@@ -129,8 +131,203 @@ long end_grant(grant_ref_t gref)
   return 1;
 }
 
-long map_grants(domid_t dom, int readonly, grant_ref_t *refs, size_t count,
-                void **outptr, uint32_t *outhndls, uint64_t *outpaddrs)
+static long prepare_transfer_v2(domid_t dom)
+{
+  grant_ref_t i;
+
+  for(i = 0; i < max_ref; i++)
+    if( (grant_table[i].hdr.flags & GTF_type_mask) == GTF_invalid ) {
+      grant_table[i].hdr.domid = dom;
+      grant_table[i].hdr.flags = GTF_accept_transfer;
+      return i;
+    }
+
+  return -EXFULL;
+}
+
+static long complete_transfer_v2(grant_ref_t ref, int reset)
+{
+  xen_pfn_t mfn;
+  uint16_t flags;
+
+  if(ref >= max_ref)
+    return -EINVAL;
+
+  flags = grant_table[ref].hdr.flags;
+  if( !(flags & GTF_transfer_committed) )
+    return -EAGAIN;
+
+  while( !(flags & GTF_transfer_completed) ) {
+    flags = grant_table[ref].hdr.flags;
+  }
+
+  mfn = grant_table[ref].full_page.frame;
+  assert(mfn);
+
+  if(reset) {
+    grant_table[ref].hdr.flags = GTF_accept_transfer;
+  } else {
+    grant_table[ref].hdr.flags = 0;
+  }
+
+  return mfn;
+}
+
+/*******************************************************************************
+ *
+ * VERSION 1 INTERFACE (DEPRECATED, BUT REQUIRED BY AMAZON)
+ *
+ ******************************************************************************/
+
+#define V1_NR_GRANT_FRAMES 4
+#define V1_NUM_ENTRIES (V1_NR_GRANT_FRAMES*PAGE_SIZE / sizeof(grant_entry_v1_t))
+
+static grant_entry_v1_t *v1_grant_table;
+
+static void init_grants_v1(void)
+{
+  struct gnttab_setup_table setup;
+  mfn_t frames[V1_NR_GRANT_FRAMES];
+
+  setup.dom = DOMID_SELF;
+  setup.nr_frames = V1_NR_GRANT_FRAMES;
+  setup.frame_list.p = (unsigned long*)frames;
+
+  assert(HYPERCALL_grant_table_op(GNTTABOP_setup_table, &setup, 1) >= 0);
+  v1_grant_table = map_frames(frames, V1_NR_GRANT_FRAMES);
+}
+
+static long alloc_grant_v1(domid_t dom, void *p,
+                           uint16_t len __attribute__((unused)),
+                           int ro,
+                           grant_ref_t *pref)
+{
+  grant_ref_t i;
+  pte_t pte;
+  mfn_t mfn;
+
+  pte = get_pt_entry(p);
+  if( !ENTRY_PRESENT(pte) ) return -EINVAL;
+  mfn = pte >> PAGE_SHIFT;
+
+  for(i = 0; i < V1_NUM_ENTRIES; i++)
+  {
+    if( (v1_grant_table[i].flags & GTF_type_mask) == GTF_invalid )
+    {
+      v1_grant_table[i].frame = mfn;
+      v1_grant_table[i].domid = dom;
+      system_wmb();
+      v1_grant_table[i].flags = GTF_permit_access | (ro ? GTF_readonly : 0);
+      system_wmb();
+
+      *pref = i;
+      return 0;
+    }
+  }
+
+  return -EXFULL;
+}
+
+static long end_grant_v1(grant_ref_t gref)
+{
+  uint16_t flags;
+  int done = 0;
+
+  if(gref >= V1_NUM_ENTRIES)
+    return -EINVAL;
+
+  do {
+    flags = v1_grant_table[gref].flags;
+    if(flags & (GTF_reading | GTF_writing))
+      return -EAGAIN;
+    done =
+      __atomic_compare_exchange_n(&v1_grant_table[gref].flags, &flags, 0,
+                                  0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+  } while(done);
+
+  return 1;
+}
+
+static long prepare_transfer_v1(domid_t dom)
+{
+  grant_ref_t i;
+
+  for(i = 0; i < V1_NUM_ENTRIES; i++)
+  {
+    if( (v1_grant_table[i].flags & GTF_type_mask) == GTF_invalid )
+    {
+      v1_grant_table[i].domid = dom;
+      v1_grant_table[i].flags = GTF_accept_transfer;
+      return i;
+    }
+  }
+
+  return -EXFULL;
+}
+
+static long complete_transfer_v1(grant_ref_t ref, int reset)
+{
+  xen_pfn_t mfn;
+  uint16_t flags;
+
+  if(ref >= V1_NUM_ENTRIES)
+    return -EINVAL;
+
+  flags = v1_grant_table[ref].flags;
+  if( !(flags & GTF_transfer_committed) )
+    return -EAGAIN;
+
+  mfn = v1_grant_table[ref].frame;
+  assert(mfn);
+
+  v1_grant_table[ref].flags = reset ? GTF_accept_transfer : GTF_invalid;
+  return mfn;
+}
+
+/*******************************************************************************
+ *
+ * High-Level Interface
+ *
+ ******************************************************************************/
+
+void init_grants(void)
+{
+  gnttab_set_version_t svers = { .version = 2 };
+
+  /* we really want to use version 2 of the grant table API */
+  if(HYPERCALL_grant_table_op(GNTTABOP_set_version, &svers, 1) >= 0) {
+    /* that should have worked, but let's double check, for sanity */
+    gnttab_get_version_t gvers = { .dom = DOMID_SELF };
+    assert(HYPERCALL_grant_table_op(GNTTABOP_get_version, &gvers, 1) >= 0);
+    assert(gvers.version == 2);
+    grant_table_interface_verson = 2;
+    init_grants_v2();
+  } else {
+    grant_table_interface_verson = 1;
+    init_grants_v1();
+  }
+}
+
+long alloc_grant(domid_t dom, void *p, uint16_t len, int ro, grant_ref_t *pref)
+{
+  if(grant_table_interface_verson == 2)
+    return alloc_grant_v2(dom, p, len, ro, pref);
+  else
+    return alloc_grant_v1(dom, p, len, ro, pref);
+}
+
+long end_grant(grant_ref_t gref)
+{
+  if(grant_table_interface_verson == 2)
+    return end_grant_v2(gref);
+  else
+    return end_grant_v1(gref);
+}
+
+long map_grants(domid_t dom, int readonly,
+                grant_ref_t *refs, size_t count,
+                void **outptr, uint32_t *outhndls,
+                uint64_t *outpaddrs)
 {
   gnttab_map_grant_ref_t *args;
   uintptr_t addr;
@@ -219,16 +416,10 @@ long unmap_grants(grant_handle_t *handles, size_t count)
 
 long prepare_transfer(domid_t dom)
 {
-  grant_ref_t i;
-
-  for(i = 0; i < max_ref; i++)
-    if( (grant_table[i].hdr.flags & GTF_type_mask) == GTF_invalid ) {
-      grant_table[i].hdr.domid = dom;
-      grant_table[i].hdr.flags = GTF_accept_transfer;
-      return i;
-    }
-
-  return -EXFULL;
+  if(grant_table_interface_verson == 2)
+    return prepare_transfer_v2(dom);
+  else
+    return prepare_transfer_v1(dom);
 }
 
 long transfer_frame(domid_t dom, grant_ref_t ref, void *ptr)
@@ -275,30 +466,10 @@ long transfer_frame(domid_t dom, grant_ref_t ref, void *ptr)
 
 long complete_transfer(grant_ref_t ref, int reset)
 {
-  xen_pfn_t mfn;
-  uint16_t flags;
-
-  if(ref >= max_ref)
-    return -EINVAL;
-
-  flags = grant_table[ref].hdr.flags;
-  if( !(flags & GTF_transfer_committed) )
-    return -EAGAIN;
-
-  while( !(flags & GTF_transfer_completed) ) {
-    flags = grant_table[ref].hdr.flags;
-  }
-
-  mfn = grant_table[ref].full_page.frame;
-  assert(mfn);
-
-  if(reset) {
-    grant_table[ref].hdr.flags = GTF_accept_transfer;
-  } else {
-    grant_table[ref].hdr.flags = 0;
-  }
-
-  return mfn;
+  if(grant_table_interface_verson == 2)
+    return complete_transfer_v2(ref, reset);
+  else
+    return complete_transfer_v1(ref, reset);
 }
 
 long copy_frame(unsigned long src, int src_is_ref, domid_t sdom, uint16_t soff,
@@ -329,4 +500,3 @@ long copy_frame(unsigned long src, int src_is_ref, domid_t sdom, uint16_t soff,
   res = HYPERCALL_grant_table_op(GNTTABOP_copy, &copy, 1);
   return (res < 0) ? res : copy.status;
 }
-
