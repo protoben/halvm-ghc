@@ -433,7 +433,9 @@ else # CLEANING
 PACKAGES_STAGE0 = binary Cabal/Cabal hpc ghc-boot-th ghc-boot hoopl transformers template-haskell
 ifeq "$(Windows_Host)" "NO"
 ifneq "$(HostOS_CPP)" "ios"
+ifneq "$(TargetOS_CPP)" "HaLVM"
 PACKAGES_STAGE0 += terminfo
+endif
 endif
 endif
 
@@ -451,15 +453,19 @@ PACKAGES_STAGE1 += Win32
 endif
 PACKAGES_STAGE1 += time
 ifeq "$(Windows_Target)" "NO"
+ifneq "$(TargetOS_CPP)" "HaLVM"
 PACKAGES_STAGE1 += unix
 endif
+endif
 
+ifneq "$(TargetOS_CPP)" "HaLVM"
 PACKAGES_STAGE1 += directory
 PACKAGES_STAGE1 += process
 PACKAGES_STAGE1 += hpc
+PACKAGES_STAGE1 += Cabal/Cabal
+endif
 PACKAGES_STAGE1 += pretty
 PACKAGES_STAGE1 += binary
-PACKAGES_STAGE1 += Cabal/Cabal
 PACKAGES_STAGE1 += ghc-boot-th
 PACKAGES_STAGE1 += ghc-boot
 PACKAGES_STAGE1 += template-haskell
@@ -472,11 +478,15 @@ endif
 
 ifeq "$(Windows_Target)" "NO"
 ifneq "$(TargetOS_CPP)" "ios"
+ifneq "$(TargetOS_CPP)" "HaLVM"
 PACKAGES_STAGE1 += terminfo
 endif
 endif
+endif
+ifneq "$(TargetOS_CPP)" "HaLVM"
 PACKAGES_STAGE1 += haskeline
 PACKAGES_STAGE1 += ghci
+endif
 
 # See Note [No stage2 packages when CrossCompiling or Stage1Only].
 # See Note [Stage1Only vs stage=1] in mk/config.mk.in.

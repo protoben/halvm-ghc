@@ -45,7 +45,7 @@ import System.Posix.Internals (c_close, c_pipe, c_read, c_write,
                                setCloseOnExec, setNonBlockingFD)
 import System.Posix.Types (Fd)
 
-#if defined(HAVE_EVENTFD)
+#if defined(HAVE_EVENTFD) && !defined(HaLVM_TARGET_OS)
 import Foreign.C.Error (throwErrnoIfMinus1)
 import Foreign.C.Types (CULLong(..))
 #else
@@ -62,7 +62,7 @@ data ControlMessage = CMsgWakeup
 data Control = W {
       controlReadFd  :: {-# UNPACK #-} !Fd
     , controlWriteFd :: {-# UNPACK #-} !Fd
-#if defined(HAVE_EVENTFD)
+#if defined(HAVE_EVENTFD) && !defined(HaLVM_TARGET_OS)
     , controlEventFd :: {-# UNPACK #-} !Fd
 #else
     , wakeupReadFd   :: {-# UNPACK #-} !Fd
@@ -71,7 +71,7 @@ data Control = W {
     , didRegisterWakeupFd :: !Bool
     } deriving (Show)
 
-#if defined(HAVE_EVENTFD)
+#if defined(HAVE_EVENTFD) && !defined(HaLVM_TARGET_OS)
 wakeupReadFd :: Control -> Fd
 wakeupReadFd = controlEventFd
 {-# INLINE wakeupReadFd #-}
@@ -92,7 +92,7 @@ newControl shouldRegister = allocaArray 2 $ \fds -> do
         setCloseOnExec wr
         return (rd, wr)
   (ctrl_rd, ctrl_wr) <- createPipe
-#if defined(HAVE_EVENTFD)
+#if defined(HAVE_EVENTFD) && !defined(HaLVM_TARGET_OS)
   ev <- throwErrnoIfMinus1 "eventfd" $ c_eventfd 0 0
   setNonBlockingFD ev True
   setCloseOnExec ev
@@ -103,7 +103,7 @@ newControl shouldRegister = allocaArray 2 $ \fds -> do
 #endif
   return W { controlReadFd  = fromIntegral ctrl_rd
            , controlWriteFd = fromIntegral ctrl_wr
-#if defined(HAVE_EVENTFD)
+#if defined(HAVE_EVENTFD) && !defined(HaLVM_TARGET_OS)
            , controlEventFd = fromIntegral ev
 #else
            , wakeupReadFd   = fromIntegral wake_rd
@@ -122,7 +122,7 @@ closeControl w = do
   _ <- c_close . fromIntegral . controlReadFd $ w
   _ <- c_close . fromIntegral . controlWriteFd $ w
   when (didRegisterWakeupFd w) $ c_setIOManagerWakeupFd (-1)
-#if defined(HAVE_EVENTFD)
+#if defined(HAVE_EVENTFD) && !defined(HaLVM_TARGET_OS)
   _ <- c_close . fromIntegral . controlEventFd $ w
 #else
   _ <- c_close . fromIntegral . wakeupReadFd $ w
@@ -164,14 +164,14 @@ readControlMessage ctrl fd
                         return $ CMsgSignal fp s'
 
   where wakeupBufferSize =
-#if defined(HAVE_EVENTFD)
+#if defined(HAVE_EVENTFD) && !defined(HaLVM_TARGET_OS)
             8
 #else
             4096
 #endif
 
 sendWakeup :: Control -> IO ()
-#if defined(HAVE_EVENTFD)
+#if defined(HAVE_EVENTFD) && !defined(HaLVM_TARGET_OS)
 sendWakeup c =
   throwErrnoIfMinus1_ "sendWakeup" $
   c_eventfd_write (fromIntegral (controlEventFd c)) 1
@@ -198,7 +198,7 @@ sendMessage fd msg = alloca $ \p -> do
     CMsgSignal _fp _s -> errorWithoutStackTrace "Signals can only be sent from within the RTS"
   fromIntegral `fmap` c_write (fromIntegral fd) p 1
 
-#if defined(HAVE_EVENTFD)
+#if defined(HAVE_EVENTFD) && !defined(HaLVM_TARGET_OS)
 foreign import ccall unsafe "sys/eventfd.h eventfd"
    c_eventfd :: CInt -> CInt -> IO CInt
 

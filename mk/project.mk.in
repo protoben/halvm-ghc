@@ -148,6 +148,12 @@ else
 Windows_Target=NO
 endif
 
+ifneq "$(findstring $(TargetOS_CPP), HaLVM)" ""
+Bare_Metal=YES
+else
+Bare_Metal=No
+endif
+
 # In case of Solaris OS, does it provide broken shared libs
 # linker or not?
 SOLARIS_BROKEN_SHLD=@SOLARIS_BROKEN_SHLD@

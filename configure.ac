@@ -615,6 +615,9 @@ dnl --------------------------------------------------------------
 if test "$TargetOS" = "mingw32"
 then
     GhcLibsWithUnix=NO
+elif test "$TargetOS" = "HaLVM"
+then
+    GhcLibsWithUnix=NO
 else
     GhcLibsWithUnix=YES
 fi
@@ -966,9 +969,12 @@ FP_LEADING_UNDERSCORE
 FP_VISIBILITY_HIDDEN
 
 dnl ** check for librt
+if test "$TargetOS" != "HaLVM"
+then
 AC_CHECK_LIB(rt, clock_gettime)
 AC_CHECK_FUNCS(clock_gettime timer_settime)
 FP_CHECK_TIMER_CREATE
+fi
 
 dnl ** check for Apple's "interesting" long double compatibility scheme
 AC_MSG_CHECKING(for printf\$LDBLStub)

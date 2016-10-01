@@ -35,7 +35,9 @@
 
 #include <string.h>
 
+#ifndef HaLVM_Target_OS
 #include "ffi.h"
+#endif
 
 /* 
  * All these globals require sm_mutex to access in THREADED_RTS mode.

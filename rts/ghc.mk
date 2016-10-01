@@ -330,6 +330,10 @@ ifeq "$(BeConservative)" "YES"
 rts_CC_OPTS += -DBE_CONSERVATIVE
 endif
 
+ifeq "$(TargetOS_CPP)" "HaLVM"
+rts_CC_OPTS += -nostdinc
+endif
+
 # Set Windows version
 ifeq "$$(TargetOS_CPP)" "mingw32"
 rts_CC_OPTS += -DWINVER=$(rts_WINVER)
@@ -556,6 +560,12 @@ endif
 
 ifeq "$(HaveLibMingwEx)" "YES"
 rts_PACKAGE_CPP_OPTS += -DHAVE_LIBMINGWEX
+endif
+
+ifeq "$(TargetOS_CPP)" "HaLVM"
+rts_PACKAGE_CPP_OPTS += -DHALVM_SYSTEM_INCLUDES=$(ghcheaderdir)/libc
+else
+rts_PACKAGE_CPP_OPTS += -DHALVM_SYSTEM_INCLUDES=
 endif
 
 $(eval $(call manual-package-config,rts))

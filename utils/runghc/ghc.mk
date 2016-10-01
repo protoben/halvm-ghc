@@ -36,9 +36,14 @@ ifeq "$(Windows_Host)" "YES"
 install_runhaskell: install_bins
 	"$(CP)" $(DESTDIR)$(bindir)/runghc$(exeext1) $(DESTDIR)$(bindir)/runhaskell$(exeext1)
 else
+ifeq "$(TargetOS_CPP)" "HaLVM"
+install_runhaskell:
+
+else
 install_runhaskell:
 	$(call removeFiles,"$(DESTDIR)$(bindir)/runhaskell")
 	$(LN_S) runghc "$(DESTDIR)$(bindir)/runhaskell"
 	$(call removeFiles,"$(DESTDIR)$(bindir)/runghc")
 	$(LN_S) runghc-$(ProjectVersion) "$(DESTDIR)$(bindir)/runghc"
+endif
 endif

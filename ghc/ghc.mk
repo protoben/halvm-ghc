@@ -17,6 +17,10 @@ ghc_stage1_CONFIGURE_OPTS += --flags=stage1
 ghc_stage2_CONFIGURE_OPTS += --flags=stage2
 ghc_stage3_CONFIGURE_OPTS += --flags=stage3
 
+ifeq "$(TargetOS_CPP)" "HaLVM"
+ghc_stage1_CONFIGURE_OPTS += --flags=ghci
+endif
+
 ifeq "$(GhcWithInterpreter)" "YES"
 ghc_stage2_CONFIGURE_OPTS += --flags=ghci
 ghc_stage3_CONFIGURE_OPTS += --flags=ghci

@@ -273,6 +273,7 @@ mkTextEncoding' cfm enc =
     ansiEncNames = -- ASCII aliases
       [ "ANSI_X3.4-1968", "iso-ir-6", "ANSI_X3.4-1986", "ISO_646.irv:1991"
       , "US-ASCII", "us", "IBM367", "cp367", "csASCII", "ASCII", "ISO646-US"
+      , "646"
       ]
 #endif
 

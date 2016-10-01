@@ -271,6 +271,9 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
         haiku)
             test -z "[$]2" || eval "[$]2=OSHaiku"
             ;;
+        HaLVM)
+            test -z "[$]2" || eval "[$]2=OSHaLVM"
+            ;;
         osf3)
             test -z "[$]2" || eval "[$]2=OSOsf3"
             ;;
@@ -1900,7 +1903,7 @@ case "$1-$2" in
         $3="linux"
         ;;
       # As far as I'm aware, none of these have relevant variants
-      freebsd|netbsd|openbsd|dragonfly|osf1|osf3|hpux|linuxaout|kfreebsdgnu|freebsd2|solaris2|mingw32|darwin|gnu|nextstep2|nextstep3|sunos4|ultrix|irix|haiku)
+      freebsd|netbsd|openbsd|dragonfly|osf1|osf3|hpux|linuxaout|kfreebsdgnu|freebsd2|solaris2|mingw32|darwin|gnu|nextstep2|nextstep3|sunos4|ultrix|irix|haiku|HaLVM)
         $3="$1"
         ;;
       aix*) # e.g. powerpc-ibm-aix7.1.3.0

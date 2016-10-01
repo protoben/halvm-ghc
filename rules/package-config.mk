@@ -34,8 +34,10 @@ $1_$2_HC_MK_DEPEND = $$($1_$2_HC)
 # on cygwin we get a dep on c:/ghc/..., and make gets confused by the :
 $1_$2_HC_MK_DEPEND_DEP =
 $1_$2_HC_DEP =
+ifneq "$(if $(findstring $1,"compiler"),$(TargetOS_CPP),"")" "HaLVM"
 $1_$2_HC_PKGCONF = -$(GHC_PACKAGE_DB_FLAG) $$(BOOTSTRAPPING_CONF)
 $1_$2_GHC_PKG_OPTS = --$(GHC_PACKAGE_DB_FLAG)=$$(BOOTSTRAPPING_CONF)
+endif
 $1_$2_CONFIGURE_OPTS += --package-db=$$(TOP)/$$(BOOTSTRAPPING_CONF)
 $1_$2_MORE_HC_OPTS += -no-user-$(GHC_PACKAGE_DB_FLAG)
 $1_$2_MORE_HC_OPTS += -rtsopts
