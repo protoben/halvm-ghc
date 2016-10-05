@@ -615,6 +615,9 @@ dnl --------------------------------------------------------------
 if test "$TargetOS" = "mingw32"
 then
     GhcLibsWithUnix=NO
+elif test "$TargetOS" = "HaLVM"
+then
+    GhcLibsWithUnix=NO
 else
     GhcLibsWithUnix=YES
 fi
