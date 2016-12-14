@@ -17,8 +17,11 @@
 
 #define IEEE_FLOATING_POINT 1
 
+// HACK
+#if !defined(HaLVM_TARGET_OS)
 #if FLT_RADIX != 2
 # error FLT_RADIX != 2 not supported
+#endif
 #endif
 
 /*

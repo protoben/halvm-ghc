@@ -177,3 +177,20 @@ GIT_COMMIT_ID
 .ghc
 .bash_history
 .gitconfig
+
+
+# HaLVM specifics
+libraries/HALVMCore
+libraries/XenDevice
+libraries/base/libc-include
+rts/xen/include/xen
+
+
+# Misc
+*.swp
+.fixed-gmp
+.halvm-base
+.linked-gmp
+.linked-rts
+.linked-xen
+.sync

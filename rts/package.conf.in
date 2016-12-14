@@ -24,6 +24,7 @@ library-dirs:           TOP"/rts/dist/build" FFI_LIB_DIR
 
 hs-libraries:   "HSrts" FFI_LIB
 
+#if !defined(HaLVM_TARGET_OS)
 extra-libraries:
 #ifdef HAVE_LIBM
                                 "m"             /* for ldexp() */
@@ -65,17 +66,21 @@ unresolved symbols. */
                              , "elf"
                              , "dw"             /* for backtraces */
 #endif
+#endif /* !defined(HaLVM_TARGET_OS) */
 
 #ifdef INSTALLING
-include-dirs:           INCLUDE_DIR FFI_INCLUDE_DIR
+include-dirs:           INCLUDE_DIR HALVM_SYSTEM_INCLUDES FFI_INCLUDE_DIR
 #else /* !INSTALLING */
 include-dirs:           TOP"/rts/dist/build" TOP"/includes" TOP"/includes/dist-derivedconstants/header" FFI_INCLUDE_DIR
 #endif
 
 includes:               Stg.h
 hugs-options:
+#ifdef HaLVM_TARGET_OS
+cc-options:        -DHaLVM_TARGET_OS -nostdinc
+#else
 cc-options:
-
+#endif
 ld-options:
 #ifdef LEADING_UNDERSCORE
            "-Wl,-u,_ghczmprim_GHCziTypes_Izh_static_info"
