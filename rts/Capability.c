@@ -27,7 +27,7 @@
 #include "STM.h"
 #include "RtsUtils.h"
 
-#if !defined(mingw32_HOST_OS)
+#if !defined(mingw32_HOST_OS) && !defined(HaLVM_TARGET_OS)
 #include "rts/IOManager.h" // for setIOManagerControlFd()
 #endif
 
@@ -1175,7 +1175,7 @@ rtsBool checkSparkCountInvariant (void)
 }
 #endif
 
-#if !defined(mingw32_HOST_OS)
+#if !defined(mingw32_HOST_OS) && !defined(HaLVM_TARGET_OS)
 void setIOManagerControlFd(nat cap_no USED_IF_THREADS, int fd USED_IF_THREADS) {
 #if defined(THREADED_RTS)
     if (cap_no < n_capabilities) {

@@ -41,6 +41,8 @@ ALL_DIRS = hooks sm eventlog
 
 ifeq "$(HostOS_CPP)" "mingw32"
 ALL_DIRS += win32
+else ifeq "$(TargetOS_CPP)" "HaLVM"
+ALL_DIRS += xen minlibc
 else
 ALL_DIRS += posix
 endif
@@ -335,6 +337,11 @@ ifeq "$$(TargetOS_CPP)" "mingw32"
 rts_CC_OPTS += -DWINVER=$(rts_WINVER)
 endif
 
+# Set HaLVM
+ifeq "$(TargetOS_CPP)" "HaLVM"
+rts_CC_OPTS += -nostdinc -Irts/minlibc/include -Irts/xen/include -Ilibraries/HALVMCore/cbits/include
+endif
+
 ifeq "$(SplitSections)" "YES"
 rts_CC_OPTS += -ffunction-sections -fdata-sections
 endif
@@ -556,6 +563,12 @@ endif
 
 ifeq "$(HaveLibMingwEx)" "YES"
 rts_PACKAGE_CPP_OPTS += -DHAVE_LIBMINGWEX
+endif
+
+ifeq "$(TargetOS_CPP)" "HaLVM"
+rts_PACKAGE_CPP_OPTS += -DHALVM_SYSTEM_INCLUDES=$(ghcheaderdir)/minlibc
+else
+rts_PACKAGE_CPP_OPTS += -DHALVM_SYSTEM_INCLUDES=
 endif
 
 $(eval $(call manual-package-config,rts))

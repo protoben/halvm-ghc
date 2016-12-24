@@ -156,6 +156,30 @@ typedef HANDLE Mutex;
 
 #endif // CMINUSMINUS
 
+# elif defined(HaLVM_TARGET_OS)
+
+#if CMINUSMINUS
+#define ACQUIRE_LOCK(mutex) foreign "C" halvm_acquire_lock(mutex)
+#define RELEASE_LOCK(mutex) foreign "C" halvm_release_lock(mutex)
+#define ASSERT_LOCK_HELD(mutex) /* nothing */
+#else
+
+#include <locks.h>
+
+typedef halvm_condlock_t Condition;
+typedef halvm_mutex_t    Mutex;
+typedef halvm_vcpu_t     OSThreadId;
+typedef halvm_vcpukey_t  ThreadLocalKey;
+
+#define OSThreadProcAttr /* */
+#define INIT_COND_VAR    HALVM_CONDLOCK_INITIALIZER
+
+#define ACQUIRE_LOCK(mutex)     halvm_acquire_lock(mutex)
+#define TRY_ACQUIRE_LOCK(mutex) halvm_try_acquire_lock(mutex)
+#define RELEASE_LOCK(mutex)     halvm_release_lock(mutex)
+#define ASSERT_LOCK_HELD(mutex) /* nothing */
+#endif
+
 # else
 #  error "Threads not supported"
 # endif

@@ -266,6 +266,11 @@ GhcLibWays += $(if $(filter $(BUILD_PROF_LIBS),NO),,p)
 # that dyn is not added to GhcLibWays.
 GhcLibWays += $(if $(filter $(DYNAMIC_GHC_PROGRAMS),NO),,dyn)
 
+# Reset to vanilla (HACK)
+ifeq "$(TargetOS_CPP)" "HaLVM"
+GhcLibWays := v
+endif
+
 # Handy way to test whether we're building shared libs or not.
 BuildSharedLibs=$(strip $(if $(findstring dyn,$(GhcLibWays)),YES,NO))
 
@@ -291,6 +296,11 @@ GhcRTSWays += debug
 GhcRTSWays += thr thr_debug thr_l
 GhcRTSWays += $(if $(findstring p, $(GhcLibWays)),thr_p,)
 GhcRTSWays += $(if $(findstring dyn, $(GhcLibWays)),dyn debug_dyn thr_dyn thr_debug_dyn l_dyn thr_l_dyn,)
+
+# No thread for HaLVM (HACK)
+ifeq "$(TargetOS_CPP)" "HaLVM"
+GhcRTSWays :=
+endif
 
 # We can only build GHCi threaded if we have a threaded RTS:
 GhcThreaded = $(if $(findstring thr,$(GhcRTSWays)),YES,NO)
@@ -320,7 +330,7 @@ StripLibraries=NO
 #		doing object-file splitting
 
 ArchSupportsSplitObjs=$(strip $(if $(filter $(TargetArch_CPP),i386 x86_64 powerpc sparc),YES,NO))
-OsSupportsSplitObjs=$(strip $(if $(filter $(TargetOS_CPP),mingw32 linux darwin solaris2 freebsd dragonfly netbsd openbsd),YES,NO))
+OsSupportsSplitObjs=$(strip $(if $(filter $(TargetOS_CPP),mingw32 linux darwin solaris2 freebsd dragonfly netbsd openbsd HaLVM),YES,NO))
 SplitObjsBroken = @SplitObjsBroken@
 
 SupportsSplitObjs := $(strip \
@@ -649,8 +659,10 @@ $(eval $(call set_stage_HSC2HS_OPTS,0))
 $(eval $(call set_stage_HSC2HS_OPTS,1))
 $(eval $(call set_stage_HSC2HS_OPTS,2))
 ifeq "$(CrossCompiling)" "YES"
+ifneq "$(TargetOS_CPP)" "HaLVM" # HACK
 SRC_HSC2HS_OPTS_STAGE1 += --cross-compile
 SRC_HSC2HS_OPTS_STAGE2 += --cross-compile
+endif
 endif
 SRC_HSC2HS_OPTS_STAGE0 += --cflag=-D$(HostArch_CPP)_HOST_ARCH=1 --cflag=-D$(HostOS_CPP)_HOST_OS=1
 SRC_HSC2HS_OPTS_STAGE1 += --cflag=-D$(TargetArch_CPP)_HOST_ARCH=1 --cflag=-D$(TargetOS_CPP)_HOST_OS=1

@@ -14,7 +14,7 @@
 
 #include "sm/Storage.h"
 
-#if !defined(mingw32_HOST_OS)
+#if !defined(mingw32_HOST_OS) && !defined(HaLVM_TARGET_OS)
 #include "posix/Signals.h"
 #endif
 
@@ -53,6 +53,10 @@
       SymI_HasProto(rtsTimerSignal)             \
       SymI_HasProto(atexit)                     \
       SymI_NeedsDataProto(nocldstop)
+#endif
+
+#if defined(HaLVM_TARGET_OS)
+#define RTS_POSIX_ONLY_SYMBOLS
 #endif
 
 #if defined(mingw32_HOST_OS)
@@ -868,13 +872,13 @@
       SymI_NeedsProto(__ashrdi3)                       \
       SymI_NeedsProto(__lshrdi3)                       \
       SymI_NeedsProto(__fixunsdfdi)
-#elif defined(__GNUC__) && SIZEOF_VOID_P == 8
-#define RTS_LIBGCC_SYMBOLS                             \
-      SymI_NeedsProto(__udivti3)                       \
-      SymI_NeedsProto(__umodti3)
 #else
 #define RTS_LIBGCC_SYMBOLS
 #endif
+
+// #if defined(HaLVM_TARGET_OS)
+// #define RTS_LIBGCC_SYMBOLS
+// #endif
 
 #if defined(darwin_HOST_OS) && defined(powerpc_HOST_ARCH)
       // Symbols that don't have a leading underscore

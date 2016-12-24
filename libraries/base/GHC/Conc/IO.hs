@@ -64,6 +64,8 @@ import qualified GHC.Conc.Windows as Windows
 import GHC.Conc.Windows (asyncRead, asyncWrite, asyncDoProc, asyncReadBA,
                          asyncWriteBA, ConsoleEvent(..), win32ConsoleHandler,
                          toWin32ConsoleEvent)
+#elif HaLVM_TARGET_OS
+import qualified GHC.Event.NoIO as Event
 #else
 import qualified GHC.Event.Thread as Event
 #endif
