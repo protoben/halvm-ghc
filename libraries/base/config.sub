@@ -1507,6 +1507,9 @@ case $os in
 	-zvmoe)
 		os=-zvmoe
 		;;
+	-HaLVM)
+		os=-HaLVM
+		;;
 	-dicos*)
 		os=-dicos
 		;;

@@ -30,8 +30,10 @@ Executable ghc-pkg
                    binary,
                    ghc-boot,
                    bytestring
-    if !os(windows)
+    if !os(windows) && !os(HaLVM)
         Build-Depends: unix,
                        terminfo
+    if os(HaLVM)
+        Build-Depends: unix
     if os(windows)
         c-sources: CRT_noglob.c

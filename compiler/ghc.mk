@@ -323,6 +323,10 @@ compiler_stage1_CONFIGURE_OPTS += --flags=stage1
 compiler_stage2_CONFIGURE_OPTS += --flags=stage2
 compiler_stage3_CONFIGURE_OPTS += --flags=stage3
 
+#ifeq "$(TargetOS_CPP)" "HaLVM"
+#compiler_stage1_CONFIGURE_OPTS += --flags=ghci
+#endif
+
 ifeq "$(GhcThreaded)" "YES"
 # We pass THREADED_RTS to the stage2 C files so that cbits/genSym.c will bring
 # the threaded version of atomic_inc() into scope.

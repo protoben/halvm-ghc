@@ -326,6 +326,10 @@ Library
         cbits/sysconf.c
 
     include-dirs: include
+    if os(HaLVM) {
+        include-dirs: libc-include
+        cpp-options: -DHaLVM_TARGET_OS
+    }
     includes:
         HsBase.h
     install-includes:
@@ -349,7 +353,12 @@ Library
             GHC.IO.Encoding.CodePage.Table
             GHC.Conc.Windows
             GHC.Windows
-    else
+
+    if os(HaLVM)
+        other-modules:
+            GHC.Event.NoIO
+
+    if !os(HaLVM) && !os(windows)
         exposed-modules:
             GHC.Event
         other-modules:

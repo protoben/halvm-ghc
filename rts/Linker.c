@@ -26,7 +26,7 @@
 #include "RtsSymbols.h"
 #include "Profiling.h"
 
-#if !defined(mingw32_HOST_OS)
+#if !defined(mingw32_HOST_OS) && !defined(HaLVM_TARGET_OS)
 #include "posix/Signals.h"
 #endif
 
@@ -42,7 +42,10 @@
 #include <string.h>
 #include <stdio.h>
 #include <assert.h>
+
+#ifndef HaLVM_TARGET_OS
 #include <libgen.h>
+#endif
 
 #ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
@@ -53,6 +56,7 @@
 #endif
 
 #if (defined(powerpc_HOST_ARCH) && defined(linux_HOST_OS)) \
+ || defined(HaLVM_TARGET_OS) \
  || (!defined(powerpc_HOST_ARCH) && \
     (   defined(linux_HOST_OS)     || defined(freebsd_HOST_OS) || \
         defined(dragonfly_HOST_OS) || defined(netbsd_HOST_OS ) || \
@@ -2423,7 +2427,7 @@ static HsInt loadArchive_ (pathchar *path)
             image = stgMallocBytes(memberSize, "loadArchive(image)");
 #endif
 
-#if !defined(mingw32_HOST_OS)
+#if !defined(mingw32_HOST_OS) && !defined(HaLVM_TARGET_OS)
             /*
              * Note [thin archives on Windows]
              * This doesn't compile on Windows because it assumes

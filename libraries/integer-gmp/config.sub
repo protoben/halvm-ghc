@@ -1512,6 +1512,8 @@ case $os in
 		;;
 	-nacl*)
 		;;
+	-HaLVM)
+		;;
 	-none)
 		;;
 	*)

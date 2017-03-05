@@ -116,8 +116,9 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
         return;
     }
 
+#ifndef HaLVM_TARGET_OS
     setlocale(LC_CTYPE,"");
-
+#endif
     /* Initialise the stats department, phase 0 */
     initStats0();
 
@@ -205,7 +206,7 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
     getStablePtr((StgPtr)runSparks_closure);
     getStablePtr((StgPtr)ensureIOManagerIsRunning_closure);
     getStablePtr((StgPtr)ioManagerCapabilitiesChanged_closure);
-#ifndef mingw32_HOST_OS
+#if !defined(mingw32_HOST_OS) && !defined(HaLVM_TARGET_OS)
     getStablePtr((StgPtr)blockedOnBadFD_closure);
     getStablePtr((StgPtr)runHandlersPtr_closure);
 #endif
@@ -214,7 +215,9 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
     initGlobalStore();
 
     /* initialise file locking, if necessary */
+#if !defined(HaLVM_TARGET_OS)
     initFileLocking();
+#endif
 
 #if defined(DEBUG)
     /* initialise thread label table (tso->char*) */
@@ -244,8 +247,9 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
     x86_init_fpu();
 #endif
 
+#ifndef HaLVM_TARGET_OS
     startupHpc();
-
+#endif
     // ditto.
 #if defined(THREADED_RTS)
     ioManagerStart();
@@ -343,7 +347,7 @@ hs_exit_(rtsBool wait_foreign)
     exitTimer(wait_foreign);
 
     // set the terminal settings back to what they were
-#if !defined(mingw32_HOST_OS)
+#if !defined(mingw32_HOST_OS) && !defined(HaLVM_TARGET_OS)
     resetTerminalSettings();
 #endif
 
@@ -355,7 +359,9 @@ hs_exit_(rtsBool wait_foreign)
 #endif
 
     /* stop timing the shutdown, we're about to print stats */
+#ifndef HaLVM_TARGET_OS
     stat_endExit();
+#endif
 
     /* shutdown the hpc support (if needed) */
     exitHpc();
@@ -374,7 +380,9 @@ hs_exit_(rtsBool wait_foreign)
     exitLinker();
 
     /* free file locking tables, if necessary */
+#if !defined(HaLVM_TARGET_OS)
     freeFileLocking();
+#endif
 
     /* free the Static Pointer Table */
     exitStaticPtrTable();
