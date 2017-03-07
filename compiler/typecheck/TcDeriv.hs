@@ -439,11 +439,17 @@ renameDeriv is_boot inst_infos bagBinds
                  , emptyValBindsOut, usesOnly (plusFVs fvs)) }
 
   | otherwise
-  = discardWarnings $         -- Discard warnings about unused bindings etc
-    setXOptM LangExt.EmptyCase $  -- Derived decls (for empty types) can have
-                                  --    case x of {}
-    setXOptM LangExt.ScopedTypeVariables $  -- Derived decls (for newtype-deriving) can
-    setXOptM LangExt.KindSignatures $       -- used ScopedTypeVariables & KindSignatures
+  = discardWarnings $
+    -- Discard warnings about unused bindings etc
+    setXOptM LangExt.EmptyCase $
+    -- Derived decls (for empty types) can have
+    --    case x of {}
+    setXOptM LangExt.ScopedTypeVariables $
+    setXOptM LangExt.KindSignatures $
+    -- Derived decls (for newtype-deriving) can use ScopedTypeVariables &
+    -- KindSignatures
+    unsetXOptM LangExt.RebindableSyntax $
+    -- See Note [Avoid RebindableSyntax when deriving]
     do  {
         -- Bring the extra deriving stuff into scope
         -- before renaming the instances themselves
@@ -512,6 +518,31 @@ dropped patterns have.
 
 Also, this technique carries over the kind substitution from deriveTyData
 nicely.
+
+Note [Avoid RebindableSyntax when deriving]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The RebindableSyntax extension interacts awkwardly with the derivation of
+any stock class whose methods require the use of string literals. The Show
+class is a simple example (see Trac #12688):
+
+  {-# LANGUAGE RebindableSyntax, OverloadedStrings #-}
+  newtype Text = Text String
+  fromString :: String -> Text
+  fromString = Text
+
+  data Foo = Foo deriving Show
+
+This will generate code to the effect of:
+
+  instance Show Foo where
+    showsPrec _ Foo = showString "Foo"
+
+But because RebindableSyntax and OverloadedStrings are enabled, the "Foo"
+string literal is now of type Text, not String, which showString doesn't
+accept! This causes the generated Show instance to fail to typecheck.
+
+To avoid this kind of scenario, we simply turn off RebindableSyntax entirely
+in derived code.
 
 ************************************************************************
 *                                                                      *
@@ -2267,6 +2298,8 @@ genInst spec@(DS { ds_tvs = tvs, ds_tc = rep_tycon
                         , ib_pragmas    = []
                         , ib_extensions = [ LangExt.ImpredicativeTypes
                                           , LangExt.RankNTypes ]
+                          -- Both these flags are needed for higher-rank uses of coerce
+                          -- See Note [Newtype-deriving instances] in TcGenDeriv
                         , ib_derived    = True } }
                 , emptyBag
                 , Just $ getName $ head $ tyConDataCons rep_tycon ) }

@@ -13,10 +13,10 @@ dnl
 # see what flags are available. (Better yet, read the documentation!)
 #
 
-AC_INIT([The Glorious Glasgow Haskell Compilation System], [8.0.1], [glasgow-haskell-bugs@haskell.org], [ghc-AC_PACKAGE_VERSION])
+AC_INIT([The Glorious Glasgow Haskell Compilation System], [8.0.2], [glasgow-haskell-bugs@haskell.org], [ghc-AC_PACKAGE_VERSION])
 
 # Set this to YES for a released version, otherwise NO
-: ${RELEASE=NO}
+: ${RELEASE=YES}
 
 # The primary version (e.g. 7.5, 7.4.1) is set in the AC_INIT line
 # above.  If this is not a released version, then we will append the
@@ -650,6 +650,9 @@ dnl     If gcc, make sure it's at least 3.0
 dnl
 FP_GCC_VERSION
 
+dnl ** See whether gcc supports -no-pie
+FP_GCC_SUPPORTS_NO_PIE
+
 dnl ** look to see if we have a C compiler using an llvm back end.
 dnl
 FP_CC_LLVM_BACKEND
@@ -668,18 +671,27 @@ FPTOOLS_SET_C_LD_FLAGS([target],[CONF_CC_OPTS_STAGE2],[CONF_GCC_LINKER_OPTS_STAG
 
 FP_GCC_EXTRA_FLAGS
 
+# See rules/distdir-way-opts.mk for details.
+# Flags passed to the C compiler
 AC_SUBST(CONF_CC_OPTS_STAGE0)
 AC_SUBST(CONF_CC_OPTS_STAGE1)
 AC_SUBST(CONF_CC_OPTS_STAGE2)
+# Flags passed to the C compiler when we ask it to link
 AC_SUBST(CONF_GCC_LINKER_OPTS_STAGE0)
 AC_SUBST(CONF_GCC_LINKER_OPTS_STAGE1)
 AC_SUBST(CONF_GCC_LINKER_OPTS_STAGE2)
+# Flags passed to the linker when we ask it to link
 AC_SUBST(CONF_LD_LINKER_OPTS_STAGE0)
 AC_SUBST(CONF_LD_LINKER_OPTS_STAGE1)
 AC_SUBST(CONF_LD_LINKER_OPTS_STAGE2)
+# Flags passed to the C preprocessor
 AC_SUBST(CONF_CPP_OPTS_STAGE0)
 AC_SUBST(CONF_CPP_OPTS_STAGE1)
 AC_SUBST(CONF_CPP_OPTS_STAGE2)
+# Flags passed to the Haskell compiler
+AC_SUBST(CONF_HC_OPTS_STAGE0)
+AC_SUBST(CONF_HC_OPTS_STAGE1)
+AC_SUBST(CONF_HC_OPTS_STAGE2)
 
 dnl ** Set up the variables for the platform in the settings file.
 dnl May need to use gcc to find platform details.

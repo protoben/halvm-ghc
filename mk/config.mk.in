@@ -187,7 +187,7 @@ HaveLibDL = @HaveLibDL@
 # includes/stg/SMP.h
 ifeq "$(TargetArch_CPP)" "arm"
 # We don't support load/store barriers pre-ARMv7. See #10433.
-ArchSupportsSMP="$(if $(filter $(ARM_ISA),ARMv5 ARMv6),NO,YES)"
+ArchSupportsSMP=$(if $(filter $(ARM_ISA),ARMv5 ARMv6),NO,YES)
 else
 ArchSupportsSMP=$(strip $(patsubst $(TargetArch_CPP), YES, $(findstring $(TargetArch_CPP), i386 x86_64 sparc powerpc powerpc64 powerpc64le aarch64)))
 endif
@@ -636,6 +636,9 @@ CONF_LD_LINKER_OPTS_STAGE2 = @CONF_LD_LINKER_OPTS_STAGE2@
 CONF_CPP_OPTS_STAGE0 = @CONF_CPP_OPTS_STAGE0@
 CONF_CPP_OPTS_STAGE1 = @CONF_CPP_OPTS_STAGE1@
 CONF_CPP_OPTS_STAGE2 = @CONF_CPP_OPTS_STAGE2@
+CONF_HC_OPTS_STAGE0 = @CONF_HC_OPTS_STAGE0@
+CONF_HC_OPTS_STAGE1 = @CONF_HC_OPTS_STAGE1@
+CONF_HC_OPTS_STAGE2 = @CONF_HC_OPTS_STAGE2@
 
 ifeq "$(TARGETPLATFORM)" "ia64-unknown-linux"
 CONF_CC_OPTS += -G0
