@@ -167,6 +167,9 @@ endif
 ifeq "$(GhcUnregisterised)" "YES"
 	@echo "#define UnregisterisedCompiler 1" >> $@
 endif
+ifeq "$(EMULATE_URANDOM)" "YES"
+	@echo "#define EMULATE_URANDOM 1" >> $@
+endif
 	@echo >> $@
 	@echo "#endif /* __GHCPLATFORM_H__ */"          >> $@
 	@echo "Done."

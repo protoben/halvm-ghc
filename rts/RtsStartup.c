@@ -41,6 +41,10 @@
 # include "RetainerProfile.h"
 #endif
 
+#if defined(URANDOM)
+#include "Random.h"
+#endif
+
 #if defined(mingw32_HOST_OS) && !defined(THREADED_RTS)
 #include "win32/AsyncIO.h"
 #endif
@@ -215,7 +219,7 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
     initGlobalStore();
 
     /* initialise file locking, if necessary */
-#if !defined(HaLVM_TARGET_OS)
+#if !defined(HaLVM_TARGET_OS) || defined(URANDOM)
     initFileLocking();
 #endif
 
@@ -253,6 +257,11 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
     // ditto.
 #if defined(THREADED_RTS)
     ioManagerStart();
+#endif
+
+#ifdef URANDOM
+    /* Initialize emulated /dev/urandom */
+    urandom_init();
 #endif
 
     /* Record initialization times */
@@ -380,7 +389,7 @@ hs_exit_(rtsBool wait_foreign)
     exitLinker();
 
     /* free file locking tables, if necessary */
-#if !defined(HaLVM_TARGET_OS)
+#if !defined(HaLVM_TARGET_OS) || defined(URANDOM)
     freeFileLocking();
 #endif
 
