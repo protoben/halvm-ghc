@@ -67,11 +67,14 @@ include-dirs:           TOP"/rts/dist/build" TOP"/includes" TOP"/includes/dist-d
 
 includes:               Stg.h
 hugs-options:
-#ifdef HaLVM_TARGET_OS
-cc-options:        -DHaLVM_TARGET_OS -nostdinc
-#else
 cc-options:
-#endif
+#ifdef HaLVM_TARGET_OS
+                                -DHaLVM_TARGET_OS
+                              , -nostdinc
+#ifdef EMULATE_URANDOM
+                              , -DURANDOM
+#endif /* EMULATE_URANDOM */
+#endif /* HaLVM_TARGET_OS */
 ld-options:
 #ifdef LEADING_UNDERSCORE
            "-Wl,-u,_ghczmprim_GHCziTypes_Izh_static_info"
