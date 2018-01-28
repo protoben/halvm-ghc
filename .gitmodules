@@ -125,4 +125,4 @@
 	url = git://git.haskell.org/arcanist-external-json-linter.git
 [submodule "rts/minlibc"]
 	path = rts/minlibc
-	url = https://github.com/GaloisInc/minlibc
+	url = https://github.com/protoben/minlibc
